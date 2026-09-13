@@ -161,7 +161,13 @@ body,
 
 body {
   overflow: hidden;
-  font-family: 'Manrope', -apple-system, 'SF Pro Text', 'Helvetica Neue', Helvetica, sans-serif;
+  font-family:
+    'Manrope',
+    -apple-system,
+    'SF Pro Text',
+    'Helvetica Neue',
+    Helvetica,
+    sans-serif;
   -webkit-font-smoothing: antialiased;
   background: var(--bg);
   color: var(--text);

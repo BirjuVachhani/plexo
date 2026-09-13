@@ -109,15 +109,91 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
     -1
   )
   const fastestGroup = fastestIndex === -1 ? null : groups[fastestIndex]
-  const speedupRatio =
-    fastestGroup && fastestGroup.speedBytesPerSec > 0
-      ? download.speedBytesPerSec / fastestGroup.speedBytesPerSec
-      : 0
-  const showSpeedupChip = groups.length > 1 && speedupRatio > 1.05
+  const [chipModeIndex, setChipModeIndex] = useState(0)
 
   const completedChunks = download.chunks.filter((chunk) => chunk.status === 'completed').length
   const totalRetries = download.chunks.reduce((sum, chunk) => sum + chunk.retryCount, 0)
   const remainingBytes = knownSize ? Math.max(0, download.totalBytes - download.bytesDownloaded) : 0
+
+  // Build list of toggleable comparison metrics for active networks
+  const chipOptions: { label: string; tooltip: string }[] = []
+  if (groups.length > 1) {
+    const sortedIndices = groups
+      .map((_, i) => i)
+      .filter((i) =>
+        download.speedBytesPerSec > 0
+          ? groups[i].speedBytesPerSec > 0
+          : groups[i].bytesDownloaded > 0
+      )
+      .sort((a, b) => {
+        const valA =
+          download.speedBytesPerSec > 0 ? groups[a].speedBytesPerSec : groups[a].bytesDownloaded
+        const valB =
+          download.speedBytesPerSec > 0 ? groups[b].speedBytesPerSec : groups[b].bytesDownloaded
+        return valB - valA
+      })
+
+    for (const idx of sortedIndices) {
+      const g = groups[idx]
+      const name = visuals[idx].name.toUpperCase()
+      if (download.speedBytesPerSec > 0 && g.speedBytesPerSec > 0) {
+        const ratio = download.speedBytesPerSec / g.speedBytesPerSec
+        if (ratio >= 1.05) {
+          chipOptions.push({
+            label: `${ratio.toFixed(1)}× ${name} ALONE`,
+            tooltip: `Total speed is ${ratio.toFixed(1)}× faster than ${visuals[idx].name} alone`
+          })
+          const pct = Math.round(
+            ((download.speedBytesPerSec - g.speedBytesPerSec) / g.speedBytesPerSec) * 100
+          )
+          chipOptions.push({
+            label: `+${pct}% VS ${name}`,
+            tooltip: `+${pct}% throughput gain compared to ${visuals[idx].name} alone`
+          })
+        }
+      } else if (download.bytesDownloaded > 0 && g.bytesDownloaded > 0) {
+        const ratio = download.bytesDownloaded / g.bytesDownloaded
+        if (ratio >= 1.05) {
+          chipOptions.push({
+            label: `${ratio.toFixed(1)}× ${name} ALONE`,
+            tooltip: `Total downloaded is ${ratio.toFixed(1)}× compared to ${visuals[idx].name} alone`
+          })
+        }
+      }
+    }
+
+    if (
+      fastestGroup &&
+      download.speedBytesPerSec > fastestGroup.speedBytesPerSec &&
+      fastestGroup.speedBytesPerSec > 0
+    ) {
+      const addedSpeed = download.speedBytesPerSec - fastestGroup.speedBytesPerSec
+      chipOptions.push({
+        label: `+${formatSpeed(addedSpeed).toUpperCase()} MERGED`,
+        tooltip: `${formatSpeed(addedSpeed)} gained by bonding networks`
+      })
+    }
+
+    if (
+      knownSize &&
+      fastestGroup &&
+      fastestGroup.speedBytesPerSec > 0 &&
+      download.speedBytesPerSec > 0
+    ) {
+      const soloRemainingSecs = remainingBytes / fastestGroup.speedBytesPerSec
+      const actualRemainingSecs = remainingBytes / download.speedBytesPerSec
+      const savedSecs = soloRemainingSecs - actualRemainingSecs
+      if (savedSecs > 1) {
+        chipOptions.push({
+          label: `~${formatDuration(savedSecs).toUpperCase()} SAVED`,
+          tooltip: `Estimated ~${formatDuration(savedSecs)} saved on remaining download`
+        })
+      }
+    }
+  }
+
+  const activeChipOption =
+    chipOptions.length > 0 ? chipOptions[chipModeIndex % chipOptions.length] : null
 
   return (
     <div
@@ -150,10 +226,26 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                 {speed.unit}/s
               </div>
             </div>
-            {showSpeedupChip && fastestIndex !== -1 && (
-              <div style={accentChipStyle}>
-                {speedupRatio.toFixed(1)}× {visuals[fastestIndex].name.toUpperCase()} ALONE
-              </div>
+            {activeChipOption && (
+              <button
+                type="button"
+                onClick={() => setChipModeIndex((i) => (i + 1) % chipOptions.length)}
+                title={`${activeChipOption.tooltip} (click to toggle)`}
+                style={{
+                  ...accentChipStyle,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  border: '0.5px solid var(--color-usb-border)',
+                  background: 'var(--color-usb-bg)',
+                  color: 'var(--color-usb-text)'
+                }}
+              >
+                <span>{activeChipOption.label}</span>
+                <span style={{ opacity: 0.55, fontSize: 8.5 }}>⇄</span>
+              </button>
             )}
           </div>
 

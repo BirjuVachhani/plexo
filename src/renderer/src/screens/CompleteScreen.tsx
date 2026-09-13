@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { DownloadState } from '@shared/types'
 import { ThroughputChart } from '../components/ThroughputChart'
 import { useAppStore } from '../store/useAppStore'
@@ -44,6 +45,7 @@ export function CompleteScreen({
   download: DownloadState
   onNewDownload: () => void
 }): React.JSX.Element {
+  const [chipModeIndex, setChipModeIndex] = useState(0)
   const homeDir = useAppStore((store) => store.homeDir)
   const peakSpeedBytesPerSec = useAppStore((store) => store.peakSpeedBytesPerSec)
   const speedHistoryByInterface = useAppStore((store) => store.speedHistoryByInterface)
@@ -67,18 +69,43 @@ export function CompleteScreen({
   const totalRetries = download.chunks.reduce((sum, chunk) => sum + chunk.retryCount, 0)
 
   // "Time saved" vs. what the download would have taken over its single best-performing
-  // network alone, using that network's own realized average rate as the baseline — a
-  // number we can actually stand behind, unlike a made-up multiplier.
-  const fastestGroup = groups.reduce<(typeof groups)[number] | null>(
-    (fastest, group) =>
-      !fastest || group.bytesDownloaded > fastest.bytesDownloaded ? group : fastest,
-    null
+  // network alone, using that network's own realized average rate as the baseline.
+  const fastestIndex = groups.reduce<number>(
+    (fastest, group, idx) =>
+      fastest === -1 || group.bytesDownloaded > groups[fastest].bytesDownloaded ? idx : fastest,
+    -1
   )
+  const fastestGroup = fastestIndex === -1 ? null : groups[fastestIndex]
   const fastestAvgSpeed =
     fastestGroup && elapsedSeconds > 0 ? fastestGroup.bytesDownloaded / elapsedSeconds : 0
   const soloBaselineSeconds = fastestAvgSpeed > 0 ? finalSize / fastestAvgSpeed : 0
   const secondsSaved = soloBaselineSeconds - elapsedSeconds
-  const showSavedChip = groups.length > 1 && secondsSaved > 1
+
+  const chipOptions: { label: string; tooltip: string }[] = []
+  if (groups.length > 1) {
+    if (secondsSaved > 1) {
+      chipOptions.push({
+        label: `SAVED ${formatDuration(secondsSaved)}`,
+        tooltip: `Saved ~${formatDuration(secondsSaved)} vs fastest network alone`
+      })
+    }
+    if (fastestIndex !== -1 && fastestAvgSpeed > 0 && avgSpeed > fastestAvgSpeed) {
+      const ratio = avgSpeed / fastestAvgSpeed
+      const name = visuals[fastestIndex].name.toUpperCase()
+      chipOptions.push({
+        label: `${ratio.toFixed(1)}× ${name} ALONE`,
+        tooltip: `${ratio.toFixed(1)}× faster than ${visuals[fastestIndex].name} alone`
+      })
+      const pct = Math.round(((avgSpeed - fastestAvgSpeed) / fastestAvgSpeed) * 100)
+      chipOptions.push({
+        label: `+${pct}% VS ${name}`,
+        tooltip: `+${pct}% throughput gain vs ${visuals[fastestIndex].name} alone`
+      })
+    }
+  }
+
+  const activeChipOption =
+    chipOptions.length > 0 ? chipOptions[chipModeIndex % chipOptions.length] : null
 
   const handleReveal = (): void => void window.plexo.revealInFolder(download.destinationPath)
 
@@ -156,8 +183,26 @@ export function CompleteScreen({
               </div>
               <div style={{ font: `500 11px/1 ${FONT_MONO}`, color: '#8d9196' }}>MB/s</div>
             </div>
-            {showSavedChip && (
-              <div style={accentChipStyle}>SAVED {formatDuration(secondsSaved)}</div>
+            {activeChipOption && (
+              <button
+                type="button"
+                onClick={() => setChipModeIndex((i) => (i + 1) % chipOptions.length)}
+                title={`${activeChipOption.tooltip} (click to toggle)`}
+                style={{
+                  ...accentChipStyle,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  cursor: 'pointer',
+                  userSelect: 'none',
+                  border: '0.5px solid var(--color-usb-border)',
+                  background: 'var(--color-usb-bg)',
+                  color: 'var(--color-usb-text)'
+                }}
+              >
+                <span>{activeChipOption.label}</span>
+                <span style={{ opacity: 0.55, fontSize: 8.5 }}>⇄</span>
+              </button>
             )}
           </div>
         </div>

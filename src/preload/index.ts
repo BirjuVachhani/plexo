@@ -4,6 +4,8 @@ import { IpcChannels } from '../shared/ipc-channels'
 import type {
   DownloadState,
   NetworkInterfaceInfo,
+  NetworkPreference,
+  NetworkPreferences,
   ProbeResult,
   StartDownloadRequest
 } from '../shared/types'
@@ -14,6 +16,8 @@ export interface InitialPaths {
 }
 
 const plexoApi = {
+  platform: process.platform,
+
   listInterfaces: (): Promise<NetworkInterfaceInfo[]> =>
     ipcRenderer.invoke(IpcChannels.listInterfaces),
 
@@ -21,6 +25,12 @@ const plexoApi = {
     ipcRenderer.invoke(IpcChannels.pingInterfaces),
 
   openNetworkSettings: (): Promise<void> => ipcRenderer.invoke(IpcChannels.openNetworkSettings),
+
+  getNetworkPreferences: (): Promise<NetworkPreferences> =>
+    ipcRenderer.invoke(IpcChannels.getNetworkPreferences),
+
+  setNetworkPreference: (id: string, patch: NetworkPreference): Promise<NetworkPreferences> =>
+    ipcRenderer.invoke(IpcChannels.setNetworkPreference, id, patch),
 
   probeUrl: (url: string): Promise<ProbeResult> => ipcRenderer.invoke(IpcChannels.probeUrl, url),
 

@@ -1,32 +1,65 @@
 import type { DownloadState } from '@shared/types'
 import { useEffect, useState } from 'react'
-import { StreamRow } from '../components/StreamRow'
+import { MergeDiagram } from '../components/MergeDiagram'
+import { NetworkRow } from '../components/NetworkRow'
+import { ThroughputChart } from '../components/ThroughputChart'
+import { useNetworkPolling } from '../hooks/useNetworkPolling'
 import { useAppStore } from '../store/useAppStore'
 import {
   FONT_MONO,
   FONT_UI,
-  KIND_PALETTE,
-  PROGRESS_GRADIENT,
+  accentChipStyle,
+  dangerButtonStyle,
   footerStyle,
   footerTextStyle,
+  networkTableHeaderStyle,
+  resolveNetworkVisual,
   secondaryButtonStyle,
   sectionHeaderLabelStyle,
-  sectionHeaderMetaStyle
+  sectionHeaderMetaStyle,
+  statGridStyle,
+  statLabelStyle,
+  statValueStyle
 } from '../theme'
 import {
-  connectionSuffixes,
   dirnameOf,
+  fileExtensionBadge,
   formatBytes,
   formatDuration,
   formatEta,
   formatPercent,
+  formatSpeed,
+  groupChunksByInterface,
   splitFormattedBytes,
   toDisplayPath
 } from '../utils/format'
 
+// The hero band is always this exact dark panel from the design, regardless of the app's own
+// light/dark theme — scoping the theme variables it reads (--text, --border, ...) to these
+// literal values keeps its own children (labels, the merge diagram, the chart) legible no
+// matter which OS appearance the rest of the window is following.
+const heroScopeStyle: React.CSSProperties = {
+  padding: '18px 20px',
+  background: 'linear-gradient(#1f2224, #1b1e20)',
+  borderBottom: '1px solid #2b2f33',
+  color: '#f5f2ed',
+  ...({
+    '--text': '#f5f2ed',
+    '--text-secondary': '#a9adb2',
+    '--text-tertiary': '#8d9196',
+    '--border': '#2b2f33'
+  } as React.CSSProperties)
+}
+
 export function DownloadingScreen({ download }: { download: DownloadState }): React.JSX.Element {
+  useNetworkPolling(true)
+
   const homeDir = useAppStore((store) => store.homeDir)
   const speedHistory = useAppStore((store) => store.speedHistory)
+  const speedHistoryByInterface = useAppStore((store) => store.speedHistoryByInterface)
+  const peakSpeedBytesPerSec = useAppStore((store) => store.peakSpeedBytesPerSec)
+  const latencies = useAppStore((store) => store.latencies)
+  const networkPreferences = useAppStore((store) => store.networkPreferences)
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -46,7 +79,6 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   }, [percent, knownSize])
 
   const elapsedSeconds = (now - download.startedAt) / 1000
-  const activeCount = download.chunks.filter((chunk) => chunk.status === 'downloading').length
 
   const handlePauseResume = (): void => {
     if (isPaused) void window.plexo.resumeDownload(download.id)
@@ -55,193 +87,266 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   const handleCancel = (): void => void window.plexo.cancelDownload(download.id)
 
   const speed = splitFormattedBytes(download.speedBytesPerSec)
-  const totalSpeed = download.chunks.reduce((sum, chunk) => sum + chunk.speedBytesPerSec, 0)
-  const weights = download.chunks.map((chunk) =>
-    totalSpeed > 0 ? chunk.speedBytesPerSec : chunk.bytesDownloaded
+  const groups = groupChunksByInterface(download.chunks)
+  const visuals = groups.map((group) =>
+    resolveNetworkVisual(
+      group.interfaceKind,
+      group.interfaceLabel,
+      networkPreferences[group.interfaceId]
+    )
+  )
+  const activeGroups = groups.filter((group) =>
+    group.chunks.some((chunk) => chunk.status === 'downloading')
+  )
+  const weights = groups.map((group) =>
+    download.speedBytesPerSec > 0 ? group.speedBytesPerSec : group.bytesDownloaded
   )
   const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || 1
-  const maxSpeedSample = Math.max(1, ...speedHistory)
-  const suffixes = connectionSuffixes(download.chunks)
+
+  const fastestIndex = groups.reduce<number>(
+    (fastest, group, index) =>
+      fastest === -1 || group.speedBytesPerSec > groups[fastest].speedBytesPerSec ? index : fastest,
+    -1
+  )
+  const fastestGroup = fastestIndex === -1 ? null : groups[fastestIndex]
+  const speedupRatio =
+    fastestGroup && fastestGroup.speedBytesPerSec > 0
+      ? download.speedBytesPerSec / fastestGroup.speedBytesPerSec
+      : 0
+  const showSpeedupChip = groups.length > 1 && speedupRatio > 1.05
+
+  const completedChunks = download.chunks.filter((chunk) => chunk.status === 'completed').length
+  const totalRetries = download.chunks.reduce((sum, chunk) => sum + chunk.retryCount, 0)
+  const remainingBytes = knownSize ? Math.max(0, download.totalBytes - download.bytesDownloaded) : 0
 
   return (
     <div
       style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}
     >
-      <div
-        style={{
-          padding: '18px 20px 16px',
-          background: 'linear-gradient(180deg, #13161c, #0d0f14)',
-          color: '#fff'
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <div style={heroScopeStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 122 }}>
             <div
               style={{
-                font: `600 10px/1 ${FONT_UI}`,
-                letterSpacing: '0.1em',
-                textTransform: 'uppercase',
-                color: 'rgba(255,255,255,0.55)'
+                font: `500 10px/1 ${FONT_MONO}`,
+                letterSpacing: '0.2em',
+                color: '#8d9196'
               }}
             >
-              Combined throughput
+              TOTAL SPEED
             </div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
               <div
                 style={{
-                  font: `500 38px/1 ${FONT_MONO}`,
-                  letterSpacing: '-0.02em',
+                  font: `600 40px/0.88 ${FONT_MONO}`,
+                  letterSpacing: '-0.03em',
+                  color: '#f5f2ed',
                   fontVariantNumeric: 'tabular-nums'
                 }}
               >
                 {speed.value}
               </div>
-              <div style={{ font: `13px/1 ${FONT_MONO}`, color: 'rgba(255,255,255,0.6)' }}>
+              <div style={{ font: `500 12px/1 ${FONT_MONO}`, color: '#8d9196' }}>
                 {speed.unit}/s
               </div>
             </div>
+            {showSpeedupChip && fastestIndex !== -1 && (
+              <div style={accentChipStyle}>
+                {speedupRatio.toFixed(1)}× {visuals[fastestIndex].name.toUpperCase()} ALONE
+              </div>
+            )}
           </div>
 
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div
-              style={{
-                display: 'flex',
-                height: 10,
-                borderRadius: 5,
-                overflow: 'hidden',
-                background: 'rgba(255,255,255,0.1)'
-              }}
-            >
-              {download.chunks.map((chunk, index) => (
-                <div
-                  key={chunk.id}
-                  style={{
-                    flex: weights[index],
-                    background: KIND_PALETTE[chunk.interfaceKind].solid
-                  }}
-                />
-              ))}
-            </div>
-            <div
-              style={{
-                display: 'flex',
-                gap: 16,
-                font: `10.5px/1 ${FONT_MONO}`,
-                color: 'rgba(255,255,255,0.65)',
-                flexWrap: 'wrap'
-              }}
-            >
-              {download.chunks.map((chunk, index) => (
-                <div key={chunk.id} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <div
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: '50%',
-                      background: KIND_PALETTE[chunk.interfaceKind].solid
-                    }}
-                  />
-                  {KIND_PALETTE[chunk.interfaceKind].label}
-                  {suffixes.get(chunk.id)} {Math.round((weights[index] / totalWeight) * 100)}%
-                </div>
-              ))}
-            </div>
-          </div>
+          <MergeDiagram networks={visuals.map((v) => ({ solid: v.solid, label: v.name }))} />
 
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 44 }}>
-            {speedHistory.map((value, index) => (
-              <div
-                key={index}
-                style={{
-                  width: 3,
-                  borderRadius: 1.5,
-                  background: 'rgba(255,255,255,0.34)',
-                  height: `${Math.max(4, (value / maxSpeedSample) * 44)}px`
-                }}
-              />
-            ))}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                font: `500 9.5px/1 ${FONT_MONO}`,
+                letterSpacing: '0.12em',
+                color: '#8d9196'
+              }}
+            >
+              THROUGHPUT · LAST {speedHistory.length}S
+            </div>
+            <ThroughputChart
+              order={groups.map((g, i) => ({
+                interfaceId: g.interfaceId,
+                solid: visuals[i].solid
+              }))}
+              historyByInterface={speedHistoryByInterface}
+            />
           </div>
         </div>
       </div>
 
-      <div style={{ padding: '14px 20px 12px', display: 'flex', flexDirection: 'column', gap: 9 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-          <div style={{ font: `500 13px/1 ${FONT_UI}` }}>{download.fileName}</div>
-          <div style={{ flex: 1 }} />
+      <div style={{ padding: '14px 20px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div
             style={{
-              font: `11.5px/1 ${FONT_MONO}`,
+              width: 38,
+              height: 38,
+              borderRadius: 9,
+              background: 'var(--bg-secondary)',
+              border: '0.5px solid var(--border-strong)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              font: `600 8.5px/1 ${FONT_MONO}`,
               color: 'var(--text-secondary)',
-              fontVariantNumeric: 'tabular-nums'
+              flexShrink: 0
             }}
           >
-            {formatBytes(download.bytesDownloaded)}
-            {knownSize ? ` of ${formatBytes(download.totalBytes)} · ${percent}%` : ''}
-            {!isPaused && knownSize
-              ? ` · ${formatEta(download.totalBytes - download.bytesDownloaded, download.speedBytesPerSec)} left`
-              : ''}
-            {isPaused ? ' · paused' : ''}
+            {fileExtensionBadge(download.fileName)}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                font: `600 13px/1.3 ${FONT_UI}`,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+            >
+              {download.fileName}
+            </div>
+            <div
+              style={{
+                marginTop: 2,
+                font: `11.5px/1 ${FONT_MONO}`,
+                color: 'var(--text-secondary)',
+                fontVariantNumeric: 'tabular-nums'
+              }}
+            >
+              {formatBytes(download.bytesDownloaded)}
+              {knownSize ? ` of ${formatBytes(download.totalBytes)} · ${percent}%` : ''}
+              {!isPaused && knownSize
+                ? ` · ${formatEta(remainingBytes, download.speedBytesPerSec)} left`
+                : ''}
+              {isPaused ? ' · paused' : ''}
+            </div>
           </div>
         </div>
         <div
-          style={{ height: 6, borderRadius: 3, background: 'var(--track-bg)', overflow: 'hidden' }}
+          style={{
+            height: 9,
+            borderRadius: 999,
+            background: 'var(--track-bg)',
+            overflow: 'hidden',
+            display: 'flex',
+            gap: 2
+          }}
         >
-          <div
-            style={{
-              width: knownSize ? `${percent}%` : '100%',
-              height: '100%',
-              borderRadius: 3,
-              background: PROGRESS_GRADIENT
-            }}
-          />
+          {knownSize ? (
+            <>
+              {groups.map((group, index) => (
+                <div
+                  key={group.interfaceId}
+                  style={{
+                    flex: group.bytesDownloaded || 0.0001,
+                    background: visuals[index].solid
+                  }}
+                />
+              ))}
+              <div style={{ flex: remainingBytes || 0.0001 }} />
+            </>
+          ) : (
+            <div style={{ width: '100%', background: 'var(--color-accent)' }} />
+          )}
         </div>
       </div>
 
       <div
         style={{
-          borderTop: '0.5px solid var(--border)',
-          background: 'var(--bg-secondary)',
-          flex: 1,
-          overflowY: 'auto'
+          margin: '0 20px 14px',
+          ...statGridStyle,
+          gridTemplateColumns: 'repeat(6, minmax(0, 1fr))'
         }}
       >
+        {[
+          { label: 'Downloaded', value: formatBytes(download.bytesDownloaded) },
+          { label: 'Total', value: knownSize ? formatBytes(download.totalBytes) : '—' },
+          {
+            label: 'ETA',
+            value:
+              !isPaused && knownSize ? formatEta(remainingBytes, download.speedBytesPerSec) : '—'
+          },
+          { label: 'Elapsed', value: formatDuration(elapsedSeconds) },
+          { label: 'Peak', value: formatSpeed(peakSpeedBytesPerSec) },
+          { label: 'Chunks', value: `${completedChunks} / ${download.chunks.length}` }
+        ].map((stat, index) => (
+          <div
+            key={stat.label}
+            style={{
+              padding: '9px 12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 5,
+              borderLeft: index > 0 ? '0.5px solid var(--border)' : undefined,
+              minWidth: 0
+            }}
+          >
+            <div style={statLabelStyle}>{stat.label}</div>
+            <div
+              style={{
+                ...statValueStyle,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+            >
+              {stat.value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto' }}>
         <div
           style={{
             display: 'flex',
             alignItems: 'baseline',
             justifyContent: 'space-between',
-            padding: '11px 20px 7px'
+            padding: '0 20px 8px'
           }}
         >
-          <div style={sectionHeaderLabelStyle}>Streams</div>
+          <div style={sectionHeaderLabelStyle}>Networks</div>
           <div style={sectionHeaderMetaStyle}>
-            {download.chunks.length} chunks · {activeCount} active
+            {groups.length} merged · {download.chunks.length} chunks · {activeGroups.length} active
           </div>
         </div>
-        {download.chunks.map((chunk) => (
-          <StreamRow
-            key={chunk.id}
-            chunk={chunk}
+        <div style={networkTableHeaderStyle}>
+          <div />
+          <div>Network</div>
+          <div>Chunks</div>
+          <div style={{ textAlign: 'right' }}>Share</div>
+          <div style={{ textAlign: 'right' }}>Speed</div>
+          <div style={{ textAlign: 'right' }}>Moved</div>
+          <div style={{ textAlign: 'right' }}>Ping</div>
+        </div>
+        {groups.map((group, index) => (
+          <NetworkRow
+            key={group.interfaceId}
+            group={group}
             totalBytes={download.totalBytes}
-            connectionSuffix={suffixes.get(chunk.id)}
+            sharePercent={(weights[index] / totalWeight) * 100}
+            latencyMs={latencies[group.interfaceId]}
           />
         ))}
       </div>
 
       <div style={footerStyle}>
         <div style={footerTextStyle}>
-          elapsed {formatDuration(elapsedSeconds)} ·{' '}
+          resumable · elapsed {formatDuration(elapsedSeconds)}
+          {totalRetries > 0 ? ` · ${totalRetries} ${totalRetries === 1 ? 'retry' : 'retries'}` : ''}
+          {' · '}
           {toDisplayPath(dirnameOf(download.destinationPath), homeDir)}
         </div>
         <div style={{ flex: 1 }} />
         <button type="button" onClick={handlePauseResume} style={secondaryButtonStyle}>
           {isPaused ? 'Resume' : 'Pause'}
         </button>
-        <button
-          type="button"
-          onClick={handleCancel}
-          style={{ ...secondaryButtonStyle, padding: '6px 18px' }}
-        >
+        <button type="button" onClick={handleCancel} style={dangerButtonStyle}>
           Cancel
         </button>
       </div>

@@ -41,6 +41,8 @@ export interface ChunkState {
   speedBytesPerSec: number
   status: ChunkStatus
   error?: string
+  /** Number of times this chunk's connection has been retried after a dropped/failed attempt. */
+  retryCount: number
 }
 
 export interface DownloadState {
@@ -59,6 +61,18 @@ export interface DownloadState {
   completedAt?: number
 }
 
+/** User customization for one physical network, keyed by NetworkInterfaceInfo.id — lets a
+ * cryptic OS device name (e.g. "feth0") get a real label, and a color distinct from its
+ * kind's default. Persisted in the main process, independent of any single download. */
+export interface NetworkPreference {
+  customName?: string
+  /** One of the app's curated swatch ids (see NETWORK_COLOR_SWATCHES) — not a raw hex, so every
+   * swatch is guaranteed to have a legible on-solid text color already picked out for it. */
+  colorId?: string
+}
+
+export type NetworkPreferences = Record<string, NetworkPreference>
+
 export interface StartDownloadRequest {
   url: string
   destinationDir: string
@@ -67,8 +81,8 @@ export interface StartDownloadRequest {
   totalBytes: number
   supportsRanges: boolean
   interfaceIds: string[]
-  /** Total parallel connections to open, distributed round-robin across interfaceIds. */
-  connectionCount: number
+  /** Total chunks to split the download into, distributed round-robin across interfaceIds. */
+  chunkCount: number
   etag: string | null
   lastModified: string | null
 }

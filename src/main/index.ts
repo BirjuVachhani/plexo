@@ -21,6 +21,12 @@ function createWindow(): void {
     // (which briefly exposes the raw window background) doesn't flash white.
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#ffffff',
     ...(process.platform === 'linux' ? { icon } : {}),
+    // Design v2 draws its own logo + status readout where the title normally sits — on macOS,
+    // keep the real traffic lights (still native, still draggable) but let the renderer's own
+    // title bar occupy the rest of the strip instead of an OS-drawn title.
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 16 } }
+      : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false

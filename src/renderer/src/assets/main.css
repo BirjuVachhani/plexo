@@ -1,3 +1,19 @@
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./fonts/Manrope-Variable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Roboto Mono';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('./fonts/RobotoMono-Variable.woff2') format('woff2');
+}
+
 :root {
   color-scheme: light dark;
 
@@ -16,9 +32,9 @@
   --border-strong: #b9b9bb;
   --footer-border: #d8d8da;
 
-  --button-secondary-from: #fefefe;
-  --button-secondary-to: #f3f3f3;
-  --button-shadow: rgba(0, 0, 0, 0.05);
+  --button-secondary-bg: linear-gradient(#fefefe, #f3f3f3);
+  --button-secondary-border: var(--border-strong);
+  --button-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
   --button-disabled-bg: #f4f4f5;
   --button-disabled-border: #d2d2d4;
   --button-disabled-text: #a8a8ac;
@@ -30,55 +46,105 @@
   --checkbox-shadow: rgba(0, 0, 0, 0.15);
   --checkbox-inset-shadow: rgba(0, 0, 0, 0.04);
 
-  --kind-wifi-bg: oklch(0.6 0.16 250 / 0.13);
-  --kind-wifi-text: oklch(0.46 0.14 250);
-  --kind-usb-bg: oklch(0.65 0.14 195 / 0.15);
-  --kind-usb-text: oklch(0.44 0.11 195);
-  --kind-ethernet-bg: oklch(0.58 0.17 300 / 0.13);
-  --kind-ethernet-text: oklch(0.44 0.14 300);
-  --kind-neutral-bg: oklch(0.55 0.02 260 / 0.13);
-  --kind-neutral-text: oklch(0.4 0.02 260);
+  /* Network + brand palette — light-mode originals, adapted to sit on a white ground. */
+  --color-wifi: #2f8577;
+  --color-wifi-bg: #e7f3f1;
+  --color-wifi-border: #bfe0da;
+  --color-wifi-text: #1f6358;
+  --color-wifi-onsolid: #ffffff;
+
+  --color-usb: #b5790f;
+  --color-usb-bg: #fbf1de;
+  --color-usb-border: #edd7a8;
+  --color-usb-text: #8a5a13;
+  --color-usb-onsolid: #ffffff;
+
+  --color-ethernet: #5567a0;
+  --color-ethernet-bg: #eceef7;
+  --color-ethernet-border: #c9d0ea;
+  --color-ethernet-text: #3d4d82;
+  --color-ethernet-onsolid: #ffffff;
+
+  --color-neutral: #6e7278;
+  --color-neutral-bg: #f0f0f1;
+  --color-neutral-border: #d6d7d9;
+  --color-neutral-text: #55585c;
+  --color-neutral-onsolid: #ffffff;
+
+  --color-accent: #b5790f;
+  --color-accent-onsolid: #ffffff;
+  --color-accent-shadow: rgba(181, 121, 15, 0.2);
+  --color-success: #2f8577;
+
+  --color-danger: #b3261e;
+  --color-danger-bg: #fbeaea;
+  --color-danger-border: #f0c6c4;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1c1c1e;
-    --bg-secondary: #202023;
-    --bg-tertiary: #232326;
-    --input-bg: #2c2c2e;
-    --track-bg: #3a3a3c;
+    /* Graphite instrument-panel background — exact hex values from the "Plexo v2" design doc. */
+    --bg: #1b1e20;
+    --bg-secondary: #202325;
+    --bg-tertiary: #202325;
+    --input-bg: #242729;
+    --track-bg: #262a2d;
 
-    --text: #f2f2f3;
-    --text-secondary: #a1a1a6;
-    --text-tertiary: #8e8e93;
+    --text: #eae7e2;
+    --text-secondary: #a9adb2;
+    --text-tertiary: #8d9196;
 
-    --border: rgba(255, 255, 255, 0.1);
-    --border-subtle: rgba(255, 255, 255, 0.08);
-    --border-strong: rgba(255, 255, 255, 0.18);
-    --footer-border: rgba(255, 255, 255, 0.12);
+    --border: #2b2f33;
+    --border-subtle: #23262a;
+    --border-strong: #33383c;
+    --footer-border: #2b2f33;
 
-    --button-secondary-from: #3a3a3d;
-    --button-secondary-to: #313134;
-    --button-shadow: rgba(0, 0, 0, 0.3);
-    --button-disabled-bg: #2c2c2e;
-    --button-disabled-border: rgba(255, 255, 255, 0.12);
-    --button-disabled-text: #6e6e73;
+    --button-secondary-bg: #262a2d;
+    --button-secondary-border: var(--border-strong);
+    --button-shadow: none;
+    --button-disabled-bg: #232628;
+    --button-disabled-border: #2b2f33;
+    --button-disabled-text: #5d6268;
 
-    --icon-muted: #55555a;
-    --icon-muted-strong: #636368;
-    --scrollbar-thumb: #48484a;
+    --icon-muted: #33383c;
+    --icon-muted-strong: #3a3f44;
+    --scrollbar-thumb: #3a3f44;
 
     --checkbox-shadow: rgba(0, 0, 0, 0.4);
     --checkbox-inset-shadow: rgba(0, 0, 0, 0.3);
 
-    --kind-wifi-bg: oklch(0.6 0.16 250 / 0.22);
-    --kind-wifi-text: oklch(0.78 0.1 250);
-    --kind-usb-bg: oklch(0.65 0.14 195 / 0.22);
-    --kind-usb-text: oklch(0.78 0.09 195);
-    --kind-ethernet-bg: oklch(0.58 0.17 300 / 0.22);
-    --kind-ethernet-text: oklch(0.78 0.1 300);
-    --kind-neutral-bg: oklch(0.55 0.02 260 / 0.25);
-    --kind-neutral-text: oklch(0.75 0.02 260);
+    --color-wifi: #4ea89a;
+    --color-wifi-bg: #22312e;
+    --color-wifi-border: #3a5450;
+    --color-wifi-text: #7fc9bb;
+    --color-wifi-onsolid: #10201d;
+
+    --color-usb: #d8a44c;
+    --color-usb-bg: #33291a;
+    --color-usb-border: #54421f;
+    --color-usb-text: #e8bb6d;
+    --color-usb-onsolid: #221806;
+
+    --color-ethernet: #7e93bd;
+    --color-ethernet-bg: #232a38;
+    --color-ethernet-border: #3a4660;
+    --color-ethernet-text: #a7b8db;
+    --color-ethernet-onsolid: #141a26;
+
+    --color-neutral: #8d9196;
+    --color-neutral-bg: #26292c;
+    --color-neutral-border: #3a3f44;
+    --color-neutral-text: #a9adb2;
+    --color-neutral-onsolid: #16181a;
+
+    --color-accent: #d8a44c;
+    --color-accent-onsolid: #1b1408;
+    --color-accent-shadow: rgba(216, 164, 76, 0.22);
+    --color-success: #4ea89a;
+
+    --color-danger: #eda3a3;
+    --color-danger-bg: #2c1c1c;
+    --color-danger-border: #4a2a2a;
   }
 }
 
@@ -95,7 +161,7 @@ body,
 
 body {
   overflow: hidden;
-  font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', Helvetica, sans-serif;
+  font-family: 'Manrope', -apple-system, 'SF Pro Text', 'Helvetica Neue', Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
   background: var(--bg);
   color: var(--text);
@@ -122,4 +188,20 @@ button {
 ::-webkit-scrollbar-thumb {
   background-color: var(--scrollbar-thumb);
   border-radius: 9999px;
+}
+
+@keyframes plexo-dash {
+  to {
+    stroke-dashoffset: -60;
+  }
+}
+
+@keyframes plexo-glow {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
 }

@@ -1,11 +1,16 @@
 import { clipboard, dialog, ipcMain, shell, type BrowserWindow } from 'electron'
 import { IpcChannels } from '../../shared/ipc-channels'
-import type { NetworkInterfaceInfo, StartDownloadRequest } from '../../shared/types'
+import type {
+  NetworkInterfaceInfo,
+  NetworkPreference,
+  StartDownloadRequest
+} from '../../shared/types'
 import { DownloadManager } from '../download/downloadManager'
 import { getDefaultDownloadsDir, getHomeDir } from '../download/paths'
 import { probeUrl } from '../download/probe'
 import { measureLatencies } from '../network/latency'
 import { listActiveInterfaces } from '../network/interfaces'
+import { loadNetworkPreferences, saveNetworkPreference } from '../network/preferences'
 
 const NETWORK_SETTINGS_URL = 'x-apple.systempreferences:com.apple.preference.network'
 
@@ -22,6 +27,13 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
   })
 
   ipcMain.handle(IpcChannels.pingInterfaces, async () => measureLatencies(cachedInterfaces))
+
+  ipcMain.handle(IpcChannels.getNetworkPreferences, async () => loadNetworkPreferences())
+
+  ipcMain.handle(
+    IpcChannels.setNetworkPreference,
+    async (_event, id: string, patch: NetworkPreference) => saveNetworkPreference(id, patch)
+  )
 
   ipcMain.handle(IpcChannels.openNetworkSettings, async () => {
     await shell.openExternal(NETWORK_SETTINGS_URL)

@@ -1,3 +1,5 @@
+import type { ChunkState, NetworkInterfaceKind } from '@shared/types'
+
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB']
 
 export function formatBytes(bytes: number): string {
@@ -31,6 +33,13 @@ export function fileNameFromPath(path: string): string {
   return path.split('/').pop() ?? path
 }
 
+/** Short uppercase file-type badge from a name's extension, e.g. "Xcode_16.2.xip" -> "XIP". */
+export function fileExtensionBadge(fileName: string): string {
+  const dotIndex = fileName.lastIndexOf('.')
+  if (dotIndex <= 0 || dotIndex === fileName.length - 1) return 'FILE'
+  return fileName.slice(dotIndex + 1, dotIndex + 4).toUpperCase()
+}
+
 /** m:ss, or h:mm:ss past an hour. */
 export function formatDuration(seconds: number): string {
   const total = Math.max(0, Math.round(seconds))
@@ -52,29 +61,43 @@ export function dirnameOf(path: string): string {
   return index <= 0 ? '/' : path.slice(0, index)
 }
 
-/** For chunks that share the same interface (multiple connections per link, or ones split
- * off by dynamic rebalancing), returns a per-chunk " #N" suffix so they can be told apart
- * in the UI — empty string when an interface only has a single chunk. */
-export function connectionSuffixes(
-  chunks: Array<{ id: number; interfaceId: string }>
-): Map<number, string> {
-  const totalByInterface = new Map<string, number>()
+export interface NetworkGroup {
+  interfaceId: string
+  interfaceLabel: string
+  interfaceKind: NetworkInterfaceKind
+  chunks: ChunkState[]
+  bytesDownloaded: number
+  speedBytesPerSec: number
+}
+
+/** Chunks are the unit of transfer, but a physical network is the unit the user thinks and
+ * decides in — a network can carry several chunks (via "chunks per network", or ones split
+ * off by dynamic rebalancing). Groups chunks by their interface, in order of first appearance,
+ * with per-network totals so the UI can show one row per physical network. */
+export function groupChunksByInterface(chunks: ChunkState[]): NetworkGroup[] {
+  const order: string[] = []
+  const groups = new Map<string, NetworkGroup>()
+
   for (const chunk of chunks) {
-    totalByInterface.set(chunk.interfaceId, (totalByInterface.get(chunk.interfaceId) ?? 0) + 1)
+    let group = groups.get(chunk.interfaceId)
+    if (!group) {
+      group = {
+        interfaceId: chunk.interfaceId,
+        interfaceLabel: chunk.interfaceLabel,
+        interfaceKind: chunk.interfaceKind,
+        chunks: [],
+        bytesDownloaded: 0,
+        speedBytesPerSec: 0
+      }
+      groups.set(chunk.interfaceId, group)
+      order.push(chunk.interfaceId)
+    }
+    group.chunks.push(chunk)
+    group.bytesDownloaded += chunk.bytesDownloaded
+    group.speedBytesPerSec += chunk.speedBytesPerSec
   }
 
-  const seenByInterface = new Map<string, number>()
-  const suffixes = new Map<number, string>()
-  for (const chunk of chunks) {
-    if ((totalByInterface.get(chunk.interfaceId) ?? 0) <= 1) {
-      suffixes.set(chunk.id, '')
-      continue
-    }
-    const seen = (seenByInterface.get(chunk.interfaceId) ?? 0) + 1
-    seenByInterface.set(chunk.interfaceId, seen)
-    suffixes.set(chunk.id, ` #${seen}`)
-  }
-  return suffixes
+  return order.map((interfaceId) => groups.get(interfaceId)!)
 }
 
 /** Shortens an absolute path under the user's home directory to a "~/..." form for display. */

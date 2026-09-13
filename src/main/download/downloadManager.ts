@@ -75,9 +75,9 @@ function splitIntoRanges(
   return ranges
 }
 
-// Defensive cap independent of whatever the renderer sends — connections are
+// Defensive cap independent of whatever the renderer sends — chunks are
 // distributed round-robin across interfaces, not tied 1:1 to them anymore.
-const MAX_CONNECTIONS = 32
+const MAX_CHUNKS = 32
 
 const MAX_CHUNK_RETRIES = 5
 const RETRY_BASE_DELAY_MS = 1000
@@ -197,16 +197,16 @@ export class DownloadManager {
       requestPayload.suggestedFileName
     )
 
-    const connectionCount = Math.max(1, Math.min(requestPayload.connectionCount, MAX_CONNECTIONS))
+    const chunkCount = Math.max(1, Math.min(requestPayload.chunkCount, MAX_CHUNKS))
     const canSplit =
-      requestPayload.supportsRanges && requestPayload.totalBytes > 0 && connectionCount > 1
+      requestPayload.supportsRanges && requestPayload.totalBytes > 0 && chunkCount > 1
     const ranges = canSplit
-      ? splitIntoRanges(requestPayload.totalBytes, connectionCount)
+      ? splitIntoRanges(requestPayload.totalBytes, chunkCount)
       : [{ start: 0, end: requestPayload.totalBytes > 0 ? requestPayload.totalBytes - 1 : null }]
-    // Round-robin: connections no longer have to match interfaces 1:1, so an
-    // interface can carry more than one connection's worth of chunks.
+    // Round-robin: chunks no longer have to match interfaces 1:1, so a single
+    // physical network can carry more than one chunk's worth of connections.
     const activeInterfaces = canSplit
-      ? Array.from({ length: connectionCount }, (_, index) => interfaces[index % interfaces.length])
+      ? Array.from({ length: chunkCount }, (_, index) => interfaces[index % interfaces.length])
       : [interfaces[0]]
 
     const chunks: ChunkState[] = ranges.map((range, index) => ({
@@ -218,7 +218,8 @@ export class DownloadManager {
       rangeEnd: range.end,
       bytesDownloaded: 0,
       speedBytesPerSec: 0,
-      status: 'pending'
+      status: 'pending',
+      retryCount: 0
     }))
 
     const state: DownloadState = {
@@ -445,7 +446,8 @@ export class DownloadManager {
       rangeEnd: originalRangeEnd,
       bytesDownloaded: 0,
       speedBytesPerSec: 0,
-      status: 'pending'
+      status: 'pending',
+      retryCount: 0
     }
     runtime.state.chunks.push(newChunk)
     this.scheduleUpdate(runtime)
@@ -505,6 +507,7 @@ export class DownloadManager {
         const message = error instanceof Error ? error.message : String(error)
         chunk.error = message
         attempt += 1
+        chunk.retryCount += 1
 
         if (attempt > MAX_CHUNK_RETRIES) {
           chunk.status = 'error'

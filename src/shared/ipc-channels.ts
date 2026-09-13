@@ -2,6 +2,8 @@ export const IpcChannels = {
   listInterfaces: 'network:list-interfaces',
   pingInterfaces: 'network:ping-interfaces',
   openNetworkSettings: 'network:open-settings',
+  getNetworkPreferences: 'network:get-preferences',
+  setNetworkPreference: 'network:set-preference',
   probeUrl: 'download:probe',
   getInitialPaths: 'paths:get-initial',
   chooseDestinationFolder: 'dialog:choose-destination-folder',

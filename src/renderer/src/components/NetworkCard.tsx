@@ -1,5 +1,5 @@
 import type { NetworkInterfaceInfo } from '@shared/types'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import { FONT_MONO, FONT_UI, resolveNetworkVisual, type NetworkColorId } from '../theme'
 import { NetworkEditorFields } from './NetworkEditorFields'
@@ -63,32 +63,11 @@ export function NetworkCard({
   onToggle
 }: NetworkCardProps): React.JSX.Element {
   const [editing, setEditing] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
   const preference = useAppStore((store) => store.networkPreferences[iface.id])
   const setNetworkPreference = useAppStore((store) => store.setNetworkPreference)
   const visual = resolveNetworkVisual(iface.kind, iface.displayName, preference)
   const online = latencyMs != null
-
-  if (editing) {
-    return (
-      <div
-        style={{
-          borderRadius: 11,
-          padding: 15,
-          background: 'var(--bg-secondary)',
-          border: '0.5px solid var(--border)'
-        }}
-      >
-        <NetworkEditorFields
-          name={preference?.customName ?? ''}
-          onNameChange={(customName) => setNetworkPreference(iface.id, { customName })}
-          namePlaceholder={iface.displayName}
-          colorId={preference?.colorId as NetworkColorId | undefined}
-          onColorSelect={(colorId) => setNetworkPreference(iface.id, { colorId })}
-          onDone={() => setEditing(false)}
-        />
-      </div>
-    )
-  }
 
   return (
     <div
@@ -136,6 +115,7 @@ export function NetworkCard({
           </div>
         </button>
         <button
+          ref={buttonRef}
           type="button"
           onClick={() => setEditing(true)}
           title="Rename or recolor this network"
@@ -151,6 +131,18 @@ export function NetworkCard({
         >
           ⋯
         </button>
+        {editing && (
+          <NetworkEditorFields
+            anchorRef={buttonRef}
+            name={preference?.customName ?? ''}
+            onNameChange={(customName) => setNetworkPreference(iface.id, { customName })}
+            namePlaceholder={iface.displayName}
+            colorId={preference?.colorId as NetworkColorId | undefined}
+            onColorSelect={(colorId) => setNetworkPreference(iface.id, { colorId })}
+            interfaceKind={iface.kind}
+            onDone={() => setEditing(false)}
+          />
+        )}
         <div
           style={{
             font: `500 10px/1 ${FONT_MONO}`,

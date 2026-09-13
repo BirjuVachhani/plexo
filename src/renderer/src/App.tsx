@@ -27,6 +27,15 @@ function App(): React.JSX.Element {
     clearCurrentDownload()
   }
 
+  const handleDownloadAgain = (): void => {
+    if (currentDownload) {
+      const url = currentDownload.url
+      void window.plexo.removeDownload(currentDownload.id)
+      clearCurrentDownload()
+      useAppStore.getState().setDraftUrl(url)
+    }
+  }
+
   const noConnections = interfacesStatus === 'ready' && interfaces.length === 0
 
   let screen: React.JSX.Element
@@ -42,7 +51,13 @@ function App(): React.JSX.Element {
     } else if (currentDownload.status === 'completed') {
       screen = <CompleteScreen download={currentDownload} onNewDownload={handleNewDownload} />
     } else {
-      screen = <ErrorScreen download={currentDownload} onNewDownload={handleNewDownload} />
+      screen = (
+        <ErrorScreen
+          download={currentDownload}
+          onNewDownload={handleNewDownload}
+          onDownloadAgain={handleDownloadAgain}
+        />
+      )
     }
   } else if (noConnections) {
     screen = <NoConnectionsScreen />

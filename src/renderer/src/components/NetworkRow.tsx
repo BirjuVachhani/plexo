@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import {
   DANGER,
@@ -23,6 +23,7 @@ export function NetworkRow({
 }): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
   const preference = useAppStore((store) => store.networkPreferences[group.interfaceId])
   const setNetworkPreference = useAppStore((store) => store.setNetworkPreference)
   const visual = resolveNetworkVisual(group.interfaceKind, group.interfaceLabel, preference)
@@ -88,6 +89,7 @@ export function NetworkRow({
             <span style={{ fontSize: 7.5, opacity: 0.75 }}>{expanded ? '▲' : '▼'}</span>
           </button>
           <button
+            ref={buttonRef}
             type="button"
             onClick={() => setEditing((value) => !value)}
             title="Rename or recolor this network"
@@ -310,16 +312,16 @@ export function NetworkRow({
         </div>
       )}
       {editing && (
-        <div style={{ padding: '0 20px 11px' }}>
-          <NetworkEditorFields
-            name={preference?.customName ?? ''}
-            onNameChange={(customName) => setNetworkPreference(group.interfaceId, { customName })}
-            namePlaceholder={group.interfaceLabel}
-            colorId={preference?.colorId as NetworkColorId | undefined}
-            onColorSelect={(colorId) => setNetworkPreference(group.interfaceId, { colorId })}
-            onDone={() => setEditing(false)}
-          />
-        </div>
+        <NetworkEditorFields
+          anchorRef={buttonRef}
+          name={preference?.customName ?? ''}
+          onNameChange={(customName) => setNetworkPreference(group.interfaceId, { customName })}
+          namePlaceholder={group.interfaceLabel}
+          colorId={preference?.colorId as NetworkColorId | undefined}
+          onColorSelect={(colorId) => setNetworkPreference(group.interfaceId, { colorId })}
+          interfaceKind={group.interfaceKind}
+          onDone={() => setEditing(false)}
+        />
       )}
     </div>
   )

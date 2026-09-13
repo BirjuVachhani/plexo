@@ -326,25 +326,26 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
 
       <div
         style={{
-          padding: '14px 20px 16px',
+          padding: '16px 20px 18px',
           display: 'flex',
           flexDirection: 'column',
-          gap: 11
+          gap: 12
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <div
             style={{
-              width: 38,
-              height: 38,
-              borderRadius: 9,
+              width: 44,
+              height: 44,
+              borderRadius: 10,
               background: 'var(--bg-secondary)',
               border: '0.5px solid var(--border-strong)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              font: `600 8.5px/1 ${FONT_MONO}`,
+              font: `700 10.5px/1 ${FONT_MONO}`,
               color: 'var(--text-secondary)',
+              letterSpacing: '0.04em',
               flexShrink: 0
             }}
           >
@@ -353,10 +354,12 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
           <div style={{ flex: 1, minWidth: 0 }}>
             <div
               style={{
-                font: `600 13px/1.3 ${FONT_UI}`,
+                font: `600 15px/1.3 ${FONT_UI}`,
+                letterSpacing: '-0.01em',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
-                textOverflow: 'ellipsis'
+                textOverflow: 'ellipsis',
+                color: 'var(--text)'
               }}
               title={download.fileName}
             >
@@ -364,29 +367,29 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             </div>
             <div
               style={{
-                marginTop: 2,
-                font: `11.5px/1 ${FONT_MONO}`,
+                marginTop: 4,
+                font: `12.5px/1.2 ${FONT_MONO}`,
                 color: 'var(--text-secondary)',
                 fontVariantNumeric: 'tabular-nums',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 6
+                gap: 7
               }}
             >
               <span>
                 {formatBytes(download.bytesDownloaded)}
-                {knownSize ? ` of ${formatBytes(download.totalBytes)} (${percent}%)` : ''}
+                {knownSize ? ` of ${formatBytes(download.totalBytes)}` : ''}
               </span>
-              {knownSize && remainingBytes > 0 && (
+              {knownSize && (
                 <>
                   <span style={{ opacity: 0.35 }}>·</span>
-                  <span>{formatBytes(remainingBytes)} remaining</span>
+                  <span style={{ color: 'var(--text)', fontWeight: 600 }}>{percent}%</span>
                 </>
               )}
               {!isPaused && knownSize && effectiveSpeed > 0 && (
                 <>
                   <span style={{ opacity: 0.35 }}>·</span>
-                  <span style={{ color: 'var(--text)', fontWeight: 500 }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>
                     {formatEta(remainingBytes, effectiveSpeed)} left
                   </span>
                 </>
@@ -394,13 +397,13 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
               {isPaused && (
                 <span
                   style={{
-                    font: `600 9px/1 ${FONT_MONO}`,
+                    font: `600 9.5px/1 ${FONT_MONO}`,
                     letterSpacing: '0.08em',
                     color: 'var(--color-usb)',
                     background: 'var(--color-usb-bg)',
                     border: '0.5px solid var(--color-usb-border)',
-                    padding: '2px 6px',
-                    borderRadius: 3
+                    padding: '2px 7px',
+                    borderRadius: 3.5
                   }}
                 >
                   PAUSED
@@ -411,7 +414,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         </div>
         <div
           style={{
-            height: 8,
+            height: 9,
             borderRadius: 999,
             background: 'var(--track-bg)',
             overflow: 'hidden',

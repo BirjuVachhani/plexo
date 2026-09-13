@@ -19,17 +19,41 @@ interface ChunkRuntime {
   partPath: string
 }
 
+interface SpeedSample {
+  bytes: number
+  time: number
+}
+
 interface DownloadRuntime {
   state: DownloadState
   requestPayload: StartDownloadRequest
   activeInterfaces: NetworkInterfaceInfo[]
   chunkRuntimes: Map<number, ChunkRuntime>
   tempDir: string
-  lastProgressByChunk: Map<number, { bytes: number; time: number }>
+  speedSamplesByChunk: Map<number, SpeedSample[]>
   pushScheduled: boolean
 }
 
 const PROGRESS_THROTTLE_MS = 200
+
+// Raw per-event deltas are too noisy to display (socket buffers flush in
+// irregular bursts a few ms apart). Averaging over a few seconds instead
+// gives a speed/ETA reading that tracks reality without jumping around.
+const SPEED_WINDOW_MS = 3000
+
+// Appends a sample and returns the average byte rate over SPEED_WINDOW_MS.
+function pushSpeedSample(samples: SpeedSample[], bytes: number, time: number): number {
+  samples.push({ bytes, time })
+
+  const cutoff = time - SPEED_WINDOW_MS
+  while (samples.length > 2 && samples[1].time <= cutoff) {
+    samples.shift()
+  }
+
+  const oldest = samples[0]
+  const deltaSeconds = (time - oldest.time) / 1000
+  return deltaSeconds > 0 ? (bytes - oldest.bytes) / deltaSeconds : 0
+}
 
 function splitIntoRanges(
   totalBytes: number,
@@ -127,7 +151,7 @@ export class DownloadManager {
       activeInterfaces,
       chunkRuntimes: new Map(),
       tempDir,
-      lastProgressByChunk: new Map(),
+      speedSamplesByChunk: new Map(),
       pushScheduled: false
     }
     this.runtimes.set(id, runtime)
@@ -156,7 +180,7 @@ export class DownloadManager {
     runtime.state.status = 'downloading'
     const pending = runtime.state.chunks.filter((chunk) => chunk.status !== 'completed')
     for (const chunk of pending) {
-      runtime.lastProgressByChunk.delete(chunk.id)
+      runtime.speedSamplesByChunk.delete(chunk.id)
       chunk.speedBytesPerSec = 0
     }
     this.pushUpdate(runtime)
@@ -277,13 +301,12 @@ export class DownloadManager {
     if (!chunk) return
 
     const now = Date.now()
-    const previous = runtime.lastProgressByChunk.get(chunkId)
-    if (previous && now > previous.time) {
-      const deltaBytes = bytesDownloaded - previous.bytes
-      const deltaSeconds = (now - previous.time) / 1000
-      chunk.speedBytesPerSec = deltaSeconds > 0 ? deltaBytes / deltaSeconds : chunk.speedBytesPerSec
+    let samples = runtime.speedSamplesByChunk.get(chunkId)
+    if (!samples) {
+      samples = []
+      runtime.speedSamplesByChunk.set(chunkId, samples)
     }
-    runtime.lastProgressByChunk.set(chunkId, { bytes: bytesDownloaded, time: now })
+    chunk.speedBytesPerSec = pushSpeedSample(samples, bytesDownloaded, now)
     chunk.bytesDownloaded = bytesDownloaded
 
     runtime.state.bytesDownloaded = runtime.state.chunks.reduce(

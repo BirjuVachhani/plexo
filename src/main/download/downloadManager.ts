@@ -6,8 +6,10 @@ import type { BrowserWindow } from 'electron'
 import { app } from 'electron'
 import { IpcChannels } from '../../shared/ipc-channels'
 import type {
+  BlockState,
   ChunkState,
   DownloadState,
+  DownloadStatus,
   NetworkInterfaceInfo,
   StartDownloadRequest
 } from '../../shared/types'
@@ -33,9 +35,8 @@ interface DownloadRuntime {
   tempDir: string
   speedSamplesByChunk: Map<number, SpeedSample[]>
   pushScheduled: boolean
-  /** Chunk ids whose in-flight request was just aborted by a range split, not a pause/cancel —
-   * runChunk checks this to tell the two apart and restart instead of stopping. */
-  resizingChunkIds: Set<number>
+  blocks: BlockState[]
+  totalBlocks: number
 }
 
 const PROGRESS_THROTTLE_MS = 200
@@ -66,13 +67,6 @@ const MAX_CHUNKS = 32
 const MAX_CHUNK_RETRIES = 5
 const RETRY_BASE_DELAY_MS = 1000
 const RETRY_MAX_DELAY_MS = 15_000
-
-// A connection that finishes its own range early shouldn't just sit idle
-// while a sibling connection is still crawling through a much bigger one —
-// steal half of whichever chunk has the most bytes left. Only worth it
-// above a minimum size, so a nearly-finished download doesn't spawn a
-// connection for the last few KB.
-const MIN_STEAL_BYTES = 1024 * 1024
 
 function retryDelayMs(attempt: number): number {
   return Math.min(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), RETRY_MAX_DELAY_MS)
@@ -189,43 +183,59 @@ export class DownloadManager {
           Math.max(1, Math.round(requestPayload.chunkCount / interfaces.length))
       )
     )
-    const canSplit =
-      requestPayload.supportsRanges &&
-      requestPayload.totalBytes > 0 &&
-      (interfaces.length > 1 || connectionsPerNetwork > 1)
+    const canSplit = requestPayload.supportsRanges && requestPayload.totalBytes > 0
+
+    const TARGET_BLOCKS = 64
+    const MIN_BLOCK_BYTES = 4 * 1024 * 1024 // 4 MB minimum block size
+
+    let blockSizeBytes = 0
+    const blocks: BlockState[] = []
+
+    if (canSplit) {
+      blockSizeBytes = Math.max(
+        MIN_BLOCK_BYTES,
+        Math.ceil(requestPayload.totalBytes / TARGET_BLOCKS)
+      )
+      let offset = 0
+      let bIdx = 0
+      while (offset < requestPayload.totalBytes) {
+        const bEnd = Math.min(offset + blockSizeBytes - 1, requestPayload.totalBytes - 1)
+        blocks.push({
+          index: bIdx++,
+          rangeStart: offset,
+          rangeEnd: bEnd,
+          status: 'pending',
+          bytesDownloaded: 0
+        })
+        offset = bEnd + 1
+      }
+    } else {
+      blockSizeBytes = requestPayload.totalBytes > 0 ? requestPayload.totalBytes : 0
+      blocks.push({
+        index: 0,
+        rangeStart: 0,
+        rangeEnd: requestPayload.totalBytes > 0 ? requestPayload.totalBytes - 1 : null,
+        status: 'pending',
+        bytesDownloaded: 0
+      })
+    }
 
     const chunks: ChunkState[] = []
     const activeInterfaces: NetworkInterfaceInfo[] = []
+    let workerIdCounter = 0
 
     if (canSplit) {
-      const netCount = interfaces.length
-      let chunkIdCounter = 0
-
-      for (let netIdx = 0; netIdx < netCount; netIdx++) {
-        const iface = interfaces[netIdx]
-        const netStart = Math.floor((netIdx * requestPayload.totalBytes) / netCount)
-        const netEnd =
-          netIdx === netCount - 1
-            ? requestPayload.totalBytes - 1
-            : Math.floor(((netIdx + 1) * requestPayload.totalBytes) / netCount) - 1
-        const netSize = netEnd - netStart + 1
-
+      for (const iface of interfaces) {
         for (let connIdx = 0; connIdx < connectionsPerNetwork; connIdx++) {
           if (chunks.length >= MAX_CHUNKS) break
-          const chunkStart = netStart + Math.floor((connIdx * netSize) / connectionsPerNetwork)
-          const chunkEnd =
-            connIdx === connectionsPerNetwork - 1
-              ? netEnd
-              : netStart + Math.floor(((connIdx + 1) * netSize) / connectionsPerNetwork) - 1
-
           activeInterfaces.push(iface)
           chunks.push({
-            id: chunkIdCounter++,
+            id: workerIdCounter++,
             interfaceId: iface.id,
             interfaceLabel: iface.displayName,
             interfaceKind: iface.kind,
-            rangeStart: chunkStart,
-            rangeEnd: chunkEnd,
+            rangeStart: 0,
+            rangeEnd: null,
             bytesDownloaded: 0,
             speedBytesPerSec: 0,
             status: 'pending',
@@ -259,6 +269,9 @@ export class DownloadManager {
       speedBytesPerSec: 0,
       status: 'downloading',
       chunks,
+      blocks,
+      totalBlocks: blocks.length,
+      blockSizeBytes,
       startedAt: Date.now()
     }
 
@@ -270,7 +283,8 @@ export class DownloadManager {
       tempDir,
       speedSamplesByChunk: new Map(),
       pushScheduled: false,
-      resizingChunkIds: new Set()
+      blocks,
+      totalBlocks: blocks.length
     }
     this.runtimes.set(id, runtime)
     this.pushUpdate(runtime)
@@ -292,6 +306,11 @@ export class DownloadManager {
         chunk.status = 'paused'
       }
       chunk.speedBytesPerSec = 0
+    }
+    for (const block of runtime.blocks) {
+      if (block.status === 'downloading') {
+        block.status = 'pending'
+      }
     }
     for (const chunkRuntime of runtime.chunkRuntimes.values()) {
       chunkRuntime.controller.abort()
@@ -331,14 +350,22 @@ export class DownloadManager {
         (runtime.state.totalPausedMs || 0) + (Date.now() - runtime.state.pausedAt)
       runtime.state.pausedAt = undefined
     }
-    const pending = runtime.state.chunks.filter((chunk) => chunk.status !== 'completed')
-    for (const chunk of pending) {
+    for (const block of runtime.blocks) {
+      if (block.status !== 'completed') {
+        block.status = 'pending'
+      }
+    }
+    for (const chunk of runtime.state.chunks) {
+      if (chunk.status !== 'completed') {
+        chunk.status = 'pending'
+      }
       runtime.speedSamplesByChunk.delete(chunk.id)
       chunk.speedBytesPerSec = 0
     }
     this.pushUpdate(runtime)
 
-    void this.runChunksToCompletion(runtime, pending)
+    const pending = runtime.state.chunks.filter((chunk) => chunk.status !== 'completed')
+    void this.runChunksToCompletion(runtime, pending.length > 0 ? pending : runtime.state.chunks)
   }
 
   cancel(id: string): void {
@@ -350,6 +377,7 @@ export class DownloadManager {
     runtime.state.speedBytesPerSec = 0
     for (const chunk of runtime.state.chunks) {
       chunk.speedBytesPerSec = 0
+      chunk.status = 'cancelled'
     }
     for (const chunkRuntime of runtime.chunkRuntimes.values()) {
       chunkRuntime.controller.abort()
@@ -372,41 +400,22 @@ export class DownloadManager {
     }
   }
 
-  /** Runs (or resumes) a set of chunks in parallel, then reassembles once they're all done. */
+  /** Runs (or resumes) fixed worker streams in parallel, leasing blocks until all are completed. */
   private async runChunksToCompletion(
     runtime: DownloadRuntime,
     chunks: ChunkState[]
   ): Promise<void> {
-    // A plain Promise.all can't grow once started — but a chunk that finishes
-    // early may hand off half of a slower sibling's remaining range to a
-    // brand new chunk, so the wait set has to be able to pick up new tasks
-    // as they're spawned. Track it as chunk id -> its run promise instead.
     const active = new Map<number, Promise<number>>()
     for (const chunk of chunks) {
       active.set(
         chunk.id,
-        this.runChunk(runtime, chunk).then(() => chunk.id)
+        this.runWorker(runtime, chunk).then(() => chunk.id)
       )
     }
 
-    // Each run promise catches its own errors below, so this never rejects.
     while (active.size > 0) {
       const finishedId = await Promise.race(active.values())
       active.delete(finishedId)
-
-      if (runtime.state.status === 'downloading') {
-        const finishedChunk = runtime.state.chunks.find((entry) => entry.id === finishedId)
-        const stolenChunk =
-          finishedChunk?.status === 'completed'
-            ? this.stealWorkForIdleConnection(runtime, finishedChunk)
-            : null
-        if (stolenChunk) {
-          active.set(
-            stolenChunk.id,
-            this.runChunk(runtime, stolenChunk).then(() => stolenChunk.id)
-          )
-        }
-      }
     }
 
     if (runtime.state.status !== 'downloading') {
@@ -432,119 +441,102 @@ export class DownloadManager {
     await this.cleanupTempDir(runtime)
   }
 
-  /**
-   * Called when `freedChunk` finishes while others are still running. Finds
-   * whichever active chunk has the most bytes left, shrinks it in place, and
-   * returns a new chunk covering the back half for the now-idle connection
-   * to pick up — or null if nothing is worth splitting yet.
-   */
-  private stealWorkForIdleConnection(
-    runtime: DownloadRuntime,
-    freedChunk: ChunkState
-  ): ChunkState | null {
-    if (!runtime.requestPayload.supportsRanges) return null
+  private async runWorker(runtime: DownloadRuntime, chunk: ChunkState): Promise<void> {
+    const iface =
+      runtime.activeInterfaces.find((i) => i.id === chunk.interfaceId) ??
+      runtime.activeInterfaces[chunk.id]
 
-    let victim: ChunkState | null = null
-    let victimRemaining = 0
-    for (const candidate of runtime.state.chunks) {
-      if (candidate.status !== 'downloading' || candidate.rangeEnd === null) continue
-      const remaining = candidate.rangeEnd - (candidate.rangeStart + candidate.bytesDownloaded) + 1
-      if (remaining > victimRemaining) {
-        victim = candidate
-        victimRemaining = remaining
-      }
-    }
-
-    // Only worth splitting if both halves clear the minimum — otherwise the
-    // new connection would spend more time on setup than on actual transfer.
-    if (!victim || victimRemaining < MIN_STEAL_BYTES * 2) return null
-
-    const freedInterface = runtime.activeInterfaces[freedChunk.id]
-    const victimRuntime = runtime.chunkRuntimes.get(victim.id)
-    if (!freedInterface || !victimRuntime) return null
-
-    const victimPosition = victim.rangeStart + victim.bytesDownloaded
-    const splitPoint = victimPosition + Math.floor(victimRemaining / 2)
-    const originalRangeEnd = victim.rangeEnd
-
-    // Swap in a fresh controller before aborting the old one — runChunk reads
-    // the controller fresh on every loop iteration, so once its in-flight
-    // request rejects it picks the new one back up instead of stopping.
-    runtime.resizingChunkIds.add(victim.id)
-    runtime.chunkRuntimes.set(victim.id, {
-      controller: new AbortController(),
-      partPath: victimRuntime.partPath
-    })
-    victimRuntime.controller.abort()
-    victim.rangeEnd = splitPoint - 1
-
-    // Reuse the same activeInterfaces[chunk.id] lookup runChunk already does
-    // for every other chunk, rather than introducing a second lookup path.
-    runtime.activeInterfaces.push(freedInterface)
-    const newChunk: ChunkState = {
-      id: runtime.activeInterfaces.length - 1,
-      interfaceId: freedInterface.id,
-      interfaceLabel: freedInterface.displayName,
-      interfaceKind: freedInterface.kind,
-      rangeStart: splitPoint,
-      rangeEnd: originalRangeEnd,
-      bytesDownloaded: 0,
-      speedBytesPerSec: 0,
-      status: 'pending',
-      retryCount: 0
-    }
-    runtime.state.chunks.push(newChunk)
-    this.scheduleUpdate(runtime)
-    return newChunk
-  }
-
-  private async runChunk(runtime: DownloadRuntime, chunk: ChunkState): Promise<void> {
-    const iface = runtime.activeInterfaces[chunk.id]
     const controller = new AbortController()
-    const existing = runtime.chunkRuntimes.get(chunk.id)
-    const partPath = existing?.partPath ?? join(runtime.tempDir, `part-${chunk.id}`)
-    runtime.chunkRuntimes.set(chunk.id, { controller, partPath })
-    chunk.status = 'downloading'
-    this.scheduleUpdate(runtime)
+    runtime.chunkRuntimes.set(chunk.id, { controller, partPath: '' })
 
-    // A dropped connection shouldn't fail the whole download outright — most
-    // network blips are transient, so give the chunk a few tries with
-    // backoff before giving up on it (and, by extension, the download).
     let attempt = 0
-    for (;;) {
-      // Read fresh each pass — a sibling connection stealing half of this
-      // chunk's range swaps in a new controller and a smaller rangeEnd.
-      const activeController = runtime.chunkRuntimes.get(chunk.id)?.controller ?? controller
 
-      const resumeOffset = await reconcilePartFileSize(partPath, chunk.bytesDownloaded)
-      if (resumeOffset !== chunk.bytesDownloaded) {
-        chunk.bytesDownloaded = resumeOffset
-        runtime.speedSamplesByChunk.delete(chunk.id)
+    while (runtime.state.status === 'downloading') {
+      if (controller.signal.aborted) break
+
+      // Atomically lease the next pending block in this event tick
+      const block = runtime.blocks.find((b) => b.status === 'pending')
+      if (!block) {
+        // If other workers are still downloading, remain idle briefly in case a block fails and resets
+        const anyStillDownloading = runtime.blocks.some((b) => b.status === 'downloading')
+        if (anyStillDownloading) {
+          chunk.speedBytesPerSec = 0
+          this.scheduleUpdate(runtime)
+          await delay(250, controller.signal).catch(() => {})
+          continue
+        }
+        chunk.status = 'completed'
+        chunk.speedBytesPerSec = 0
+        this.scheduleUpdate(runtime)
+        break
+      }
+
+      block.status = 'downloading'
+      block.interfaceId = iface.id
+      chunk.status = 'downloading'
+      chunk.rangeStart = block.rangeStart
+      chunk.rangeEnd = block.rangeEnd
+      chunk.currentBlockIndex = block.index
+      this.scheduleUpdate(runtime)
+
+      const partPath = join(runtime.tempDir, `part-${block.index}`)
+      const chunkRuntime = runtime.chunkRuntimes.get(chunk.id)
+      if (chunkRuntime) {
+        chunkRuntime.partPath = partPath
+      }
+
+      const resumeOffset = await reconcilePartFileSize(partPath, block.bytesDownloaded)
+      if (resumeOffset !== block.bytesDownloaded) {
+        block.bytesDownloaded = resumeOffset
         this.recomputeAggregates(runtime)
       }
+
+      if (block.rangeEnd !== null && block.rangeStart + resumeOffset > block.rangeEnd) {
+        block.status = 'completed'
+        block.interfaceId = iface.id
+        this.recomputeAggregates(runtime)
+        this.scheduleUpdate(runtime)
+        continue
+      }
+
+      let lastReportedThisRun = 0
 
       try {
         await downloadChunk({
           url: runtime.requestPayload.url,
-          rangeStart: chunk.rangeStart + resumeOffset,
-          rangeEnd: chunk.rangeEnd,
+          rangeStart: block.rangeStart + resumeOffset,
+          rangeEnd: block.rangeEnd,
           localAddress: iface.address,
           destinationPath: partPath,
           append: resumeOffset > 0,
-          signal: activeController.signal,
-          onProgress: (bytesThisRun) =>
-            this.onChunkProgress(runtime, chunk.id, resumeOffset + bytesThisRun)
-        })
-        chunk.status = 'completed'
-        break
-      } catch (error) {
-        if (activeController.signal.aborted) {
-          if (runtime.resizingChunkIds.delete(chunk.id)) {
-            // Not a pause/cancel — a sibling just stole the back half of our
-            // range. The fresh controller is already in place; keep going.
-            continue
+          signal: controller.signal,
+          onProgress: (bytesThisRun) => {
+            const delta = bytesThisRun - lastReportedThisRun
+            lastReportedThisRun = bytesThisRun
+            if (delta > 0) {
+              this.onWorkerProgress(runtime, chunk.id, block.index, delta)
+            }
           }
-          chunk.status = runtime.state.status === 'paused' ? 'paused' : 'cancelled'
+        })
+
+        // Block finished successfully
+        block.status = 'completed'
+        block.interfaceId = iface.id
+        if (block.rangeEnd !== null) {
+          block.bytesDownloaded = block.rangeEnd - block.rangeStart + 1
+        }
+        attempt = 0
+        this.recomputeAggregates(runtime)
+        this.scheduleUpdate(runtime)
+      } catch (error) {
+        const currentStatus = runtime.state.status as DownloadStatus
+        if (controller.signal.aborted || currentStatus !== 'downloading') {
+          if (currentStatus === 'paused') {
+            block.status = 'pending'
+            chunk.status = 'paused'
+          } else {
+            chunk.status = 'cancelled'
+          }
           chunk.speedBytesPerSec = 0
           break
         }
@@ -554,15 +546,18 @@ export class DownloadManager {
         attempt += 1
         chunk.retryCount += 1
 
+        // Return block back to queue so any available worker can pick it up
+        block.status = 'pending'
+
         if (attempt > MAX_CHUNK_RETRIES) {
           chunk.status = 'error'
-          // Fail fast: one broken connection shouldn't leave the others
-          // downloading a file we're about to discard anyway.
-          if (runtime.state.status === 'downloading') {
+          chunk.speedBytesPerSec = 0
+          const allErrored = runtime.state.chunks.every((c) => c.status === 'error')
+          if (allErrored && (runtime.state.status as DownloadStatus) === 'downloading') {
             runtime.state.status = 'error'
             runtime.state.error = message
-            for (const chunkRuntime of runtime.chunkRuntimes.values()) {
-              chunkRuntime.controller.abort()
+            for (const cr of runtime.chunkRuntimes.values()) {
+              cr.controller.abort()
             }
           }
           break
@@ -570,9 +565,10 @@ export class DownloadManager {
 
         chunk.status = 'retrying'
         this.scheduleUpdate(runtime)
-        await delay(retryDelayMs(attempt), activeController.signal)
-        if (activeController.signal.aborted) {
-          chunk.status = runtime.state.status === 'paused' ? 'paused' : 'cancelled'
+        await delay(retryDelayMs(attempt), controller.signal).catch(() => {})
+        const statusAfterDelay = runtime.state.status as DownloadStatus
+        if (controller.signal.aborted || statusAfterDelay !== 'downloading') {
+          chunk.status = statusAfterDelay === 'paused' ? 'paused' : 'cancelled'
           chunk.speedBytesPerSec = 0
           break
         }
@@ -583,13 +579,19 @@ export class DownloadManager {
     this.scheduleUpdate(runtime)
   }
 
-  private onChunkProgress(
+  private onWorkerProgress(
     runtime: DownloadRuntime,
     chunkId: number,
-    bytesDownloaded: number
+    blockIndex: number,
+    deltaBytes: number
   ): void {
     const chunk = runtime.state.chunks.find((entry) => entry.id === chunkId)
-    if (!chunk) return
+    const block = runtime.blocks[blockIndex]
+    if (!chunk || !block) return
+
+    chunk.bytesDownloaded += deltaBytes
+    block.bytesDownloaded += deltaBytes
+    chunk.currentBlockIndex = blockIndex
 
     const now = Date.now()
     let samples = runtime.speedSamplesByChunk.get(chunkId)
@@ -597,15 +599,14 @@ export class DownloadManager {
       samples = []
       runtime.speedSamplesByChunk.set(chunkId, samples)
     }
-    chunk.speedBytesPerSec = pushSpeedSample(samples, bytesDownloaded, now)
-    chunk.bytesDownloaded = bytesDownloaded
+    chunk.speedBytesPerSec = pushSpeedSample(samples, chunk.bytesDownloaded, now)
 
     this.recomputeAggregates(runtime)
     this.scheduleUpdate(runtime)
   }
 
   private recomputeAggregates(runtime: DownloadRuntime): void {
-    runtime.state.bytesDownloaded = runtime.state.chunks.reduce(
+    runtime.state.bytesDownloaded = runtime.blocks.reduce(
       (sum, entry) => sum + entry.bytesDownloaded,
       0
     )
@@ -635,16 +636,11 @@ export class DownloadManager {
 
   private async reassemble(runtime: DownloadRuntime): Promise<void> {
     const output = createWriteStream(runtime.state.destinationPath)
-    // Chunks created by splitting a sibling's range mid-download are appended to
-    // the array, not inserted in byte order — sort by rangeStart or the file
-    // comes out scrambled whenever a split happened anywhere but at the end.
-    const orderedChunks = [...runtime.state.chunks].sort((a, b) => a.rangeStart - b.rangeStart)
 
     try {
-      for (const chunk of orderedChunks) {
-        const chunkRuntime = runtime.chunkRuntimes.get(chunk.id)
-        if (!chunkRuntime) throw new Error(`Missing part file for chunk ${chunk.id}`)
-        await appendFileToStream(chunkRuntime.partPath, output)
+      for (let i = 0; i < runtime.totalBlocks; i++) {
+        const partPath = join(runtime.tempDir, `part-${i}`)
+        await appendFileToStream(partPath, output)
       }
     } catch (error) {
       output.destroy()

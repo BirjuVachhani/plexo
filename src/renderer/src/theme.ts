@@ -192,7 +192,7 @@ export const statValueStyle: React.CSSProperties = {
   fontVariantNumeric: 'tabular-nums'
 }
 
-export const NETWORK_ROW_GRID_COLUMNS = '10px 190px 1fr 44px 82px 82px'
+export const NETWORK_ROW_GRID_COLUMNS = '10px 175px 1fr 48px 82px 125px'
 
 export const networkTableHeaderStyle: React.CSSProperties = {
   display: 'grid',

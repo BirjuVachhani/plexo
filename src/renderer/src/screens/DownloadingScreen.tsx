@@ -1,5 +1,6 @@
 import type { DownloadState } from '@shared/types'
 import { useEffect, useState } from 'react'
+import { BlockGrid } from '../components/BlockGrid'
 import { MergeDiagram } from '../components/MergeDiagram'
 import { NetworkRow } from '../components/NetworkRow'
 import { ThroughputChart } from '../components/ThroughputChart'
@@ -86,6 +87,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   const effectiveSpeed = isPaused ? 0 : download.speedBytesPerSec
   const speed = splitFormattedBytes(effectiveSpeed)
   const groups = groupChunksByInterface(download.chunks)
+  const totalDownloadedByNetworks = groups.reduce((sum, g) => sum + g.bytesDownloaded, 0)
   const visuals = groups.map((group) =>
     resolveNetworkVisual(
       group.interfaceKind,
@@ -96,10 +98,6 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   const activeGroups = groups.filter((group) =>
     group.chunks.some((chunk) => chunk.status === 'downloading')
   )
-  const weights = groups.map((group) =>
-    effectiveSpeed > 0 ? group.speedBytesPerSec : group.bytesDownloaded
-  )
-  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || 1
 
   const [chipModeIndex, setChipModeIndex] = useState(0)
 
@@ -412,33 +410,16 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             </div>
           </div>
         </div>
-        <div
-          style={{
-            height: 9,
-            borderRadius: 999,
-            background: 'var(--track-bg)',
-            overflow: 'hidden',
-            display: 'flex',
-            gap: 2
-          }}
-        >
-          {knownSize ? (
-            <>
-              {groups.map((group, index) => (
-                <div
-                  key={group.interfaceId}
-                  style={{
-                    flex: group.bytesDownloaded || 0.0001,
-                    background: visuals[index].solid
-                  }}
-                />
-              ))}
-              <div style={{ flex: remainingBytes || 0.0001 }} />
-            </>
-          ) : (
-            <div style={{ width: '100%', background: 'var(--color-accent)' }} />
-          )}
-        </div>
+
+        <BlockGrid
+          blocks={download.blocks}
+          groups={groups}
+          visuals={visuals}
+          knownSize={knownSize}
+          remainingBytes={remainingBytes}
+          isPaused={isPaused}
+          blockSizeBytes={download.blockSizeBytes}
+        />
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -452,26 +433,34 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         >
           <div style={sectionHeaderLabelStyle}>Networks</div>
           <div style={sectionHeaderMetaStyle}>
-            {groups.length} merged · {download.chunks.length} chunks ·{' '}
+            {groups.length} merged · {download.chunks.length} streams ·{' '}
             {isPaused ? 'paused' : `${activeGroups.length} active`}
           </div>
         </div>
         <div style={networkTableHeaderStyle}>
           <div />
           <div>Network</div>
-          <div>Chunks</div>
+          <div>Progress</div>
           <div style={{ textAlign: 'right' }}>Share</div>
           <div style={{ textAlign: 'right' }}>Speed</div>
           <div style={{ textAlign: 'right' }}>Downloaded</div>
         </div>
-        {groups.map((group, index) => (
-          <NetworkRow
-            key={group.interfaceId}
-            group={group}
-            totalBytes={download.totalBytes}
-            sharePercent={(weights[index] / totalWeight) * 100}
-          />
-        ))}
+        {groups.map((group) => {
+          const sharePercent =
+            totalDownloadedByNetworks > 0
+              ? (group.bytesDownloaded / totalDownloadedByNetworks) * 100
+              : 0
+          return (
+            <NetworkRow
+              key={group.interfaceId}
+              group={group}
+              sharePercent={sharePercent}
+              totalBytes={download.totalBytes}
+              totalDownloaded={totalDownloadedByNetworks}
+              blocks={download.blocks}
+            />
+          )
+        })}
       </div>
 
       <div style={footerStyle}>

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
+import type { BlockState } from '@shared/types'
 import {
   DANGER,
   FONT_MONO,
@@ -12,15 +13,20 @@ import type { NetworkGroup } from '../utils/format'
 import { formatBytes, formatSpeed } from '../utils/format'
 import { NetworkEditorFields } from './NetworkEditorFields'
 
+interface NetworkRowProps {
+  group: NetworkGroup
+  sharePercent: number
+  totalBytes?: number | null
+  totalDownloaded?: number
+  blocks?: BlockState[]
+}
+
 export function NetworkRow({
   group,
+  sharePercent,
   totalBytes,
-  sharePercent
-}: {
-  group: NetworkGroup
-  totalBytes: number
-  sharePercent: number
-}): React.JSX.Element {
+  blocks
+}: NetworkRowProps): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const buttonRef = useRef<HTMLButtonElement>(null)
@@ -30,13 +36,20 @@ export function NetworkRow({
   const hasError = group.chunks.some((chunk) => chunk.status === 'error')
   const isActive = group.chunks.some((chunk) => chunk.status === 'downloading')
 
+  const groupShareDisplay =
+    group.bytesDownloaded === 0
+      ? '0%'
+      : Math.round(sharePercent) === 0 && sharePercent > 0
+        ? '<1%'
+        : `${Math.round(sharePercent)}%`
+
   return (
     <div>
       <div
         style={{
           display: 'grid',
           gridTemplateColumns: NETWORK_ROW_GRID_COLUMNS,
-          gap: 14,
+          gap: 12,
           alignItems: 'center',
           padding: '11px 20px',
           borderTop: '0.5px solid var(--border-subtle)'
@@ -106,57 +119,40 @@ export function NetworkRow({
             ⋯
           </button>
         </div>
-        <div style={{ display: 'flex', gap: 4, height: 16 }}>
-          {group.chunks.map((chunk, index) => {
-            const chunkSize =
-              chunk.rangeEnd !== null
-                ? chunk.rangeEnd - chunk.rangeStart + 1
-                : totalBytes - chunk.rangeStart
-            const percent =
-              chunkSize > 0 ? Math.min(100, (chunk.bytesDownloaded / chunkSize) * 100) : 0
-            const isChunkDone = chunk.status === 'completed'
-            const isChunkActive = chunk.status === 'downloading'
-            const isChunkError = chunk.status === 'error'
-            const title = `Stream #${index + 1}: ${Math.round(percent)}% · ${formatBytes(chunk.bytesDownloaded)} / ${formatBytes(chunkSize)}${chunk.speedBytesPerSec > 0 ? ` · ${formatSpeed(chunk.speedBytesPerSec)}` : chunk.status === 'paused' ? ' · Paused' : ''}`
-
-            return (
-              <div
-                key={chunk.id}
-                title={title}
-                style={{
-                  flex: 1,
-                  borderRadius: 3,
-                  background: 'var(--track-bg)',
-                  border: '0.5px solid var(--border-strong)',
-                  overflow: 'hidden',
-                  position: 'relative',
-                  display: 'flex',
-                  alignItems: 'center'
-                }}
-              >
-                <div
-                  style={{
-                    height: '100%',
-                    width: isChunkDone ? '100%' : `${percent}%`,
-                    background: isChunkError ? DANGER : visual.solid,
-                    opacity: isChunkDone ? 1 : isChunkActive ? 0.9 : 0.45,
-                    transition: 'width 0.2s ease-out',
-                    borderRadius: 2
-                  }}
-                />
-              </div>
-            )
-          })}
+        <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+          <div
+            style={{
+              flex: 1,
+              height: 6,
+              borderRadius: 999,
+              background: 'var(--track-bg)',
+              border: '0.5px solid var(--border-strong)',
+              overflow: 'hidden'
+            }}
+          >
+            <div
+              style={{
+                height: '100%',
+                width:
+                  totalBytes && totalBytes > 0
+                    ? `${Math.min(100, Math.max(0, (group.bytesDownloaded / totalBytes) * 100))}%`
+                    : '0%',
+                background: visual.solid,
+                borderRadius: 999,
+                transition: 'width 0.25s ease-out'
+              }}
+            />
+          </div>
         </div>
         <div
           style={{
             textAlign: 'right',
-            font: `500 12px/1 ${FONT_MONO}`,
-            color: 'var(--text)',
+            font: `500 11.5px/1 ${FONT_MONO}`,
+            color: sharePercent > 0 ? 'var(--text)' : 'var(--text-tertiary)',
             fontVariantNumeric: 'tabular-nums'
           }}
         >
-          {Math.round(sharePercent)}%
+          {groupShareDisplay}
         </div>
         <div
           style={{
@@ -182,7 +178,7 @@ export function NetworkRow({
       {expanded && group.chunks.length > 0 && (
         <div
           style={{
-            padding: '6px 20px 10px 42px',
+            padding: '6px 20px 10px',
             display: 'flex',
             flexDirection: 'column',
             gap: 6,
@@ -192,34 +188,56 @@ export function NetworkRow({
           }}
         >
           {group.chunks.map((chunk, index) => {
-            const chunkSize =
-              chunk.rangeEnd !== null
-                ? chunk.rangeEnd - chunk.rangeStart + 1
-                : totalBytes - chunk.rangeStart
-            const percent =
-              chunkSize > 0 ? Math.min(100, (chunk.bytesDownloaded / chunkSize) * 100) : 0
             const isChunkActive = chunk.status === 'downloading'
             const isChunkDone = chunk.status === 'completed'
             const isChunkError = chunk.status === 'error'
 
-            const rangeText =
-              chunk.rangeEnd !== null
-                ? `${formatBytes(chunk.rangeStart)} – ${formatBytes(chunk.rangeEnd)}`
-                : `${formatBytes(chunk.rangeStart)}+`
+            const currentBlock =
+              blocks && blocks.length > 0
+                ? ((chunk.currentBlockIndex != null
+                    ? blocks[chunk.currentBlockIndex]
+                    : undefined) ?? blocks.find((b) => b.rangeStart === chunk.rangeStart))
+                : undefined
+
+            const chunkSize = currentBlock
+              ? currentBlock.rangeEnd !== null
+                ? currentBlock.rangeEnd - currentBlock.rangeStart + 1
+                : 0
+              : chunk.rangeEnd !== null
+                ? chunk.rangeEnd - chunk.rangeStart + 1
+                : totalBytes
+                  ? totalBytes - chunk.rangeStart
+                  : 0
+
+            const chunkBytesDownloaded = currentBlock
+              ? currentBlock.bytesDownloaded
+              : isChunkDone && chunkSize > 0
+                ? chunkSize
+                : chunk.bytesDownloaded
+
+            const chunkPercent =
+              chunkSize > 0
+                ? Math.min(100, Math.max(0, (chunkBytesDownloaded / chunkSize) * 100))
+                : 0
+
+            const isCurrentBlockDone =
+              currentBlock?.status === 'completed' ||
+              isChunkDone ||
+              (chunkSize > 0 && chunkPercent >= 100)
 
             return (
               <div
                 key={chunk.id}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '110px 1fr 52px 82px 140px',
+                  gridTemplateColumns: NETWORK_ROW_GRID_COLUMNS,
                   gap: 12,
                   alignItems: 'center',
                   padding: '3px 0',
                   font: `11px/1.2 ${FONT_MONO}`
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
                   <div
                     style={{
                       width: 5,
@@ -227,86 +245,167 @@ export function NetworkRow({
                       borderRadius: '50%',
                       background: isChunkError
                         ? DANGER
-                        : isChunkDone
+                        : isCurrentBlockDone
                           ? visual.solid
                           : isChunkActive
                             ? visual.solid
                             : 'var(--icon-muted)',
-                      opacity: isChunkActive || isChunkDone ? 1 : 0.4
+                      opacity: isChunkActive || isCurrentBlockDone ? 1 : 0.4
                     }}
                   />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                   <span
                     style={{
                       color: 'var(--text)',
-                      fontWeight: 600,
+                      fontWeight: 500,
                       whiteSpace: 'nowrap'
                     }}
                   >
                     Stream #{index + 1}
                   </span>
+                  {currentBlock && (
+                    <span
+                      style={{
+                        font: `500 9px/1 ${FONT_MONO}`,
+                        color: 'var(--text-tertiary)',
+                        background: 'var(--bg-tertiary)',
+                        padding: '1.5px 4.5px',
+                        borderRadius: 3,
+                        border: '0.5px solid var(--border)',
+                        whiteSpace: 'nowrap'
+                      }}
+                      title={`Range: ${currentBlock.rangeStart} – ${currentBlock.rangeEnd ?? 'end'}`}
+                    >
+                      Chunk #{currentBlock.index + 1}
+                    </span>
+                  )}
+                  {isChunkActive ? (
+                    <span
+                      style={{
+                        padding: '1px 5px',
+                        borderRadius: 3,
+                        background: visual.bg,
+                        border: `0.5px solid ${visual.border}`,
+                        color: visual.text,
+                        fontSize: '9px',
+                        fontWeight: 600,
+                        letterSpacing: '0.04em'
+                      }}
+                    >
+                      ACTIVE
+                    </span>
+                  ) : isCurrentBlockDone ? (
+                    <span
+                      style={{
+                        color: 'var(--text-tertiary)',
+                        fontSize: '9.5px'
+                      }}
+                    >
+                      Done
+                    </span>
+                  ) : chunk.status === 'paused' ? (
+                    <span
+                      style={{
+                        color: 'var(--text-tertiary)',
+                        fontSize: '9.5px'
+                      }}
+                    >
+                      Paused
+                    </span>
+                  ) : chunk.status === 'retrying' ? (
+                    <span
+                      style={{
+                        color: DANGER,
+                        fontSize: '9.5px'
+                      }}
+                    >
+                      Retrying…
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        color: 'var(--text-tertiary)',
+                        fontSize: '9.5px'
+                      }}
+                    >
+                      Waiting
+                    </span>
+                  )}
                 </div>
 
-                <div
-                  style={{
-                    height: 6,
-                    borderRadius: 999,
-                    background: 'var(--track-bg)',
-                    overflow: 'hidden',
-                    position: 'relative'
-                  }}
-                >
+                <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
                   <div
                     style={{
-                      height: '100%',
-                      width: isChunkDone ? '100%' : `${percent}%`,
-                      background: isChunkError ? DANGER : visual.solid,
+                      flex: 1,
+                      height: 5,
                       borderRadius: 999,
-                      transition: 'width 0.2s ease-out'
+                      background: 'var(--track-bg)',
+                      border: '0.5px solid var(--border-strong)',
+                      overflow: 'hidden'
                     }}
-                  />
+                    title={
+                      chunkSize > 0
+                        ? `Chunk progress: ${formatBytes(chunkBytesDownloaded)} of ${formatBytes(chunkSize)} (${Math.round(chunkPercent)}%)`
+                        : undefined
+                    }
+                  >
+                    <div
+                      style={{
+                        height: '100%',
+                        width: isCurrentBlockDone ? '100%' : `${chunkPercent}%`,
+                        background: isChunkError ? DANGER : visual.solid,
+                        borderRadius: 999,
+                        transition: 'width 0.2s ease-out'
+                      }}
+                    />
+                  </div>
                 </div>
 
                 <div
                   style={{
                     textAlign: 'right',
-                    color: isChunkDone ? visual.text : 'var(--text)',
-                    fontVariantNumeric: 'tabular-nums',
-                    fontWeight: 500
+                    font: `500 11px/1 ${FONT_MONO}`,
+                    color: isCurrentBlockDone
+                      ? visual.text
+                      : isChunkActive
+                        ? 'var(--text)'
+                        : 'var(--text-tertiary)',
+                    fontVariantNumeric: 'tabular-nums'
                   }}
                 >
-                  {Math.round(percent)}%
+                  {Math.round(chunkPercent)}%
                 </div>
 
                 <div
                   style={{
                     textAlign: 'right',
+                    font: `500 11px/1 ${FONT_MONO}`,
                     color: isChunkActive ? visual.text : 'var(--text-tertiary)',
-                    fontVariantNumeric: 'tabular-nums',
-                    fontWeight: 500
+                    fontVariantNumeric: 'tabular-nums'
                   }}
                 >
-                  {isChunkActive
-                    ? formatSpeed(chunk.speedBytesPerSec)
-                    : isChunkDone
-                      ? 'Done'
-                      : chunk.status === 'retrying'
-                        ? 'Retrying…'
-                        : chunk.status === 'paused'
-                          ? 'Paused'
-                          : 'Waiting'}
+                  {isChunkActive ? formatSpeed(chunk.speedBytesPerSec) : '—'}
                 </div>
 
                 <div
                   style={{
                     textAlign: 'right',
+                    font: `11px/1 ${FONT_MONO}`,
                     color: 'var(--text-secondary)',
                     fontVariantNumeric: 'tabular-nums',
-                    fontSize: '10.5px',
                     whiteSpace: 'nowrap'
                   }}
-                  title={`Byte range: ${rangeText}`}
+                  title={
+                    chunkSize > 0
+                      ? `${formatBytes(chunkBytesDownloaded)} of ${formatBytes(chunkSize)}`
+                      : formatBytes(chunkBytesDownloaded)
+                  }
                 >
-                  {formatBytes(chunk.bytesDownloaded)} / {formatBytes(chunkSize)}
+                  {chunkSize > 0
+                    ? `${formatBytes(chunkBytesDownloaded)} / ${formatBytes(chunkSize)}`
+                    : formatBytes(chunkBytesDownloaded)}
                 </div>
               </div>
             )

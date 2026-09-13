@@ -43,6 +43,19 @@ export interface ChunkState {
   error?: string
   /** Number of times this chunk's connection has been retried after a dropped/failed attempt. */
   retryCount: number
+  /** Index of the block currently being downloaded by this worker chunk. */
+  currentBlockIndex?: number
+}
+
+export type BlockStatus = 'pending' | 'downloading' | 'completed' | 'error'
+
+export interface BlockState {
+  index: number
+  rangeStart: number
+  rangeEnd: number | null
+  status: BlockStatus
+  interfaceId?: string
+  bytesDownloaded: number
 }
 
 export interface DownloadState {
@@ -56,6 +69,9 @@ export interface DownloadState {
   speedBytesPerSec: number
   status: DownloadStatus
   chunks: ChunkState[]
+  blocks?: BlockState[]
+  totalBlocks?: number
+  blockSizeBytes?: number
   error?: string
   startedAt: number
   pausedAt?: number

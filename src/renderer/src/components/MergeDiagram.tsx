@@ -61,6 +61,25 @@ export function MergeDiagram({
         const color = muted ? 'var(--icon-muted)' : network.solid
         return <circle key={`dot-${index}`} cx={4} cy={y} r={4} fill={color} />
       })}
+      {!muted &&
+        networks.map((network, index) => {
+          const y = (index + 0.5) * (height / networks.length)
+          const label =
+            network.label.trim().length > 16
+              ? `${network.label.trim().slice(0, 15).toUpperCase()}…`
+              : network.label.trim().toUpperCase()
+          return (
+            <text
+              key={`label-${index}`}
+              x={14}
+              y={y - 6}
+              fill="var(--text-tertiary)"
+              style={{ font: `500 9px ${FONT_MONO}`, letterSpacing: '0.1em' }}
+            >
+              {label}
+            </text>
+          )
+        })}
       {!muted && (
         <text
           x={WIDTH - 10}

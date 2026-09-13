@@ -49,7 +49,7 @@ export function NetworkRow({
             borderRadius: '50%',
             background: hasError ? DANGER : visual.solid,
             animation: isActive ? 'plexo-glow 1.8s infinite' : undefined,
-            opacity: isActive || hasError ? 1 : 0.45
+            opacity: isActive || hasError ? 1 : 0.65
           }}
         />
         <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>

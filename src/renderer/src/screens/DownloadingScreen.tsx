@@ -37,15 +37,9 @@ import {
 // matter which OS appearance the rest of the window is following.
 const heroScopeStyle: React.CSSProperties = {
   padding: '18px 20px',
-  background: 'linear-gradient(#1f2224, #1b1e20)',
-  borderBottom: '1px solid #2b2f33',
-  color: '#f5f2ed',
-  ...({
-    '--text': '#f5f2ed',
-    '--text-secondary': '#a9adb2',
-    '--text-tertiary': '#8d9196',
-    '--border': '#2b2f33'
-  } as React.CSSProperties)
+  background: 'var(--hero-bg)',
+  borderBottom: '1px solid var(--hero-border)',
+  color: 'var(--text)'
 }
 
 export function DownloadingScreen({ download }: { download: DownloadState }): React.JSX.Element {
@@ -200,7 +194,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
               style={{
                 font: `500 10px/1 ${FONT_MONO}`,
                 letterSpacing: '0.2em',
-                color: '#8d9196',
+                color: 'var(--text-tertiary)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 6
@@ -228,14 +222,14 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                 style={{
                   font: `600 38px/0.88 ${FONT_MONO}`,
                   letterSpacing: '-0.03em',
-                  color: isPaused ? 'var(--text-tertiary)' : '#f5f2ed',
+                  color: isPaused ? 'var(--text-tertiary)' : 'var(--text)',
                   fontVariantNumeric: 'tabular-nums'
                 }}
               >
                 {isPaused ? '—' : speed.value}
               </div>
               {!isPaused && (
-                <div style={{ font: `500 12px/1 ${FONT_MONO}`, color: '#8d9196' }}>
+                <div style={{ font: `500 12px/1 ${FONT_MONO}`, color: 'var(--text-tertiary)' }}>
                   {speed.unit}/s
                 </div>
               )}
@@ -246,20 +240,20 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                 alignItems: 'center',
                 gap: 8,
                 font: `500 10px/1 ${FONT_MONO}`,
-                color: '#8d9196',
+                color: 'var(--text-tertiary)',
                 fontVariantNumeric: 'tabular-nums'
               }}
             >
               <span>
                 AVG{' '}
-                <span style={{ color: '#f5f2ed', fontWeight: 600 }}>
+                <span style={{ color: 'var(--text)', fontWeight: 600 }}>
                   {formatSpeed(avgSpeedBytesPerSec)}
                 </span>
               </span>
               <span style={{ opacity: 0.35 }}>·</span>
               <span>
                 PEAK{' '}
-                <span style={{ color: '#f5f2ed', fontWeight: 600 }}>
+                <span style={{ color: 'var(--text)', fontWeight: 600 }}>
                   {formatSpeed(peakSpeedBytesPerSec)}
                 </span>
               </span>
@@ -314,7 +308,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
               style={{
                 font: `500 9.5px/1 ${FONT_MONO}`,
                 letterSpacing: '0.12em',
-                color: '#8d9196'
+                color: 'var(--text-tertiary)'
               }}
             >
               THROUGHPUT · {isPaused ? 'PAUSED' : `LAST ${speedHistory.length}S`}

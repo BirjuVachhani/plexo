@@ -46,43 +46,48 @@
   --checkbox-shadow: rgba(0, 0, 0, 0.15);
   --checkbox-inset-shadow: rgba(0, 0, 0, 0.04);
 
+  --hero-bg: linear-gradient(180deg, #fbfbfc 0%, #f4f5f7 100%);
+  --hero-border: #e2e4e8;
+
   /* Network + brand palette — light-mode originals, adapted to sit on a white ground. */
-  --color-wifi: #2f8577;
-  --color-wifi-bg: #e7f3f1;
-  --color-wifi-border: #bfe0da;
-  --color-wifi-text: #1f6358;
+  --color-wifi: #1f8a70;
+  --color-wifi-bg: #e6f6f2;
+  --color-wifi-border: #b8e6dc;
+  --color-wifi-text: #0e6b54;
   --color-wifi-onsolid: #ffffff;
 
-  --color-usb: #b5790f;
-  --color-usb-bg: #fbf1de;
-  --color-usb-border: #edd7a8;
-  --color-usb-text: #8a5a13;
+  --color-usb: #d97706;
+  --color-usb-bg: #fef3c7;
+  --color-usb-border: #fde68a;
+  --color-usb-text: #92400e;
   --color-usb-onsolid: #ffffff;
 
-  --color-ethernet: #5567a0;
-  --color-ethernet-bg: #eceef7;
-  --color-ethernet-border: #c9d0ea;
-  --color-ethernet-text: #3d4d82;
+  --color-ethernet: #4f64a5;
+  --color-ethernet-bg: #edf0f8;
+  --color-ethernet-border: #cbd3ed;
+  --color-ethernet-text: #374984;
   --color-ethernet-onsolid: #ffffff;
 
-  --color-neutral: #6e7278;
-  --color-neutral-bg: #f0f0f1;
-  --color-neutral-border: #d6d7d9;
-  --color-neutral-text: #55585c;
+  --color-neutral: #6b7280;
+  --color-neutral-bg: #f3f4f6;
+  --color-neutral-border: #e5e7eb;
+  --color-neutral-text: #4b5563;
   --color-neutral-onsolid: #ffffff;
 
-  --color-accent: #b5790f;
+  --color-accent: #d97706;
   --color-accent-onsolid: #ffffff;
-  --color-accent-shadow: rgba(181, 121, 15, 0.2);
-  --color-success: #2f8577;
+  --color-accent-shadow: rgba(217, 119, 6, 0.25);
+  --color-success: #1f8a70;
 
-  --color-danger: #b3261e;
-  --color-danger-bg: #fbeaea;
-  --color-danger-border: #f0c6c4;
+  --color-danger: #dc2626;
+  --color-danger-bg: #fef2f2;
+  --color-danger-border: #fecaca;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
+    --hero-bg: linear-gradient(180deg, #202325 0%, #1b1e20 100%);
+    --hero-border: #2b2f33;
     /* Graphite instrument-panel background — exact hex values from the "Plexo v2" design doc. */
     --bg: #1b1e20;
     --bg-secondary: #202325;

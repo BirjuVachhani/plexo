@@ -27,15 +27,9 @@ import {
 
 const heroScopeStyle: React.CSSProperties = {
   padding: '18px 20px',
-  background: 'linear-gradient(#1f2224, #1b1e20)',
-  borderBottom: '1px solid #2b2f33',
-  color: '#f5f2ed',
-  ...({
-    '--text': '#f5f2ed',
-    '--text-secondary': '#a9adb2',
-    '--text-tertiary': '#8d9196',
-    '--border': '#2b2f33'
-  } as React.CSSProperties)
+  background: 'var(--hero-bg)',
+  borderBottom: '1px solid var(--hero-border)',
+  color: 'var(--text)'
 }
 
 export function CompleteScreen({
@@ -154,7 +148,7 @@ export function CompleteScreen({
               style={{
                 marginTop: 5,
                 font: `11.5px/1.3 ${FONT_MONO}`,
-                color: '#8d9196',
+                color: 'var(--text-tertiary)',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis'
@@ -166,7 +160,11 @@ export function CompleteScreen({
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
             <div
-              style={{ font: `500 9px/1 ${FONT_MONO}`, letterSpacing: '0.16em', color: '#8d9196' }}
+              style={{
+                font: `500 9px/1 ${FONT_MONO}`,
+                letterSpacing: '0.16em',
+                color: 'var(--text-tertiary)'
+              }}
             >
               AVERAGE
             </div>
@@ -175,13 +173,15 @@ export function CompleteScreen({
                 style={{
                   font: `600 26px/0.9 ${FONT_MONO}`,
                   letterSpacing: '-0.02em',
-                  color: '#f5f2ed',
+                  color: 'var(--text)',
                   fontVariantNumeric: 'tabular-nums'
                 }}
               >
                 {formatSpeed(avgSpeed).split(' ')[0]}
               </div>
-              <div style={{ font: `500 11px/1 ${FONT_MONO}`, color: '#8d9196' }}>MB/s</div>
+              <div style={{ font: `500 11px/1 ${FONT_MONO}`, color: 'var(--text-tertiary)' }}>
+                MB/s
+              </div>
             </div>
             {activeChipOption && (
               <button

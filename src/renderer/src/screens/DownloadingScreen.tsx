@@ -266,7 +266,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                   marginTop: 2
                 }}
               >
-                Download paused · Click Resume to continue
+                Download paused
               </div>
             ) : (
               activeChipOption && (

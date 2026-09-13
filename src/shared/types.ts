@@ -27,13 +27,7 @@ export interface ProbeResult {
 export type DownloadStatus = 'downloading' | 'paused' | 'completed' | 'error' | 'cancelled'
 
 export type ChunkStatus =
-  | 'pending'
-  | 'downloading'
-  | 'retrying'
-  | 'paused'
-  | 'completed'
-  | 'error'
-  | 'cancelled'
+  'pending' | 'downloading' | 'retrying' | 'paused' | 'completed' | 'error' | 'cancelled'
 
 export interface ChunkState {
   id: number
@@ -73,6 +67,8 @@ export interface StartDownloadRequest {
   totalBytes: number
   supportsRanges: boolean
   interfaceIds: string[]
+  /** Total parallel connections to open, distributed round-robin across interfaceIds. */
+  connectionCount: number
   etag: string | null
   lastModified: string | null
 }

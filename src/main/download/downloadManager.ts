@@ -72,6 +72,10 @@ function splitIntoRanges(
   return ranges
 }
 
+// Defensive cap independent of whatever the renderer sends — connections are
+// distributed round-robin across interfaces, not tied 1:1 to them anymore.
+const MAX_CONNECTIONS = 32
+
 const MAX_CHUNK_RETRIES = 5
 const RETRY_BASE_DELAY_MS = 1000
 const RETRY_MAX_DELAY_MS = 15_000
@@ -183,12 +187,17 @@ export class DownloadManager {
       requestPayload.suggestedFileName
     )
 
+    const connectionCount = Math.max(1, Math.min(requestPayload.connectionCount, MAX_CONNECTIONS))
     const canSplit =
-      requestPayload.supportsRanges && requestPayload.totalBytes > 0 && interfaces.length > 1
+      requestPayload.supportsRanges && requestPayload.totalBytes > 0 && connectionCount > 1
     const ranges = canSplit
-      ? splitIntoRanges(requestPayload.totalBytes, interfaces.length)
+      ? splitIntoRanges(requestPayload.totalBytes, connectionCount)
       : [{ start: 0, end: requestPayload.totalBytes > 0 ? requestPayload.totalBytes - 1 : null }]
-    const activeInterfaces = canSplit ? interfaces : [interfaces[0]]
+    // Round-robin: connections no longer have to match interfaces 1:1, so an
+    // interface can carry more than one connection's worth of chunks.
+    const activeInterfaces = canSplit
+      ? Array.from({ length: connectionCount }, (_, index) => interfaces[index % interfaces.length])
+      : [interfaces[0]]
 
     const chunks: ChunkState[] = ranges.map((range, index) => ({
       id: index,

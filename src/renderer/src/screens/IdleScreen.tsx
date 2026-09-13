@@ -22,6 +22,19 @@ type ProbeState =
   | { status: 'error'; message: string }
 
 const PROBE_DEBOUNCE_MS = 600
+const MIN_CONNECTIONS_PER_INTERFACE = 1
+const MAX_CONNECTIONS_PER_INTERFACE = 8
+
+const stepperButtonStyle: React.CSSProperties = {
+  width: 20,
+  height: 20,
+  borderRadius: 5,
+  border: '0.5px solid #b9b9bb',
+  background: 'linear-gradient(#fefefe, #f3f3f3)',
+  color: '#1d1d1f',
+  font: '13px/1 -apple-system, sans-serif',
+  cursor: 'pointer'
+}
 
 export function IdleScreen(): React.JSX.Element {
   useNetworkPolling(true)
@@ -38,6 +51,7 @@ export function IdleScreen(): React.JSX.Element {
 
   const [probe, setProbe] = useState<ProbeState>({ status: 'idle' })
   const [selectedInterfaceIds, setSelectedInterfaceIds] = useState<string[]>([])
+  const [connectionsPerInterface, setConnectionsPerInterface] = useState(1)
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
 
@@ -71,6 +85,7 @@ export function IdleScreen(): React.JSX.Element {
         setSelectedInterfaceIds(
           (multiConnectionAllowed ? interfaces : interfaces.slice(0, 1)).map((iface) => iface.id)
         )
+        setConnectionsPerInterface(1)
       } catch (error) {
         if (probeRequestId.current !== requestId) return
         setProbe({
@@ -116,6 +131,9 @@ export function IdleScreen(): React.JSX.Element {
         totalBytes: probe.result.totalBytes ?? 0,
         supportsRanges: probe.multiConnectionAllowed,
         interfaceIds: selectedInterfaceIds,
+        connectionCount: probe.multiConnectionAllowed
+          ? selectedInterfaceIds.length * connectionsPerInterface
+          : 1,
         etag: probe.result.etag,
         lastModified: probe.result.lastModified
       })
@@ -184,6 +202,64 @@ export function IdleScreen(): React.JSX.Element {
             />
           ))}
         </div>
+
+        {probe.status === 'ready' &&
+          probe.multiConnectionAllowed &&
+          selectedInterfaceIds.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '10px 20px',
+                borderTop: '0.5px solid #ececee'
+              }}
+            >
+              <div style={{ font: '12.5px/1 -apple-system, sans-serif', color: '#1d1d1f' }}>
+                Connections per link
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setConnectionsPerInterface((count) =>
+                      Math.max(MIN_CONNECTIONS_PER_INTERFACE, count - 1)
+                    )
+                  }
+                  disabled={connectionsPerInterface <= MIN_CONNECTIONS_PER_INTERFACE}
+                  style={stepperButtonStyle}
+                >
+                  −
+                </button>
+                <div
+                  style={{
+                    font: `12.5px/1 ${'"SF Mono", ui-monospace, Menlo, monospace'}`,
+                    color: '#1d1d1f',
+                    width: 14,
+                    textAlign: 'center'
+                  }}
+                >
+                  {connectionsPerInterface}
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setConnectionsPerInterface((count) =>
+                      Math.min(MAX_CONNECTIONS_PER_INTERFACE, count + 1)
+                    )
+                  }
+                  disabled={connectionsPerInterface >= MAX_CONNECTIONS_PER_INTERFACE}
+                  style={stepperButtonStyle}
+                >
+                  +
+                </button>
+              </div>
+              <div style={{ flex: 1 }} />
+              <div style={{ font: '11.5px/1.4 -apple-system, sans-serif', color: '#8a8a8e' }}>
+                {selectedInterfaceIds.length * connectionsPerInterface} connections total
+              </div>
+            </div>
+          )}
 
         {probe.status === 'ready' && !probe.multiConnectionAllowed && (
           <div

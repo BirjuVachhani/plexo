@@ -58,7 +58,6 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   const speedHistory = useAppStore((store) => store.speedHistory)
   const speedHistoryByInterface = useAppStore((store) => store.speedHistoryByInterface)
   const peakSpeedBytesPerSec = useAppStore((store) => store.peakSpeedBytesPerSec)
-  const latencies = useAppStore((store) => store.latencies)
   const networkPreferences = useAppStore((store) => store.networkPreferences)
   const [now, setNow] = useState(() => Date.now())
 
@@ -103,20 +102,23 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   )
   const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || 1
 
-  const fastestIndex = groups.reduce<number>(
-    (fastest, group, index) =>
-      fastest === -1 || group.speedBytesPerSec > groups[fastest].speedBytesPerSec ? index : fastest,
-    -1
-  )
-  const fastestGroup = fastestIndex === -1 ? null : groups[fastestIndex]
   const [chipModeIndex, setChipModeIndex] = useState(0)
 
   const completedChunks = download.chunks.filter((chunk) => chunk.status === 'completed').length
   const totalRetries = download.chunks.reduce((sum, chunk) => sum + chunk.retryCount, 0)
   const remainingBytes = knownSize ? Math.max(0, download.totalBytes - download.bytesDownloaded) : 0
 
-  // Build list of toggleable comparison metrics for active networks
-  const chipOptions: { label: string; tooltip: string }[] = []
+  const avgSpeedBytesPerSec = elapsedSeconds > 0 ? download.bytesDownloaded / elapsedSeconds : 0
+
+  // Build list of toggleable comparison metrics for active networks (only "X× [NETWORK] ALONE")
+  interface SpeedChipOption {
+    label: string
+    tooltip: string
+    color: string
+    bg: string
+    border: string
+  }
+  const chipOptions: SpeedChipOption[] = []
   if (groups.length > 1) {
     const sortedIndices = groups
       .map((_, i) => i)
@@ -135,20 +137,17 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
 
     for (const idx of sortedIndices) {
       const g = groups[idx]
-      const name = visuals[idx].name.toUpperCase()
+      const visual = visuals[idx]
+      const name = visual.name.toUpperCase()
       if (download.speedBytesPerSec > 0 && g.speedBytesPerSec > 0) {
         const ratio = download.speedBytesPerSec / g.speedBytesPerSec
         if (ratio >= 1.05) {
           chipOptions.push({
             label: `${ratio.toFixed(1)}× ${name} ALONE`,
-            tooltip: `Total speed is ${ratio.toFixed(1)}× faster than ${visuals[idx].name} alone`
-          })
-          const pct = Math.round(
-            ((download.speedBytesPerSec - g.speedBytesPerSec) / g.speedBytesPerSec) * 100
-          )
-          chipOptions.push({
-            label: `+${pct}% VS ${name}`,
-            tooltip: `+${pct}% throughput gain compared to ${visuals[idx].name} alone`
+            tooltip: `Total speed is ${ratio.toFixed(1)}× faster than ${visual.name} alone`,
+            color: visual.text,
+            bg: visual.bg,
+            border: visual.border
           })
         }
       } else if (download.bytesDownloaded > 0 && g.bytesDownloaded > 0) {
@@ -156,38 +155,12 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         if (ratio >= 1.05) {
           chipOptions.push({
             label: `${ratio.toFixed(1)}× ${name} ALONE`,
-            tooltip: `Total downloaded is ${ratio.toFixed(1)}× compared to ${visuals[idx].name} alone`
+            tooltip: `Total downloaded is ${ratio.toFixed(1)}× compared to ${visual.name} alone`,
+            color: visual.text,
+            bg: visual.bg,
+            border: visual.border
           })
         }
-      }
-    }
-
-    if (
-      fastestGroup &&
-      download.speedBytesPerSec > fastestGroup.speedBytesPerSec &&
-      fastestGroup.speedBytesPerSec > 0
-    ) {
-      const addedSpeed = download.speedBytesPerSec - fastestGroup.speedBytesPerSec
-      chipOptions.push({
-        label: `+${formatSpeed(addedSpeed).toUpperCase()} MERGED`,
-        tooltip: `${formatSpeed(addedSpeed)} gained by bonding networks`
-      })
-    }
-
-    if (
-      knownSize &&
-      fastestGroup &&
-      fastestGroup.speedBytesPerSec > 0 &&
-      download.speedBytesPerSec > 0
-    ) {
-      const soloRemainingSecs = remainingBytes / fastestGroup.speedBytesPerSec
-      const actualRemainingSecs = remainingBytes / download.speedBytesPerSec
-      const savedSecs = soloRemainingSecs - actualRemainingSecs
-      if (savedSecs > 1) {
-        chipOptions.push({
-          label: `~${formatDuration(savedSecs).toUpperCase()} SAVED`,
-          tooltip: `Estimated ~${formatDuration(savedSecs)} saved on remaining download`
-        })
       }
     }
   }
@@ -201,7 +174,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
     >
       <div style={heroScopeStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 122 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, minWidth: 130 }}>
             <div
               style={{
                 font: `500 10px/1 ${FONT_MONO}`,
@@ -214,7 +187,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
               <div
                 style={{
-                  font: `600 40px/0.88 ${FONT_MONO}`,
+                  font: `600 38px/0.88 ${FONT_MONO}`,
                   letterSpacing: '-0.03em',
                   color: '#f5f2ed',
                   fontVariantNumeric: 'tabular-nums'
@@ -226,25 +199,50 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                 {speed.unit}/s
               </div>
             </div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                font: `500 10px/1 ${FONT_MONO}`,
+                color: '#8d9196',
+                fontVariantNumeric: 'tabular-nums'
+              }}
+            >
+              <span>
+                AVG{' '}
+                <span style={{ color: '#f5f2ed', fontWeight: 600 }}>
+                  {formatSpeed(avgSpeedBytesPerSec)}
+                </span>
+              </span>
+              <span style={{ opacity: 0.35 }}>·</span>
+              <span>
+                PEAK{' '}
+                <span style={{ color: '#f5f2ed', fontWeight: 600 }}>
+                  {formatSpeed(peakSpeedBytesPerSec)}
+                </span>
+              </span>
+            </div>
             {activeChipOption && (
               <button
                 type="button"
                 onClick={() => setChipModeIndex((i) => (i + 1) % chipOptions.length)}
-                title={`${activeChipOption.tooltip} (click to toggle)`}
+                title={`${activeChipOption.tooltip}${chipOptions.length > 1 ? ' (click to toggle)' : ''}`}
                 style={{
                   ...accentChipStyle,
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 5,
-                  cursor: 'pointer',
+                  cursor: chipOptions.length > 1 ? 'pointer' : 'default',
                   userSelect: 'none',
-                  border: '0.5px solid var(--color-usb-border)',
-                  background: 'var(--color-usb-bg)',
-                  color: 'var(--color-usb-text)'
+                  border: `0.5px solid ${activeChipOption.border}`,
+                  background: activeChipOption.bg,
+                  color: activeChipOption.color,
+                  width: 'fit-content'
                 }}
               >
                 <span>{activeChipOption.label}</span>
-                <span style={{ opacity: 0.55, fontSize: 8.5 }}>⇄</span>
+                {chipOptions.length > 1 && <span style={{ opacity: 0.55, fontSize: 8.5 }}>⇄</span>}
               </button>
             )}
           </div>
@@ -352,7 +350,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         style={{
           margin: '0 20px 14px',
           ...statGridStyle,
-          gridTemplateColumns: 'repeat(6, minmax(0, 1fr))'
+          gridTemplateColumns: 'repeat(5, minmax(0, 1fr))'
         }}
       >
         {[
@@ -364,7 +362,6 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
               !isPaused && knownSize ? formatEta(remainingBytes, download.speedBytesPerSec) : '—'
           },
           { label: 'Elapsed', value: formatDuration(elapsedSeconds) },
-          { label: 'Peak', value: formatSpeed(peakSpeedBytesPerSec) },
           { label: 'Chunks', value: `${completedChunks} / ${download.chunks.length}` }
         ].map((stat, index) => (
           <div
@@ -413,8 +410,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
           <div>Chunks</div>
           <div style={{ textAlign: 'right' }}>Share</div>
           <div style={{ textAlign: 'right' }}>Speed</div>
-          <div style={{ textAlign: 'right' }}>Moved</div>
-          <div style={{ textAlign: 'right' }}>Ping</div>
+          <div style={{ textAlign: 'right' }}>Downloaded</div>
         </div>
         {groups.map((group, index) => (
           <NetworkRow
@@ -422,7 +418,6 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             group={group}
             totalBytes={download.totalBytes}
             sharePercent={(weights[index] / totalWeight) * 100}
-            latencyMs={latencies[group.interfaceId]}
           />
         ))}
       </div>

@@ -15,16 +15,14 @@ import { NetworkEditorFields } from './NetworkEditorFields'
 export function NetworkRow({
   group,
   totalBytes,
-  sharePercent,
-  latencyMs
+  sharePercent
 }: {
   group: NetworkGroup
   totalBytes: number
   sharePercent: number
-  latencyMs?: number | null
 }): React.JSX.Element {
   const [editing, setEditing] = useState(false)
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
   const preference = useAppStore((store) => store.networkPreferences[group.interfaceId])
   const setNetworkPreference = useAppStore((store) => store.setNetworkPreference)
   const visual = resolveNetworkVisual(group.interfaceKind, group.interfaceLabel, preference)
@@ -54,40 +52,41 @@ export function NetworkRow({
           }}
         />
         <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{ minWidth: 0 }}>
-            <div
-              style={{
-                font: `600 12.5px/1.3 ${FONT_UI}`,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
-              }}
-            >
-              {visual.name}
-            </div>
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              title={expanded ? 'Collapse stream details' : 'Expand stream details'}
-              style={{
-                marginTop: 3,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-                border: 'none',
-                background: 'none',
-                padding: 0,
-                font: `500 10px/1 ${FONT_MONO}`,
-                color: 'var(--text-tertiary)',
-                cursor: 'pointer'
-              }}
-            >
-              <span>
-                {group.chunks.length} parallel stream{group.chunks.length === 1 ? '' : 's'}
-              </span>
-              <span style={{ fontSize: 8 }}>{expanded ? '▲' : '▼'}</span>
-            </button>
-          </div>
+          <span
+            style={{
+              font: `600 12.5px/1.2 ${FONT_UI}`,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              color: 'var(--text)'
+            }}
+            title={visual.name}
+          >
+            {visual.name}
+          </span>
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            title={expanded ? 'Collapse streams' : 'Expand streams'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 3,
+              padding: '2px 6px',
+              borderRadius: 4,
+              background: expanded ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
+              border: '0.5px solid var(--border)',
+              font: `500 10px/1 ${FONT_MONO}`,
+              color: expanded ? 'var(--text)' : 'var(--text-secondary)',
+              cursor: 'pointer',
+              flexShrink: 0,
+              userSelect: 'none',
+              lineHeight: 1
+            }}
+          >
+            <span>{group.chunks.length} streams</span>
+            <span style={{ fontSize: 7.5, opacity: 0.75 }}>{expanded ? '▲' : '▼'}</span>
+          </button>
           <button
             type="button"
             onClick={() => setEditing((value) => !value)}
@@ -176,15 +175,6 @@ export function NetworkRow({
           }}
         >
           {formatBytes(group.bytesDownloaded)}
-        </div>
-        <div
-          style={{
-            textAlign: 'right',
-            font: `11.5px/1 ${FONT_MONO}`,
-            color: 'var(--text-tertiary)'
-          }}
-        >
-          {latencyMs != null ? `${latencyMs} ms` : '—'}
         </div>
       </div>
       {expanded && group.chunks.length > 0 && (

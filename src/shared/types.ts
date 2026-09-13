@@ -23,7 +23,14 @@ export interface ProbeResult {
 
 export type DownloadStatus = 'downloading' | 'paused' | 'completed' | 'error' | 'cancelled'
 
-export type ChunkStatus = 'pending' | 'downloading' | 'paused' | 'completed' | 'error' | 'cancelled'
+export type ChunkStatus =
+  | 'pending'
+  | 'downloading'
+  | 'retrying'
+  | 'paused'
+  | 'completed'
+  | 'error'
+  | 'cancelled'
 
 export interface ChunkState {
   id: number

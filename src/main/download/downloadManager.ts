@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { mkdir, rm } from 'node:fs/promises'
+import { mkdir, rm, stat, truncate } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { BrowserWindow } from 'electron'
 import { app } from 'electron'
@@ -69,6 +69,55 @@ function splitIntoRanges(
     start = end + 1
   }
   return ranges
+}
+
+const MAX_CHUNK_RETRIES = 5
+const RETRY_BASE_DELAY_MS = 1000
+const RETRY_MAX_DELAY_MS = 15_000
+
+function retryDelayMs(attempt: number): number {
+  return Math.min(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), RETRY_MAX_DELAY_MS)
+}
+
+/** Waits, but returns early if the signal aborts (pause/cancel shouldn't wait out a retry backoff). */
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve()
+      return
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      resolve()
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+// A part file's on-disk size is the only thing we can actually trust across
+// a retry or resume — appending opens the file with flag 'a', which always
+// writes at the real end-of-file regardless of what byte count we think
+// we're at, so any mismatch (a crash, a write that hadn't flushed yet)
+// would otherwise silently shift every byte after it. Truncating to the
+// smaller of the two counts keeps the part file's length and our own
+// bookkeeping in agreement before we append another byte to it.
+async function reconcilePartFileSize(partPath: string, expectedBytes: number): Promise<number> {
+  let actualBytes = 0
+  try {
+    actualBytes = (await stat(partPath)).size
+  } catch {
+    actualBytes = 0
+  }
+
+  const safeBytes = Math.min(expectedBytes, actualBytes)
+  if (actualBytes !== safeBytes) {
+    await truncate(partPath, safeBytes)
+  }
+  return safeBytes
 }
 
 /** Appends one file's bytes onto an already-open writable, without ending it. */
@@ -249,7 +298,6 @@ export class DownloadManager {
 
   private async runChunk(runtime: DownloadRuntime, chunk: ChunkState): Promise<void> {
     const iface = runtime.activeInterfaces[chunk.id]
-    const resumeOffset = chunk.bytesDownloaded
     const controller = new AbortController()
     const existing = runtime.chunkRuntimes.get(chunk.id)
     const partPath = existing?.partPath ?? join(runtime.tempDir, `part-${chunk.id}`)
@@ -257,39 +305,68 @@ export class DownloadManager {
     chunk.status = 'downloading'
     this.scheduleUpdate(runtime)
 
-    try {
-      await downloadChunk({
-        url: runtime.requestPayload.url,
-        rangeStart: chunk.rangeStart + resumeOffset,
-        rangeEnd: chunk.rangeEnd,
-        localAddress: iface.address,
-        destinationPath: partPath,
-        append: resumeOffset > 0,
-        signal: controller.signal,
-        onProgress: (bytesThisRun) =>
-          this.onChunkProgress(runtime, chunk.id, resumeOffset + bytesThisRun)
-      })
-      chunk.status = 'completed'
-    } catch (error) {
-      if (controller.signal.aborted) {
-        chunk.status = runtime.state.status === 'paused' ? 'paused' : 'cancelled'
-      } else {
-        const message = error instanceof Error ? error.message : String(error)
-        chunk.status = 'error'
-        chunk.error = message
-        // Fail fast: one broken connection shouldn't leave the others
-        // downloading a file we're about to discard anyway.
-        if (runtime.state.status === 'downloading') {
-          runtime.state.status = 'error'
-          runtime.state.error = message
-          for (const chunkRuntime of runtime.chunkRuntimes.values()) {
-            chunkRuntime.controller.abort()
-          }
-        }
+    // A dropped connection shouldn't fail the whole download outright — most
+    // network blips are transient, so give the chunk a few tries with
+    // backoff before giving up on it (and, by extension, the download).
+    let attempt = 0
+    for (;;) {
+      const resumeOffset = await reconcilePartFileSize(partPath, chunk.bytesDownloaded)
+      if (resumeOffset !== chunk.bytesDownloaded) {
+        chunk.bytesDownloaded = resumeOffset
+        runtime.speedSamplesByChunk.delete(chunk.id)
+        this.recomputeAggregates(runtime)
       }
-    } finally {
-      this.scheduleUpdate(runtime)
+
+      try {
+        await downloadChunk({
+          url: runtime.requestPayload.url,
+          rangeStart: chunk.rangeStart + resumeOffset,
+          rangeEnd: chunk.rangeEnd,
+          localAddress: iface.address,
+          destinationPath: partPath,
+          append: resumeOffset > 0,
+          signal: controller.signal,
+          onProgress: (bytesThisRun) =>
+            this.onChunkProgress(runtime, chunk.id, resumeOffset + bytesThisRun)
+        })
+        chunk.status = 'completed'
+        break
+      } catch (error) {
+        if (controller.signal.aborted) {
+          chunk.status = runtime.state.status === 'paused' ? 'paused' : 'cancelled'
+          break
+        }
+
+        const message = error instanceof Error ? error.message : String(error)
+        chunk.error = message
+        attempt += 1
+
+        if (attempt > MAX_CHUNK_RETRIES) {
+          chunk.status = 'error'
+          // Fail fast: one broken connection shouldn't leave the others
+          // downloading a file we're about to discard anyway.
+          if (runtime.state.status === 'downloading') {
+            runtime.state.status = 'error'
+            runtime.state.error = message
+            for (const chunkRuntime of runtime.chunkRuntimes.values()) {
+              chunkRuntime.controller.abort()
+            }
+          }
+          break
+        }
+
+        chunk.status = 'retrying'
+        this.scheduleUpdate(runtime)
+        await delay(retryDelayMs(attempt), controller.signal)
+        if (controller.signal.aborted) {
+          chunk.status = runtime.state.status === 'paused' ? 'paused' : 'cancelled'
+          break
+        }
+        chunk.status = 'downloading'
+      }
     }
+
+    this.scheduleUpdate(runtime)
   }
 
   private onChunkProgress(
@@ -309,6 +386,11 @@ export class DownloadManager {
     chunk.speedBytesPerSec = pushSpeedSample(samples, bytesDownloaded, now)
     chunk.bytesDownloaded = bytesDownloaded
 
+    this.recomputeAggregates(runtime)
+    this.scheduleUpdate(runtime)
+  }
+
+  private recomputeAggregates(runtime: DownloadRuntime): void {
     runtime.state.bytesDownloaded = runtime.state.chunks.reduce(
       (sum, entry) => sum + entry.bytesDownloaded,
       0
@@ -317,8 +399,6 @@ export class DownloadManager {
       (sum, entry) => sum + entry.speedBytesPerSec,
       0
     )
-
-    this.scheduleUpdate(runtime)
   }
 
   private scheduleUpdate(runtime: DownloadRuntime): void {

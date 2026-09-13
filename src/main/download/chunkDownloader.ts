@@ -17,6 +17,11 @@ export interface ChunkDownloadOptions {
   signal: AbortSignal
 }
 
+// A server that accepts the connection and then goes silent (no data, no
+// error, no close) would otherwise hang the chunk forever with no way to
+// detect or retry it.
+const STALL_TIMEOUT_MS = 20_000
+
 /** Downloads a single byte range of a URL, bound to one network interface, into a part file. */
 export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
   const { url, rangeStart, rangeEnd, localAddress, destinationPath, append, onProgress, signal } =
@@ -92,6 +97,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
     )
 
     req.on('error', fail)
+    req.setTimeout(STALL_TIMEOUT_MS, () => fail(new Error('Connection stalled: no response from server')))
     req.end()
   })
 }

@@ -1,35 +1,39 @@
-import Versions from './components/Versions'
-import electronLogo from './assets/electron.svg'
+import { useDownloadEvents } from './hooks/useDownloadEvents'
+import { CompleteScreen } from './screens/CompleteScreen'
+import { DownloadingScreen } from './screens/DownloadingScreen'
+import { ErrorScreen } from './screens/ErrorScreen'
+import { IdleScreen } from './screens/IdleScreen'
+import { NoConnectionsScreen } from './screens/NoConnectionsScreen'
+import { useAppStore } from './store/useAppStore'
 
 function App(): React.JSX.Element {
-  const ipcHandle = (): void => window.electron.ipcRenderer.send('ping')
+  useDownloadEvents()
 
-  return (
-    <>
-      <img alt="logo" className="logo" src={electronLogo} />
-      <div className="creator">Powered by electron-vite</div>
-      <div className="text">
-        Build an Electron app with <span className="react">React</span>
-        &nbsp;and <span className="ts">TypeScript</span>
-      </div>
-      <p className="tip">
-        Please try pressing <code>F12</code> to open the devTool
-      </p>
-      <div className="actions">
-        <div className="action">
-          <a href="https://electron-vite.org/" target="_blank" rel="noreferrer">
-            Documentation
-          </a>
-        </div>
-        <div className="action">
-          <a target="_blank" rel="noreferrer" onClick={ipcHandle}>
-            Send IPC
-          </a>
-        </div>
-      </div>
-      <Versions></Versions>
-    </>
-  )
+  const interfaces = useAppStore((store) => store.interfaces)
+  const interfacesStatus = useAppStore((store) => store.interfacesStatus)
+  const currentDownload = useAppStore((store) => store.currentDownload)
+  const clearCurrentDownload = useAppStore((store) => store.clearCurrentDownload)
+
+  const handleNewDownload = (): void => {
+    if (currentDownload) void window.plexo.removeDownload(currentDownload.id)
+    clearCurrentDownload()
+  }
+
+  if (currentDownload) {
+    if (currentDownload.status === 'downloading' || currentDownload.status === 'paused') {
+      return <DownloadingScreen download={currentDownload} />
+    }
+    if (currentDownload.status === 'completed') {
+      return <CompleteScreen download={currentDownload} onNewDownload={handleNewDownload} />
+    }
+    return <ErrorScreen download={currentDownload} onNewDownload={handleNewDownload} />
+  }
+
+  if (interfacesStatus === 'ready' && interfaces.length === 0) {
+    return <NoConnectionsScreen />
+  }
+
+  return <IdleScreen />
 }
 
 export default App

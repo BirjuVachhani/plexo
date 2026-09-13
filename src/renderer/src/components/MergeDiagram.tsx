@@ -1,23 +1,31 @@
 import { FONT_MONO } from '../theme'
+import { formatSpeed } from '../utils/format'
 
-const ROW_HEIGHT = 30
-const WIDTH = 236
-const LABEL_X = 66
-const DOT_X = 74
-const CURVE_START_X = 80
-const MERGE_X = 168
-const STREAM_END_X = WIDTH - 6
+const ROW_HEIGHT = 36
+const LABEL_X = 68
+const DOT_X = 76
+const CURVE_START_X = 82
+const MERGE_X = 146
+const STREAM_END_X = 188
+const WIDTH = 196
 
-/** Draws the bonded-links-into-one-stream diagram: one dashed, flowing line
- * per active physical network, converging into a single solid stream. */
+export interface MergeDiagramNetwork {
+  solid: string
+  label: string
+  speedBytesPerSec?: number
+}
+
+/** Draws the bonded-links-into-one-stream diagram: individual networks with their
+ * real-time speed on the left, converging into a single merged stream pointing
+ * directly to the final total speed on the right. */
 export function MergeDiagram({
   networks,
   muted = false
 }: {
-  networks: Array<{ solid: string; label: string }>
+  networks: MergeDiagramNetwork[]
   muted?: boolean
 }): React.JSX.Element {
-  const height = Math.max(70, networks.length * ROW_HEIGHT + 16)
+  const height = Math.max(78, networks.length * ROW_HEIGHT + 10)
   const midY = height / 2
 
   return (
@@ -32,7 +40,7 @@ export function MergeDiagram({
           return (
             <path
               key={network.label + index}
-              d={`M${CURVE_START_X},${y.toFixed(1)} C${CURVE_START_X + 42},${y.toFixed(1)} ${MERGE_X - 32},${midY.toFixed(1)} ${MERGE_X},${midY.toFixed(1)}`}
+              d={`M${CURVE_START_X},${y.toFixed(1)} C${CURVE_START_X + 36},${y.toFixed(1)} ${MERGE_X - 26},${midY.toFixed(1)} ${MERGE_X},${midY.toFixed(1)}`}
               stroke={color}
               strokeDasharray="6 8"
               style={
@@ -46,20 +54,24 @@ export function MergeDiagram({
         <path
           d={`M${MERGE_X},${midY} L${STREAM_END_X},${midY}`}
           stroke={muted ? 'var(--icon-muted)' : 'var(--text)'}
-          strokeWidth={7}
+          strokeWidth={6.5}
         />
       </g>
+      <polygon
+        points={`${STREAM_END_X - 1},${midY - 4.5} ${STREAM_END_X + 6},${midY} ${STREAM_END_X - 1},${midY + 4.5}`}
+        fill={muted ? 'var(--icon-muted)' : 'var(--text)'}
+      />
       <circle
         cx={MERGE_X}
         cy={midY}
-        r={10}
+        r={9.5}
         fill="none"
         stroke={muted ? 'var(--icon-muted)' : 'var(--text)'}
         strokeOpacity={muted ? 1 : 0.25}
         strokeWidth={1.5}
         strokeDasharray={muted ? '3 4' : undefined}
       />
-      <circle cx={MERGE_X} cy={midY} r={4} fill={muted ? 'var(--icon-muted)' : 'var(--text)'} />
+      <circle cx={MERGE_X} cy={midY} r={3.5} fill={muted ? 'var(--icon-muted)' : 'var(--text)'} />
       {networks.map((network, index) => {
         const y = (index + 0.5) * (height / networks.length)
         const color = muted ? 'var(--icon-muted)' : network.solid
@@ -68,33 +80,50 @@ export function MergeDiagram({
       {networks.map((network, index) => {
         const y = (index + 0.5) * (height / networks.length)
         const label =
-          network.label.trim().length > 11
-            ? `${network.label.trim().slice(0, 10).toUpperCase()}…`
+          network.label.trim().length > 10
+            ? `${network.label.trim().slice(0, 9).toUpperCase()}…`
             : network.label.trim().toUpperCase()
+        const hasSpeed = network.speedBytesPerSec != null && network.speedBytesPerSec > 0
+        const speedText = hasSpeed ? formatSpeed(network.speedBytesPerSec!) : '—'
+
         return (
-          <text
-            key={`label-${index}`}
-            x={LABEL_X}
-            y={y}
-            dominantBaseline="central"
-            textAnchor="end"
-            fill={muted ? 'var(--icon-muted)' : 'var(--text-secondary)'}
-            style={{ font: `500 9px ${FONT_MONO}`, letterSpacing: '0.08em' }}
-          >
-            <title>{network.label}</title>
-            {label}
-          </text>
+          <g key={`info-${index}`}>
+            <text
+              x={LABEL_X}
+              y={y - 5.5}
+              textAnchor="end"
+              fill={muted ? 'var(--icon-muted)' : 'var(--text-tertiary)'}
+              style={{ font: `500 8.5px ${FONT_MONO}`, letterSpacing: '0.08em' }}
+            >
+              <title>{network.label}</title>
+              {label}
+            </text>
+            {!muted && (
+              <text
+                x={LABEL_X}
+                y={y + 7.5}
+                textAnchor="end"
+                fill={hasSpeed ? network.solid : 'var(--text-tertiary)'}
+                style={{
+                  font: `600 11px ${FONT_MONO}`,
+                  fontVariantNumeric: 'tabular-nums'
+                }}
+              >
+                {speedText}
+              </text>
+            )}
+          </g>
         )
       })}
       {!muted && (
         <text
-          x={STREAM_END_X}
-          y={midY - 12}
+          x={STREAM_END_X + 2}
+          y={midY - 11}
           textAnchor="end"
           fill="var(--text-tertiary)"
-          style={{ font: `500 9px ${FONT_MONO}`, letterSpacing: '0.1em' }}
+          style={{ font: `500 8.5px ${FONT_MONO}`, letterSpacing: '0.12em' }}
         >
-          ONE STREAM
+          MERGED
         </text>
       )}
     </svg>

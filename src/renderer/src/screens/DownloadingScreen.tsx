@@ -173,8 +173,24 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
       style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}
     >
       <div style={heroScopeStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, minWidth: 130 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <MergeDiagram
+            networks={groups.map((group, index) => ({
+              solid: visuals[index].solid,
+              label: visuals[index].name,
+              speedBytesPerSec: isPaused ? 0 : group.speedBytesPerSec
+            }))}
+          />
+
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 7,
+              minWidth: 130,
+              flexShrink: 0
+            }}
+          >
             <div
               style={{
                 font: `500 10px/1 ${FONT_MONO}`,
@@ -246,8 +262,6 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
               </button>
             )}
           </div>
-
-          <MergeDiagram networks={visuals.map((v) => ({ solid: v.solid, label: v.name }))} />
 
           <div style={{ flex: 1, minWidth: 0 }}>
             <div

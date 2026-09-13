@@ -13,32 +13,32 @@ interface KindPalette {
 export const KIND_PALETTE: Record<NetworkInterfaceKind, KindPalette> = {
   wifi: {
     solid: 'oklch(0.6 0.16 250)',
-    bg: 'oklch(0.6 0.16 250 / 0.13)',
-    text: 'oklch(0.46 0.14 250)',
+    bg: 'var(--kind-wifi-bg)',
+    text: 'var(--kind-wifi-text)',
     label: 'WIFI'
   },
   usb: {
     solid: 'oklch(0.65 0.14 195)',
-    bg: 'oklch(0.65 0.14 195 / 0.15)',
-    text: 'oklch(0.44 0.11 195)',
+    bg: 'var(--kind-usb-bg)',
+    text: 'var(--kind-usb-text)',
     label: 'USB'
   },
   ethernet: {
     solid: 'oklch(0.58 0.17 300)',
-    bg: 'oklch(0.58 0.17 300 / 0.13)',
-    text: 'oklch(0.44 0.14 300)',
+    bg: 'var(--kind-ethernet-bg)',
+    text: 'var(--kind-ethernet-text)',
     label: 'ETH'
   },
   bridge: {
     solid: 'oklch(0.55 0.02 260)',
-    bg: 'oklch(0.55 0.02 260 / 0.13)',
-    text: 'oklch(0.4 0.02 260)',
+    bg: 'var(--kind-neutral-bg)',
+    text: 'var(--kind-neutral-text)',
     label: 'NET'
   },
   other: {
     solid: 'oklch(0.55 0.02 260)',
-    bg: 'oklch(0.55 0.02 260 / 0.13)',
-    text: 'oklch(0.4 0.02 260)',
+    bg: 'var(--kind-neutral-bg)',
+    text: 'var(--kind-neutral-text)',
     label: 'NET'
   }
 }
@@ -49,15 +49,15 @@ export const SUCCESS = 'oklch(0.62 0.15 150)'
 export const DANGER = 'oklch(0.55 0.2 25)'
 
 export const secondaryButtonStyle: React.CSSProperties = {
-  border: '0.5px solid #b9b9bb',
+  border: '0.5px solid var(--border-strong)',
   borderRadius: 6,
-  background: 'linear-gradient(#fefefe, #f3f3f3)',
+  background: 'linear-gradient(var(--button-secondary-from), var(--button-secondary-to))',
   whiteSpace: 'nowrap',
   flexShrink: 0,
-  boxShadow: '0 1px 1px rgba(0,0,0,0.05)',
+  boxShadow: '0 1px 1px var(--button-shadow)',
   padding: '6px 14px',
   font: `13px/1.3 ${FONT_UI}`,
-  color: '#1d1d1f',
+  color: 'var(--text)',
   cursor: 'pointer'
 }
 
@@ -75,14 +75,14 @@ export const primaryButtonStyle: React.CSSProperties = {
 }
 
 export const disabledPrimaryButtonStyle: React.CSSProperties = {
-  border: '0.5px solid #d2d2d4',
+  border: '0.5px solid var(--button-disabled-border)',
   borderRadius: 6,
   whiteSpace: 'nowrap',
   flexShrink: 0,
-  background: '#f4f4f5',
+  background: 'var(--button-disabled-bg)',
   padding: '6px 20px',
   font: `500 13px/1.3 ${FONT_UI}`,
-  color: '#a8a8ac',
+  color: 'var(--button-disabled-text)',
   cursor: 'not-allowed'
 }
 
@@ -91,27 +91,27 @@ export const footerStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 12,
   padding: '12px 20px',
-  borderTop: '0.5px solid #d8d8da',
-  background: '#f0f0f0'
+  borderTop: '0.5px solid var(--footer-border)',
+  background: 'var(--bg-tertiary)'
 }
 
 export const footerTextStyle: React.CSSProperties = {
   whiteSpace: 'nowrap',
   flexShrink: 0,
   font: `11.5px/1.4 ${FONT_MONO}`,
-  color: '#6e6e73'
+  color: 'var(--text-secondary)'
 }
 
 export const sectionHeaderLabelStyle: React.CSSProperties = {
   font: `600 11px/1 ${FONT_UI}`,
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
-  color: '#8a8a8e'
+  color: 'var(--text-tertiary)'
 }
 
 export const sectionHeaderMetaStyle: React.CSSProperties = {
   whiteSpace: 'nowrap',
   flexShrink: 0,
   font: `11px/1 ${FONT_MONO}`,
-  color: '#8a8a8e'
+  color: 'var(--text-tertiary)'
 }

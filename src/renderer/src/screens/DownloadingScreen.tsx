@@ -14,6 +14,7 @@ import {
   sectionHeaderMetaStyle
 } from '../theme'
 import {
+  connectionSuffixes,
   dirnameOf,
   formatBytes,
   formatDuration,
@@ -60,9 +61,12 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   )
   const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || 1
   const maxSpeedSample = Math.max(1, ...speedHistory)
+  const suffixes = connectionSuffixes(download.chunks)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#fff' }}>
+    <div
+      style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}
+    >
       <div
         style={{
           padding: '18px 20px 16px',
@@ -137,8 +141,8 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                       background: KIND_PALETTE[chunk.interfaceKind].solid
                     }}
                   />
-                  {KIND_PALETTE[chunk.interfaceKind].label}{' '}
-                  {Math.round((weights[index] / totalWeight) * 100)}%
+                  {KIND_PALETTE[chunk.interfaceKind].label}
+                  {suffixes.get(chunk.id)} {Math.round((weights[index] / totalWeight) * 100)}%
                 </div>
               ))}
             </div>
@@ -167,7 +171,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
           <div
             style={{
               font: `11.5px/1 ${FONT_MONO}`,
-              color: '#6e6e73',
+              color: 'var(--text-secondary)',
               fontVariantNumeric: 'tabular-nums'
             }}
           >
@@ -179,7 +183,9 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             {isPaused ? ' · paused' : ''}
           </div>
         </div>
-        <div style={{ height: 6, borderRadius: 3, background: '#e4e4e6', overflow: 'hidden' }}>
+        <div
+          style={{ height: 6, borderRadius: 3, background: 'var(--track-bg)', overflow: 'hidden' }}
+        >
           <div
             style={{
               width: knownSize ? `${percent}%` : '100%',
@@ -193,8 +199,8 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
 
       <div
         style={{
-          borderTop: '0.5px solid #e0e0e2',
-          background: '#fafafa',
+          borderTop: '0.5px solid var(--border)',
+          background: 'var(--bg-secondary)',
           flex: 1,
           overflowY: 'auto'
         }}
@@ -213,7 +219,12 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
           </div>
         </div>
         {download.chunks.map((chunk) => (
-          <StreamRow key={chunk.id} chunk={chunk} totalBytes={download.totalBytes} />
+          <StreamRow
+            key={chunk.id}
+            chunk={chunk}
+            totalBytes={download.totalBytes}
+            connectionSuffix={suffixes.get(chunk.id)}
+          />
         ))}
       </div>
 

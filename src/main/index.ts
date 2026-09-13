@@ -1,5 +1,5 @@
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, nativeTheme, shell } from 'electron'
 import { join } from 'path'
 import icon from '../../resources/icon.png?asset'
 import { registerIpcHandlers } from './ipc/handlers'
@@ -17,6 +17,9 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     title: 'Plexo',
+    // Matches the renderer's dark-mode background so a live window resize
+    // (which briefly exposes the raw window background) doesn't flash white.
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#ffffff',
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -52,6 +55,10 @@ app.whenReady().then(() => {
   })
 
   downloadManager = registerIpcHandlers(() => mainWindow)
+
+  nativeTheme.on('updated', () => {
+    mainWindow?.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#ffffff')
+  })
 
   createWindow()
 

@@ -4,20 +4,20 @@ const labelStyle: React.CSSProperties = {
   width: 60,
   textAlign: 'right',
   font: `13px/1 ${FONT_UI}`,
-  color: '#3c3c3e',
+  color: 'var(--text-secondary)',
   flexShrink: 0
 }
 
 const fieldBoxStyle: React.CSSProperties = {
   flex: 1,
   minWidth: 0,
-  border: '0.5px solid #b9b9bb',
+  border: '0.5px solid var(--border-strong)',
   borderRadius: 6,
-  background: '#fff',
-  boxShadow: 'inset 0 1px 1px rgba(0,0,0,0.05)',
+  background: 'var(--input-bg)',
+  boxShadow: 'inset 0 1px 1px var(--button-shadow)',
   padding: '6px 9px',
   font: `13px/1.3 ${FONT_MONO}`,
-  color: '#1d1d1f',
+  color: 'var(--text)',
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis'
@@ -57,7 +57,7 @@ export function FieldsSection({
           onChange={(event) => onUrlChange(event.target.value)}
           placeholder="https://"
           disabled={disabled}
-          style={{ ...fieldBoxStyle, border: '0.5px solid #b9b9bb', outline: 'none' }}
+          style={{ ...fieldBoxStyle, outline: 'none' }}
         />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

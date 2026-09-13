@@ -1,5 +1,85 @@
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
+
+  --bg: #ffffff;
+  --bg-secondary: #fafafa;
+  --bg-tertiary: #f0f0f0;
+  --input-bg: #ffffff;
+  --track-bg: #e4e4e6;
+
+  --text: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --text-tertiary: #8a8a8e;
+
+  --border: #e0e0e2;
+  --border-subtle: #ececee;
+  --border-strong: #b9b9bb;
+  --footer-border: #d8d8da;
+
+  --button-secondary-from: #fefefe;
+  --button-secondary-to: #f3f3f3;
+  --button-shadow: rgba(0, 0, 0, 0.05);
+  --button-disabled-bg: #f4f4f5;
+  --button-disabled-border: #d2d2d4;
+  --button-disabled-text: #a8a8ac;
+
+  --icon-muted: #c2c2c6;
+  --icon-muted-strong: #b0b0b2;
+  --scrollbar-thumb: #d0d0d2;
+
+  --checkbox-shadow: rgba(0, 0, 0, 0.15);
+  --checkbox-inset-shadow: rgba(0, 0, 0, 0.04);
+
+  --kind-wifi-bg: oklch(0.6 0.16 250 / 0.13);
+  --kind-wifi-text: oklch(0.46 0.14 250);
+  --kind-usb-bg: oklch(0.65 0.14 195 / 0.15);
+  --kind-usb-text: oklch(0.44 0.11 195);
+  --kind-ethernet-bg: oklch(0.58 0.17 300 / 0.13);
+  --kind-ethernet-text: oklch(0.44 0.14 300);
+  --kind-neutral-bg: oklch(0.55 0.02 260 / 0.13);
+  --kind-neutral-text: oklch(0.4 0.02 260);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1e;
+    --bg-secondary: #202023;
+    --bg-tertiary: #232326;
+    --input-bg: #2c2c2e;
+    --track-bg: #3a3a3c;
+
+    --text: #f2f2f3;
+    --text-secondary: #a1a1a6;
+    --text-tertiary: #8e8e93;
+
+    --border: rgba(255, 255, 255, 0.1);
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.18);
+    --footer-border: rgba(255, 255, 255, 0.12);
+
+    --button-secondary-from: #3a3a3d;
+    --button-secondary-to: #313134;
+    --button-shadow: rgba(0, 0, 0, 0.3);
+    --button-disabled-bg: #2c2c2e;
+    --button-disabled-border: rgba(255, 255, 255, 0.12);
+    --button-disabled-text: #6e6e73;
+
+    --icon-muted: #55555a;
+    --icon-muted-strong: #636368;
+    --scrollbar-thumb: #48484a;
+
+    --checkbox-shadow: rgba(0, 0, 0, 0.4);
+    --checkbox-inset-shadow: rgba(0, 0, 0, 0.3);
+
+    --kind-wifi-bg: oklch(0.6 0.16 250 / 0.22);
+    --kind-wifi-text: oklch(0.78 0.1 250);
+    --kind-usb-bg: oklch(0.65 0.14 195 / 0.22);
+    --kind-usb-text: oklch(0.78 0.09 195);
+    --kind-ethernet-bg: oklch(0.58 0.17 300 / 0.22);
+    --kind-ethernet-text: oklch(0.78 0.1 300);
+    --kind-neutral-bg: oklch(0.55 0.02 260 / 0.25);
+    --kind-neutral-text: oklch(0.75 0.02 260);
+  }
 }
 
 * {
@@ -17,7 +97,8 @@ body {
   overflow: hidden;
   font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
-  color: #1d1d1f;
+  background: var(--bg);
+  color: var(--text);
   user-select: none;
 }
 
@@ -39,6 +120,6 @@ button {
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: #d0d0d2;
+  background-color: var(--scrollbar-thumb);
   border-radius: 9999px;
 }

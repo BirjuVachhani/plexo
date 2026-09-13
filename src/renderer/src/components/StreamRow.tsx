@@ -5,10 +5,12 @@ import { KindBadge } from './KindBadge'
 
 export function StreamRow({
   chunk,
-  totalBytes
+  totalBytes,
+  connectionSuffix
 }: {
   chunk: ChunkState
   totalBytes: number
+  connectionSuffix?: string
 }): React.JSX.Element {
   const chunkSize =
     chunk.rangeEnd !== null ? chunk.rangeEnd - chunk.rangeStart + 1 : totalBytes - chunk.rangeStart
@@ -23,7 +25,7 @@ export function StreamRow({
         alignItems: 'center',
         gap: 12,
         padding: '10px 20px',
-        borderTop: '0.5px solid #ececee'
+        borderTop: '0.5px solid var(--border-subtle)'
       }}
     >
       <KindBadge kind={chunk.interfaceKind} />
@@ -37,6 +39,7 @@ export function StreamRow({
         }}
       >
         {chunk.interfaceLabel}
+        {connectionSuffix}
       </div>
       <div
         style={{
@@ -44,7 +47,7 @@ export function StreamRow({
           minWidth: 0,
           height: 5,
           borderRadius: 3,
-          background: '#e4e4e6',
+          background: 'var(--track-bg)',
           overflow: 'hidden'
         }}
       >
@@ -67,7 +70,7 @@ export function StreamRow({
           width: 92,
           textAlign: 'right',
           font: `11.5px/1 ${FONT_MONO}`,
-          color: '#1d1d1f',
+          color: 'var(--text)',
           fontVariantNumeric: 'tabular-nums'
         }}
       >
@@ -78,7 +81,7 @@ export function StreamRow({
           width: 74,
           textAlign: 'right',
           font: `11.5px/1 ${FONT_MONO}`,
-          color: '#8a8a8e',
+          color: 'var(--text-tertiary)',
           fontVariantNumeric: 'tabular-nums'
         }}
       >

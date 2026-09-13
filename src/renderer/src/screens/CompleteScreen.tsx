@@ -11,13 +11,20 @@ import {
   secondaryButtonStyle,
   sectionHeaderLabelStyle
 } from '../theme'
-import { dirnameOf, formatBytes, formatDuration, formatSpeed, toDisplayPath } from '../utils/format'
+import {
+  connectionSuffixes,
+  dirnameOf,
+  formatBytes,
+  formatDuration,
+  formatSpeed,
+  toDisplayPath
+} from '../utils/format'
 
 const statLabelStyle: React.CSSProperties = {
   font: `600 9.5px/1 ${FONT_UI}`,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color: '#8a8a8e'
+  color: 'var(--text-tertiary)'
 }
 
 const statValueStyle: React.CSSProperties = {
@@ -41,11 +48,14 @@ export function CompleteScreen({
   const avgSpeed = elapsedSeconds > 0 ? finalSize / elapsedSeconds : 0
 
   const totalWeight = download.chunks.reduce((sum, chunk) => sum + chunk.bytesDownloaded, 0) || 1
+  const suffixes = connectionSuffixes(download.chunks)
 
   const handleReveal = (): void => void window.plexo.revealInFolder(download.destinationPath)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#fff' }}>
+    <div
+      style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}
+    >
       <div style={{ padding: '22px 20px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
         <div
           style={{
@@ -68,7 +78,7 @@ export function CompleteScreen({
           <div
             style={{
               font: `12px/1.3 ${FONT_MONO}`,
-              color: '#6e6e73',
+              color: 'var(--text-secondary)',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis'
@@ -84,10 +94,10 @@ export function CompleteScreen({
           margin: '0 20px 18px',
           display: 'grid',
           gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-          border: '0.5px solid #e0e0e2',
+          border: '0.5px solid var(--border)',
           borderRadius: 8,
           overflow: 'hidden',
-          background: '#fafafa'
+          background: 'var(--bg-secondary)'
         }}
       >
         {[
@@ -103,7 +113,7 @@ export function CompleteScreen({
               display: 'flex',
               flexDirection: 'column',
               gap: 5,
-              borderLeft: index > 0 ? '0.5px solid #e0e0e2' : undefined
+              borderLeft: index > 0 ? '0.5px solid var(--border)' : undefined
             }}
           >
             <div style={statLabelStyle}>{stat.label}</div>
@@ -122,7 +132,7 @@ export function CompleteScreen({
             height: 8,
             borderRadius: 4,
             overflow: 'hidden',
-            background: '#e4e4e6'
+            background: 'var(--track-bg)'
           }}
         >
           {download.chunks.map((chunk) => (
@@ -140,7 +150,7 @@ export function CompleteScreen({
             display: 'flex',
             gap: 18,
             font: `11px/1 ${FONT_MONO}`,
-            color: '#6e6e73',
+            color: 'var(--text-secondary)',
             flexWrap: 'wrap'
           }}
         >
@@ -154,7 +164,8 @@ export function CompleteScreen({
                   background: KIND_PALETTE[chunk.interfaceKind].solid
                 }}
               />
-              {KIND_PALETTE[chunk.interfaceKind].label} {formatBytes(chunk.bytesDownloaded)} ·{' '}
+              {KIND_PALETTE[chunk.interfaceKind].label}
+              {suffixes.get(chunk.id)} {formatBytes(chunk.bytesDownloaded)} ·{' '}
               {Math.round((chunk.bytesDownloaded / totalWeight) * 100)}%
             </div>
           ))}

@@ -52,10 +52,62 @@ export function dirnameOf(path: string): string {
   return index <= 0 ? '/' : path.slice(0, index)
 }
 
+/** For chunks that share the same interface (multiple connections per link, or ones split
+ * off by dynamic rebalancing), returns a per-chunk " #N" suffix so they can be told apart
+ * in the UI — empty string when an interface only has a single chunk. */
+export function connectionSuffixes(
+  chunks: Array<{ id: number; interfaceId: string }>
+): Map<number, string> {
+  const totalByInterface = new Map<string, number>()
+  for (const chunk of chunks) {
+    totalByInterface.set(chunk.interfaceId, (totalByInterface.get(chunk.interfaceId) ?? 0) + 1)
+  }
+
+  const seenByInterface = new Map<string, number>()
+  const suffixes = new Map<number, string>()
+  for (const chunk of chunks) {
+    if ((totalByInterface.get(chunk.interfaceId) ?? 0) <= 1) {
+      suffixes.set(chunk.id, '')
+      continue
+    }
+    const seen = (seenByInterface.get(chunk.interfaceId) ?? 0) + 1
+    seenByInterface.set(chunk.interfaceId, seen)
+    suffixes.set(chunk.id, ` #${seen}`)
+  }
+  return suffixes
+}
+
 /** Shortens an absolute path under the user's home directory to a "~/..." form for display. */
 export function toDisplayPath(path: string, homeDir: string): string {
   if (homeDir && (path === homeDir || path.startsWith(`${homeDir}/`))) {
     return `~${path.slice(homeDir.length)}`
   }
   return path
+}
+
+const IPC_INVOKE_PREFIX = /^Error invoking remote method '[^']*':\s*/
+const NESTED_ERROR_PREFIX = /^Error:\s*/
+
+const NETWORK_ERROR_HINTS: Array<{ pattern: RegExp; message: string }> = [
+  {
+    pattern: /ENOTFOUND/,
+    message: 'Could not resolve that host — check the URL and your connection.'
+  },
+  { pattern: /ECONNREFUSED/, message: 'The server refused the connection.' },
+  { pattern: /ECONNRESET/, message: 'The connection was reset by the server.' },
+  { pattern: /ETIMEDOUT/, message: 'The connection timed out.' },
+  { pattern: /CERT|SSL|TLS/i, message: "The server's security certificate could not be verified." }
+]
+
+/** Electron wraps a rejected IPC call as "Error invoking remote method 'x': Error: <message>" —
+ * strip that framework noise and translate common network error codes into plain English. */
+export function describeError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error)
+  const stripped = raw.replace(IPC_INVOKE_PREFIX, '').replace(NESTED_ERROR_PREFIX, '')
+
+  for (const { pattern, message } of NETWORK_ERROR_HINTS) {
+    if (pattern.test(stripped)) return message
+  }
+
+  return stripped
 }

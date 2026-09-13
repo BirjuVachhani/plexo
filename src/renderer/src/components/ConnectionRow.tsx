@@ -23,7 +23,7 @@ function Checkbox({ checked }: { checked: boolean }): React.JSX.Element {
           justifyContent: 'center',
           color: '#fff',
           font: `700 9px/1 ${FONT_UI}`,
-          boxShadow: 'inset 0 0 0 0.5px rgba(0,0,0,0.15)',
+          boxShadow: 'inset 0 0 0 0.5px var(--checkbox-shadow)',
           flexShrink: 0
         }}
       >
@@ -37,9 +37,9 @@ function Checkbox({ checked }: { checked: boolean }): React.JSX.Element {
         width: 14,
         height: 14,
         borderRadius: 4,
-        background: '#fff',
-        border: '0.5px solid #b0b0b2',
-        boxShadow: 'inset 0 1px 1px rgba(0,0,0,0.04)',
+        background: 'var(--input-bg)',
+        border: '0.5px solid var(--icon-muted-strong)',
+        boxShadow: 'inset 0 1px 1px var(--checkbox-inset-shadow)',
         flexShrink: 0
       }}
     />
@@ -65,20 +65,25 @@ export function ConnectionRow({
         padding: '9px 20px',
         borderWidth: '0.5px 0 0 0',
         borderStyle: 'solid',
-        borderColor: '#ececee',
+        borderColor: 'var(--border-subtle)',
         background: 'transparent',
         width: '100%',
         textAlign: 'left',
         cursor: 'pointer',
-        font: 'inherit'
+        font: 'inherit',
+        color: 'inherit'
       }}
     >
       <Checkbox checked={selected} />
       <KindBadge kind={iface.kind} />
-      <div style={{ font: `13px/1 ${FONT_UI}`, color: '#1d1d1f' }}>{iface.displayName}</div>
-      <div style={{ font: `11.5px/1 ${FONT_MONO}`, color: '#8a8a8e' }}>{iface.device}</div>
+      <div style={{ font: `13px/1 ${FONT_UI}`, color: 'var(--text)' }}>{iface.displayName}</div>
+      <div style={{ font: `11.5px/1 ${FONT_MONO}`, color: 'var(--text-tertiary)' }}>
+        {iface.device}
+      </div>
       <div style={{ flex: 1 }} />
-      <div style={{ font: `11.5px/1 ${FONT_MONO}`, color: '#6e6e73' }}>{iface.address}</div>
+      <div style={{ font: `11.5px/1 ${FONT_MONO}`, color: 'var(--text-secondary)' }}>
+        {iface.address}
+      </div>
       <div
         style={{
           display: 'flex',
@@ -93,11 +98,11 @@ export function ConnectionRow({
             width: 7,
             height: 7,
             borderRadius: '50%',
-            background: online ? SUCCESS : '#c2c2c6',
+            background: online ? SUCCESS : 'var(--icon-muted)',
             flexShrink: 0
           }}
         />
-        <div style={{ font: `11.5px/1 ${FONT_MONO}`, color: '#6e6e73' }}>
+        <div style={{ font: `11.5px/1 ${FONT_MONO}`, color: 'var(--text-secondary)' }}>
           {online ? `${latencyMs} ms` : '—'}
         </div>
       </div>

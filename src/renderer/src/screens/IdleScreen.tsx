@@ -5,6 +5,7 @@ import { FieldsSection } from '../components/FieldsSection'
 import { useNetworkPolling } from '../hooks/useNetworkPolling'
 import { useAppStore } from '../store/useAppStore'
 import {
+  DANGER,
   disabledPrimaryButtonStyle,
   footerStyle,
   footerTextStyle,
@@ -13,7 +14,7 @@ import {
   sectionHeaderLabelStyle,
   sectionHeaderMetaStyle
 } from '../theme'
-import { formatBytes, toDisplayPath } from '../utils/format'
+import { describeError, formatBytes, toDisplayPath } from '../utils/format'
 
 type ProbeState =
   | { status: 'idle' }
@@ -29,9 +30,9 @@ const stepperButtonStyle: React.CSSProperties = {
   width: 20,
   height: 20,
   borderRadius: 5,
-  border: '0.5px solid #b9b9bb',
-  background: 'linear-gradient(#fefefe, #f3f3f3)',
-  color: '#1d1d1f',
+  border: '0.5px solid var(--border-strong)',
+  background: 'linear-gradient(var(--button-secondary-from), var(--button-secondary-to))',
+  color: 'var(--text)',
   font: '13px/1 -apple-system, sans-serif',
   cursor: 'pointer'
 }
@@ -88,10 +89,7 @@ export function IdleScreen(): React.JSX.Element {
         setConnectionsPerInterface(1)
       } catch (error) {
         if (probeRequestId.current !== requestId) return
-        setProbe({
-          status: 'error',
-          message: error instanceof Error ? error.message : String(error)
-        })
+        setProbe({ status: 'error', message: describeError(error) })
       }
     }, PROBE_DEBOUNCE_MS)
 
@@ -138,7 +136,7 @@ export function IdleScreen(): React.JSX.Element {
         lastModified: probe.result.lastModified
       })
     } catch (error) {
-      setStartError(error instanceof Error ? error.message : String(error))
+      setStartError(describeError(error))
     } finally {
       setStarting(false)
     }
@@ -151,7 +149,9 @@ export function IdleScreen(): React.JSX.Element {
     !starting
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#fff' }}>
+    <div
+      style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}
+    >
       <FieldsSection
         url={url}
         onUrlChange={setUrl}
@@ -164,7 +164,7 @@ export function IdleScreen(): React.JSX.Element {
           style={{
             margin: '0 20px 10px',
             font: '12px/1.4 -apple-system, sans-serif',
-            color: 'oklch(0.55 0.2 25)'
+            color: DANGER
           }}
         >
           {probe.message}
@@ -173,8 +173,8 @@ export function IdleScreen(): React.JSX.Element {
 
       <div
         style={{
-          borderTop: '0.5px solid #e0e0e2',
-          background: '#fafafa',
+          borderTop: '0.5px solid var(--border)',
+          background: 'var(--bg-secondary)',
           flex: 1,
           overflowY: 'auto'
         }}
@@ -212,10 +212,10 @@ export function IdleScreen(): React.JSX.Element {
                 alignItems: 'center',
                 gap: 10,
                 padding: '10px 20px',
-                borderTop: '0.5px solid #ececee'
+                borderTop: '0.5px solid var(--border-subtle)'
               }}
             >
-              <div style={{ font: '12.5px/1 -apple-system, sans-serif', color: '#1d1d1f' }}>
+              <div style={{ font: '12.5px/1 -apple-system, sans-serif', color: 'var(--text)' }}>
                 Connections per link
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -234,7 +234,7 @@ export function IdleScreen(): React.JSX.Element {
                 <div
                   style={{
                     font: `12.5px/1 ${'"SF Mono", ui-monospace, Menlo, monospace'}`,
-                    color: '#1d1d1f',
+                    color: 'var(--text)',
                     width: 14,
                     textAlign: 'center'
                   }}
@@ -255,7 +255,12 @@ export function IdleScreen(): React.JSX.Element {
                 </button>
               </div>
               <div style={{ flex: 1 }} />
-              <div style={{ font: '11.5px/1.4 -apple-system, sans-serif', color: '#8a8a8e' }}>
+              <div
+                style={{
+                  font: '11.5px/1.4 -apple-system, sans-serif',
+                  color: 'var(--text-tertiary)'
+                }}
+              >
                 {selectedInterfaceIds.length * connectionsPerInterface} connections total
               </div>
             </div>
@@ -266,7 +271,7 @@ export function IdleScreen(): React.JSX.Element {
             style={{
               margin: '0 20px 10px',
               font: '11.5px/1.4 -apple-system, sans-serif',
-              color: '#8a8a8e'
+              color: 'var(--text-tertiary)'
             }}
           >
             This server doesn&apos;t support multi-connection downloads for this file — pick a
@@ -283,9 +288,7 @@ export function IdleScreen(): React.JSX.Element {
             : ''}
         </div>
         {startError && (
-          <div
-            style={{ font: '11.5px/1.4 -apple-system, sans-serif', color: 'oklch(0.55 0.2 25)' }}
-          >
+          <div style={{ font: '11.5px/1.4 -apple-system, sans-serif', color: DANGER }}>
             {startError}
           </div>
         )}

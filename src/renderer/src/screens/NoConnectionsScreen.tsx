@@ -20,7 +20,9 @@ export function NoConnectionsScreen(): React.JSX.Element {
   const loadInterfaces = useAppStore((store) => store.loadInterfaces)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#fff' }}>
+    <div
+      style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}
+    >
       <FieldsSection
         url={url}
         onUrlChange={setUrl}
@@ -31,8 +33,8 @@ export function NoConnectionsScreen(): React.JSX.Element {
 
       <div
         style={{
-          borderTop: '0.5px solid #e0e0e2',
-          background: '#fafafa',
+          borderTop: '0.5px solid var(--border)',
+          background: 'var(--bg-secondary)',
           flex: 1,
           padding: '40px 20px 44px',
           display: 'flex',
@@ -46,15 +48,17 @@ export function NoConnectionsScreen(): React.JSX.Element {
             width: 40,
             height: 40,
             borderRadius: '50%',
-            border: '1.5px dashed #c2c2c6',
+            border: '1.5px dashed var(--icon-muted)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center'
           }}
         >
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#c2c2c6' }} />
+          <div
+            style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--icon-muted)' }}
+          />
         </div>
-        <div style={{ font: '600 14px/1.2 -apple-system, sans-serif', color: '#3c3c3e' }}>
+        <div style={{ font: '600 14px/1.2 -apple-system, sans-serif', color: 'var(--text)' }}>
           No active network interfaces
         </div>
         <div
@@ -62,7 +66,7 @@ export function NoConnectionsScreen(): React.JSX.Element {
             maxWidth: 400,
             textAlign: 'center',
             font: '12.5px/1.5 -apple-system, sans-serif',
-            color: '#6e6e73'
+            color: 'var(--text-secondary)'
           }}
         >
           Plexo needs at least one connection. Join a Wi-Fi network, plug in Ethernet, or connect an
@@ -96,8 +100,12 @@ export function NoConnectionsScreen(): React.JSX.Element {
 
       <div style={footerStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#c2c2c6' }} />
-          <div style={{ ...footerTextStyle, color: '#8a8a8e' }}>0 interfaces · monitoring</div>
+          <div
+            style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--icon-muted)' }}
+          />
+          <div style={{ ...footerTextStyle, color: 'var(--text-tertiary)' }}>
+            0 interfaces · monitoring
+          </div>
         </div>
         <div style={{ flex: 1 }} />
         <button type="button" disabled style={disabledPrimaryButtonStyle}>

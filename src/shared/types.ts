@@ -81,8 +81,10 @@ export interface StartDownloadRequest {
   totalBytes: number
   supportsRanges: boolean
   interfaceIds: string[]
-  /** Total chunks to split the download into, distributed round-robin across interfaceIds. */
+  /** Total chunks to split the download into across interfaceIds. */
   chunkCount: number
+  /** Number of parallel connections allocated per physical network. */
+  connectionsPerNetwork?: number
   etag: string | null
   lastModified: string | null
 }

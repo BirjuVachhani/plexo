@@ -59,22 +59,6 @@ function pushSpeedSample(samples: SpeedSample[], bytes: number, time: number): n
   return deltaSeconds > 0 ? (bytes - oldest.bytes) / deltaSeconds : 0
 }
 
-function splitIntoRanges(
-  totalBytes: number,
-  count: number
-): Array<{ start: number; end: number | null }> {
-  const ranges: Array<{ start: number; end: number | null }> = []
-  const baseSize = Math.floor(totalBytes / count)
-  let start = 0
-  for (let index = 0; index < count; index += 1) {
-    const isLast = index === count - 1
-    const end = isLast ? totalBytes - 1 : start + baseSize - 1
-    ranges.push({ start, end })
-    start = end + 1
-  }
-  return ranges
-}
-
 // Defensive cap independent of whatever the renderer sends — chunks are
 // distributed round-robin across interfaces, not tied 1:1 to them anymore.
 const MAX_CHUNKS = 32
@@ -197,30 +181,73 @@ export class DownloadManager {
       requestPayload.suggestedFileName
     )
 
-    const chunkCount = Math.max(1, Math.min(requestPayload.chunkCount, MAX_CHUNKS))
+    const connectionsPerNetwork = Math.max(
+      1,
+      Math.min(
+        8,
+        requestPayload.connectionsPerNetwork ??
+          Math.max(1, Math.round(requestPayload.chunkCount / interfaces.length))
+      )
+    )
     const canSplit =
-      requestPayload.supportsRanges && requestPayload.totalBytes > 0 && chunkCount > 1
-    const ranges = canSplit
-      ? splitIntoRanges(requestPayload.totalBytes, chunkCount)
-      : [{ start: 0, end: requestPayload.totalBytes > 0 ? requestPayload.totalBytes - 1 : null }]
-    // Round-robin: chunks no longer have to match interfaces 1:1, so a single
-    // physical network can carry more than one chunk's worth of connections.
-    const activeInterfaces = canSplit
-      ? Array.from({ length: chunkCount }, (_, index) => interfaces[index % interfaces.length])
-      : [interfaces[0]]
+      requestPayload.supportsRanges &&
+      requestPayload.totalBytes > 0 &&
+      (interfaces.length > 1 || connectionsPerNetwork > 1)
 
-    const chunks: ChunkState[] = ranges.map((range, index) => ({
-      id: index,
-      interfaceId: activeInterfaces[index].id,
-      interfaceLabel: activeInterfaces[index].displayName,
-      interfaceKind: activeInterfaces[index].kind,
-      rangeStart: range.start,
-      rangeEnd: range.end,
-      bytesDownloaded: 0,
-      speedBytesPerSec: 0,
-      status: 'pending',
-      retryCount: 0
-    }))
+    const chunks: ChunkState[] = []
+    const activeInterfaces: NetworkInterfaceInfo[] = []
+
+    if (canSplit) {
+      const netCount = interfaces.length
+      let chunkIdCounter = 0
+
+      for (let netIdx = 0; netIdx < netCount; netIdx++) {
+        const iface = interfaces[netIdx]
+        const netStart = Math.floor((netIdx * requestPayload.totalBytes) / netCount)
+        const netEnd =
+          netIdx === netCount - 1
+            ? requestPayload.totalBytes - 1
+            : Math.floor(((netIdx + 1) * requestPayload.totalBytes) / netCount) - 1
+        const netSize = netEnd - netStart + 1
+
+        for (let connIdx = 0; connIdx < connectionsPerNetwork; connIdx++) {
+          if (chunks.length >= MAX_CHUNKS) break
+          const chunkStart = netStart + Math.floor((connIdx * netSize) / connectionsPerNetwork)
+          const chunkEnd =
+            connIdx === connectionsPerNetwork - 1
+              ? netEnd
+              : netStart + Math.floor(((connIdx + 1) * netSize) / connectionsPerNetwork) - 1
+
+          activeInterfaces.push(iface)
+          chunks.push({
+            id: chunkIdCounter++,
+            interfaceId: iface.id,
+            interfaceLabel: iface.displayName,
+            interfaceKind: iface.kind,
+            rangeStart: chunkStart,
+            rangeEnd: chunkEnd,
+            bytesDownloaded: 0,
+            speedBytesPerSec: 0,
+            status: 'pending',
+            retryCount: 0
+          })
+        }
+      }
+    } else {
+      activeInterfaces.push(interfaces[0])
+      chunks.push({
+        id: 0,
+        interfaceId: interfaces[0].id,
+        interfaceLabel: interfaces[0].displayName,
+        interfaceKind: interfaces[0].kind,
+        rangeStart: 0,
+        rangeEnd: requestPayload.totalBytes > 0 ? requestPayload.totalBytes - 1 : null,
+        bytesDownloaded: 0,
+        speedBytesPerSec: 0,
+        status: 'pending',
+        retryCount: 0
+      })
+    }
 
     const state: DownloadState = {
       id,

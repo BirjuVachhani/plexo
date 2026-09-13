@@ -21,23 +21,13 @@ type ProbeState =
   | { status: 'error'; message: string }
 
 const PROBE_DEBOUNCE_MS = 600
-const MIN_CHUNKS_PER_NETWORK = 1
-const MAX_CHUNKS_PER_NETWORK = 8
+const PRESET_STREAMS = [1, 2, 4, 8] as const
 
 const fieldLabelStyle: React.CSSProperties = {
   font: `500 10px/1 ${FONT_MONO}`,
   letterSpacing: '0.14em',
   color: 'var(--text-tertiary)',
   flexShrink: 0
-}
-
-const stepperArrowStyle: React.CSSProperties = {
-  border: 'none',
-  background: 'none',
-  color: 'var(--text-secondary)',
-  font: `600 13px/1 ${FONT_UI}`,
-  cursor: 'pointer',
-  padding: '0 2px'
 }
 
 export function IdleScreen(): React.JSX.Element {
@@ -54,8 +44,8 @@ export function IdleScreen(): React.JSX.Element {
   const setDestinationDir = useAppStore((store) => store.setDraftDestinationDir)
 
   const [probe, setProbe] = useState<ProbeState>({ status: 'idle' })
-  const [selectedInterfaceIds, setSelectedInterfaceIds] = useState<string[]>([])
-  const [chunksPerNetwork, setChunksPerNetwork] = useState(1)
+  const [deselectedInterfaceIds, setDeselectedInterfaceIds] = useState<string[]>([])
+  const [chunksPerNetwork, setChunksPerNetwork] = useState(2)
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
 
@@ -86,10 +76,6 @@ export function IdleScreen(): React.JSX.Element {
         if (probeRequestId.current !== requestId) return
         const multiChunkAllowed = result.supportsRanges && result.totalBytes !== null
         setProbe({ status: 'ready', result, multiChunkAllowed })
-        setSelectedInterfaceIds(
-          (multiChunkAllowed ? interfaces : interfaces.slice(0, 1)).map((iface) => iface.id)
-        )
-        setChunksPerNetwork(1)
       } catch (error) {
         if (probeRequestId.current !== requestId) return
         setProbe({ status: 'error', message: describeError(error) })
@@ -97,16 +83,33 @@ export function IdleScreen(): React.JSX.Element {
     }, PROBE_DEBOUNCE_MS)
 
     return () => clearTimeout(timer)
-    // interfaces is intentionally omitted: we only want this to re-run when the URL changes,
-    // using whatever interface list is current at the moment the probe resolves.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url])
 
+  const isSingleRangeServer = probe.status === 'ready' && !probe.multiChunkAllowed
+
+  const activeDetectedIds = interfaces.map((iface) => iface.id)
+  const rawSelectedIds = activeDetectedIds.filter((id) => !deselectedInterfaceIds.includes(id))
+  const selectedInterfaceIds = isSingleRangeServer ? rawSelectedIds.slice(0, 1) : rawSelectedIds
+
   const handleToggleInterface = (id: string): void => {
-    const multiChunkAllowed = probe.status === 'ready' && probe.multiChunkAllowed
-    setSelectedInterfaceIds((prev) => {
-      if (!multiChunkAllowed) return [id]
-      return prev.includes(id) ? prev.filter((entry) => entry !== id) : [...prev, id]
+    if (isSingleRangeServer) {
+      // Single-range servers can only download through 1 interface at a time
+      setDeselectedInterfaceIds(activeDetectedIds.filter((otherId) => otherId !== id))
+      return
+    }
+
+    setDeselectedInterfaceIds((prev) => {
+      const isCurrentlySelected = !prev.includes(id)
+      if (isCurrentlySelected) {
+        // Deselecting: keep at least 1 interface selected
+        const remainingCount = activeDetectedIds.filter(
+          (otherId) => !prev.includes(otherId) && otherId !== id
+        ).length
+        if (remainingCount === 0) return prev
+        return [...prev, id]
+      } else {
+        return prev.filter((entry) => entry !== id)
+      }
     })
   }
 
@@ -133,6 +136,7 @@ export function IdleScreen(): React.JSX.Element {
         supportsRanges: probe.multiChunkAllowed,
         interfaceIds: selectedInterfaceIds,
         chunkCount: probe.multiChunkAllowed ? selectedInterfaceIds.length * chunksPerNetwork : 1,
+        connectionsPerNetwork: probe.multiChunkAllowed ? chunksPerNetwork : 1,
         etag: probe.result.etag,
         lastModified: probe.result.lastModified
       })
@@ -148,8 +152,8 @@ export function IdleScreen(): React.JSX.Element {
     selectedInterfaceIds.length > 0 &&
     Boolean(destinationDir) &&
     !starting
-  const multiChunkAllowed = probe.status === 'ready' && probe.multiChunkAllowed
-  const totalChunks = multiChunkAllowed ? selectedInterfaceIds.length * chunksPerNetwork : 1
+  const effectiveNetworkCount = Math.max(1, selectedInterfaceIds.length)
+  const totalChunks = isSingleRangeServer ? 1 : effectiveNetworkCount * chunksPerNetwork
 
   return (
     <div
@@ -210,7 +214,7 @@ export function IdleScreen(): React.JSX.Element {
             disabled={!canStart}
             style={canStart ? primaryButtonStyle : disabledPrimaryButtonStyle}
           >
-            {starting ? 'Starting…' : 'Start'}
+            {starting ? 'Starting…' : probe.status === 'probing' ? 'Checking…' : 'Start'}
           </button>
         </div>
 
@@ -258,57 +262,82 @@ export function IdleScreen(): React.JSX.Element {
               Browse…
             </button>
           </div>
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            padding: '8px 12px',
+            borderRadius: 9,
+            background: 'var(--bg-secondary)',
+            border: '0.5px solid var(--border)',
+            opacity: isSingleRangeServer ? 0.6 : 1
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={fieldLabelStyle}>PARALLEL STREAMS</div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {PRESET_STREAMS.map((preset) => {
+                const isSelected = chunksPerNetwork === preset
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    disabled={isSingleRangeServer}
+                    onClick={() => setChunksPerNetwork(preset)}
+                    style={{
+                      border: isSelected
+                        ? '0.5px solid var(--color-accent)'
+                        : '0.5px solid var(--border)',
+                      borderRadius: 5,
+                      background: isSelected ? 'var(--color-usb-bg)' : 'var(--track-bg)',
+                      color: isSelected ? 'var(--color-usb-text)' : 'var(--text-secondary)',
+                      font: `600 10.5px/1 ${FONT_MONO}`,
+                      padding: '4px 8px',
+                      cursor: isSingleRangeServer ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {preset}×
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           <div
             style={{
-              width: 122,
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 8,
-              padding: '7px 0',
-              borderRadius: 9,
-              background: 'var(--bg-secondary)',
-              border: '0.5px solid var(--border)',
-              opacity: multiChunkAllowed ? 1 : 0.5
+              font: `500 11px/1 ${FONT_MONO}`,
+              color: isSingleRangeServer ? 'var(--text-tertiary)' : 'var(--text-secondary)',
+              textAlign: 'right',
+              whiteSpace: 'nowrap'
             }}
           >
-            <button
-              type="button"
-              onClick={() =>
-                setChunksPerNetwork((count) => Math.max(MIN_CHUNKS_PER_NETWORK, count - 1))
-              }
-              disabled={!multiChunkAllowed || chunksPerNetwork <= MIN_CHUNKS_PER_NETWORK}
-              style={stepperArrowStyle}
-            >
-              −
-            </button>
-            <div
-              style={{
-                font: `11px/1 ${FONT_MONO}`,
-                color: 'var(--text-secondary)',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              {totalChunks} chunk{totalChunks === 1 ? '' : 's'}
-            </div>
-            <button
-              type="button"
-              onClick={() =>
-                setChunksPerNetwork((count) => Math.min(MAX_CHUNKS_PER_NETWORK, count + 1))
-              }
-              disabled={!multiChunkAllowed || chunksPerNetwork >= MAX_CHUNKS_PER_NETWORK}
-              style={stepperArrowStyle}
-            >
-              +
-            </button>
+            {isSingleRangeServer ? (
+              '1 stream (server does not support ranges)'
+            ) : selectedInterfaceIds.length > 0 ? (
+              <>
+                <span style={{ color: 'var(--text)', fontWeight: 600 }}>{chunksPerNetwork}</span> /
+                network ·{' '}
+                <span style={{ color: 'var(--text)', fontWeight: 600 }}>{totalChunks}</span> total
+                parallel streams
+              </>
+            ) : (
+              <>
+                <span style={{ color: 'var(--text)', fontWeight: 600 }}>{chunksPerNetwork}</span> /
+                network
+              </>
+            )}
           </div>
         </div>
 
         {probe.status === 'error' && (
           <div style={{ font: `12px/1.4 ${FONT_UI}`, color: DANGER }}>{probe.message}</div>
         )}
-        {probe.status === 'ready' && !probe.multiChunkAllowed && (
+        {isSingleRangeServer && (
           <div style={{ font: `11.5px/1.4 ${FONT_UI}`, color: 'var(--text-tertiary)' }}>
             This server doesn&apos;t support multi-chunk downloads for this file — using a single
             network.
@@ -368,6 +397,9 @@ export function IdleScreen(): React.JSX.Element {
         <div style={{ font: `11px/1.4 ${FONT_MONO}`, color: 'var(--text-tertiary)' }}>
           {selectedInterfaceIds.length} {selectedInterfaceIds.length === 1 ? 'network' : 'networks'}{' '}
           selected
+          {selectedInterfaceIds.length > 0
+            ? ` · ${totalChunks} ${totalChunks === 1 ? 'stream' : 'parallel streams'}`
+            : ''}
           {probe.status === 'ready' && probe.result.totalBytes !== null
             ? ` · ${formatBytes(probe.result.totalBytes)}`
             : ''}

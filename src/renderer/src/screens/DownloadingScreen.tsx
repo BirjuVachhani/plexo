@@ -17,16 +17,12 @@ import {
   resolveNetworkVisual,
   secondaryButtonStyle,
   sectionHeaderLabelStyle,
-  sectionHeaderMetaStyle,
-  statGridStyle,
-  statLabelStyle,
-  statValueStyle
+  sectionHeaderMetaStyle
 } from '../theme'
 import {
   dirnameOf,
   fileExtensionBadge,
   formatBytes,
-  formatDuration,
   formatEta,
   formatPercent,
   formatSpeed,
@@ -113,7 +109,6 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
 
   const [chipModeIndex, setChipModeIndex] = useState(0)
 
-  const completedChunks = download.chunks.filter((chunk) => chunk.status === 'completed').length
   const totalRetries = download.chunks.reduce((sum, chunk) => sum + chunk.retryCount, 0)
   const remainingBytes = knownSize ? Math.max(0, download.totalBytes - download.bytesDownloaded) : 0
 
@@ -335,7 +330,14 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         </div>
       </div>
 
-      <div style={{ padding: '14px 20px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div
+        style={{
+          padding: '14px 20px 16px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 11
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div
             style={{
@@ -362,6 +364,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                 overflow: 'hidden',
                 textOverflow: 'ellipsis'
               }}
+              title={download.fileName}
             >
               {download.fileName}
             </div>
@@ -378,11 +381,22 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             >
               <span>
                 {formatBytes(download.bytesDownloaded)}
-                {knownSize ? ` of ${formatBytes(download.totalBytes)} · ${percent}%` : ''}
-                {!isPaused && knownSize
-                  ? ` · ${formatEta(remainingBytes, effectiveSpeed)} left`
-                  : ''}
+                {knownSize ? ` of ${formatBytes(download.totalBytes)} (${percent}%)` : ''}
               </span>
+              {knownSize && remainingBytes > 0 && (
+                <>
+                  <span style={{ opacity: 0.35 }}>·</span>
+                  <span>{formatBytes(remainingBytes)} remaining</span>
+                </>
+              )}
+              {!isPaused && knownSize && effectiveSpeed > 0 && (
+                <>
+                  <span style={{ opacity: 0.35 }}>·</span>
+                  <span style={{ color: 'var(--text)', fontWeight: 500 }}>
+                    {formatEta(remainingBytes, effectiveSpeed)} left
+                  </span>
+                </>
+              )}
               {isPaused && (
                 <span
                   style={{
@@ -403,7 +417,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         </div>
         <div
           style={{
-            height: 9,
+            height: 8,
             borderRadius: 999,
             background: 'var(--track-bg)',
             overflow: 'hidden',
@@ -428,49 +442,6 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             <div style={{ width: '100%', background: 'var(--color-accent)' }} />
           )}
         </div>
-      </div>
-
-      <div
-        style={{
-          margin: '0 20px 14px',
-          ...statGridStyle,
-          gridTemplateColumns: 'repeat(5, minmax(0, 1fr))'
-        }}
-      >
-        {[
-          { label: 'Downloaded', value: formatBytes(download.bytesDownloaded) },
-          { label: 'Total', value: knownSize ? formatBytes(download.totalBytes) : '—' },
-          {
-            label: 'ETA',
-            value: !isPaused && knownSize ? formatEta(remainingBytes, effectiveSpeed) : '—'
-          },
-          { label: 'Elapsed', value: formatDuration(elapsedSeconds) },
-          { label: 'Completed', value: `${completedChunks} / ${download.chunks.length} done` }
-        ].map((stat, index) => (
-          <div
-            key={stat.label}
-            style={{
-              padding: '9px 12px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 5,
-              borderLeft: index > 0 ? '0.5px solid var(--border)' : undefined,
-              minWidth: 0
-            }}
-          >
-            <div style={statLabelStyle}>{stat.label}</div>
-            <div
-              style={{
-                ...statValueStyle,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
-              }}
-            >
-              {stat.value}
-            </div>
-          </div>
-        ))}
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -507,13 +478,34 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
       </div>
 
       <div style={footerStyle}>
-        <div style={footerTextStyle}>
-          resumable · elapsed {formatDuration(elapsedSeconds)}
-          {totalRetries > 0 ? ` · ${totalRetries} ${totalRetries === 1 ? 'retry' : 'retries'}` : ''}
-          {' · '}
-          {toDisplayPath(dirnameOf(download.destinationPath), homeDir)}
+        <div
+          style={{
+            ...footerTextStyle,
+            flex: 1,
+            minWidth: 0,
+            overflow: 'hidden',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 7
+          }}
+        >
+          <span
+            style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            title={`Saving to: ${download.destinationPath}`}
+          >
+            Saving to {toDisplayPath(dirnameOf(download.destinationPath), homeDir)}
+          </span>
+          <span style={{ opacity: 0.35, flexShrink: 0 }}>·</span>
+          <span style={{ flexShrink: 0 }}>Resumable</span>
+          {totalRetries > 0 && (
+            <>
+              <span style={{ opacity: 0.35, flexShrink: 0 }}>·</span>
+              <span style={{ color: 'var(--color-usb)', flexShrink: 0 }}>
+                {totalRetries} {totalRetries === 1 ? 'retry' : 'retries'}
+              </span>
+            </>
+          )}
         </div>
-        <div style={{ flex: 1 }} />
         <button
           type="button"
           onClick={handlePauseResume}

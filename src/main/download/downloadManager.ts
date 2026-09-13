@@ -285,6 +285,14 @@ export class DownloadManager {
     if (!runtime || runtime.state.status !== 'downloading') return
 
     runtime.state.status = 'paused'
+    runtime.state.speedBytesPerSec = 0
+    runtime.state.pausedAt = Date.now()
+    for (const chunk of runtime.state.chunks) {
+      if (chunk.status !== 'completed') {
+        chunk.status = 'paused'
+      }
+      chunk.speedBytesPerSec = 0
+    }
     for (const chunkRuntime of runtime.chunkRuntimes.values()) {
       chunkRuntime.controller.abort()
     }
@@ -318,6 +326,11 @@ export class DownloadManager {
     }
 
     runtime.state.status = 'downloading'
+    if (runtime.state.pausedAt) {
+      runtime.state.totalPausedMs =
+        (runtime.state.totalPausedMs || 0) + (Date.now() - runtime.state.pausedAt)
+      runtime.state.pausedAt = undefined
+    }
     const pending = runtime.state.chunks.filter((chunk) => chunk.status !== 'completed')
     for (const chunk of pending) {
       runtime.speedSamplesByChunk.delete(chunk.id)
@@ -334,6 +347,10 @@ export class DownloadManager {
       return
 
     runtime.state.status = 'cancelled'
+    runtime.state.speedBytesPerSec = 0
+    for (const chunk of runtime.state.chunks) {
+      chunk.speedBytesPerSec = 0
+    }
     for (const chunkRuntime of runtime.chunkRuntimes.values()) {
       chunkRuntime.controller.abort()
     }
@@ -528,6 +545,7 @@ export class DownloadManager {
             continue
           }
           chunk.status = runtime.state.status === 'paused' ? 'paused' : 'cancelled'
+          chunk.speedBytesPerSec = 0
           break
         }
 
@@ -555,6 +573,7 @@ export class DownloadManager {
         await delay(retryDelayMs(attempt), activeController.signal)
         if (activeController.signal.aborted) {
           chunk.status = runtime.state.status === 'paused' ? 'paused' : 'cancelled'
+          chunk.speedBytesPerSec = 0
           break
         }
         chunk.status = 'downloading'
@@ -608,6 +627,9 @@ export class DownloadManager {
   private pushUpdate(runtime: DownloadRuntime): void {
     const window = this.getWindow()
     if (!window || window.isDestroyed()) return
+    if (runtime.state.status === 'paused' || runtime.state.status === 'cancelled') {
+      runtime.state.speedBytesPerSec = 0
+    }
     window.webContents.send(IpcChannels.downloadUpdated, structuredClone(runtime.state))
   }
 

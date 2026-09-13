@@ -53,7 +53,10 @@ export const accentChipStyle: React.CSSProperties = {
   whiteSpace: 'nowrap'
 }
 
-const PILL_TOKENS: Record<'positive' | 'negative', { bg: string; border: string; text: string }> = {
+const PILL_TOKENS: Record<
+  'positive' | 'negative' | 'paused',
+  { bg: string; border: string; text: string }
+> = {
   positive: {
     bg: 'var(--color-wifi-bg)',
     border: 'var(--color-wifi-border)',
@@ -63,10 +66,15 @@ const PILL_TOKENS: Record<'positive' | 'negative', { bg: string; border: string;
     bg: 'var(--color-danger-bg)',
     border: 'var(--color-danger-border)',
     text: 'var(--color-danger)'
+  },
+  paused: {
+    bg: 'var(--color-usb-bg)',
+    border: 'var(--color-usb-border)',
+    text: 'var(--color-usb-text)'
   }
 }
 
-export function pillStyle(kind: 'positive' | 'negative'): React.CSSProperties {
+export function pillStyle(kind: 'positive' | 'negative' | 'paused'): React.CSSProperties {
   const tokens = PILL_TOKENS[kind]
   return {
     display: 'flex',

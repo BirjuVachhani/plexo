@@ -117,7 +117,7 @@ export function NetworkRow({
             const isChunkDone = chunk.status === 'completed'
             const isChunkActive = chunk.status === 'downloading'
             const isChunkError = chunk.status === 'error'
-            const title = `Stream #${index + 1}: ${Math.round(percent)}% · ${formatBytes(chunk.bytesDownloaded)} / ${formatBytes(chunkSize)}${chunk.speedBytesPerSec > 0 ? ` · ${formatSpeed(chunk.speedBytesPerSec)}` : ''}`
+            const title = `Stream #${index + 1}: ${Math.round(percent)}% · ${formatBytes(chunk.bytesDownloaded)} / ${formatBytes(chunkSize)}${chunk.speedBytesPerSec > 0 ? ` · ${formatSpeed(chunk.speedBytesPerSec)}` : chunk.status === 'paused' ? ' · Paused' : ''}`
 
             return (
               <div
@@ -291,7 +291,9 @@ export function NetworkRow({
                       ? 'Done'
                       : chunk.status === 'retrying'
                         ? 'Retrying…'
-                        : 'Waiting'}
+                        : chunk.status === 'paused'
+                          ? 'Paused'
+                          : 'Waiting'}
                 </div>
 
                 <div

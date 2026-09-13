@@ -1,7 +1,10 @@
 import { FONT_UI, TITLE_BAR_HEIGHT, pillStyle } from '../theme'
 
 export type TitleBarStatus =
-  { kind: 'none' } | { kind: 'merged'; networkCount: number } | { kind: 'offline' }
+  | { kind: 'none' }
+  | { kind: 'merged'; networkCount: number }
+  | { kind: 'paused'; networkCount: number }
+  | { kind: 'offline' }
 
 const isMac = window.plexo.platform === 'darwin'
 
@@ -57,6 +60,19 @@ export function TitleBar({ status }: { status: TitleBarStatus }): React.JSX.Elem
             }}
           />
           {status.networkCount} {status.networkCount === 1 ? 'network' : 'networks'} merged
+        </div>
+      )}
+      {status.kind === 'paused' && (
+        <div style={pillStyle('paused')}>
+          <div
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: 'var(--color-usb)'
+            }}
+          />
+          {status.networkCount} {status.networkCount === 1 ? 'network' : 'networks'} · Paused
         </div>
       )}
       {status.kind === 'offline' && (

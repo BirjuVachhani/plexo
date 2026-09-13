@@ -83,13 +83,36 @@ export function ErrorScreen({
           >
             {cancelled ? (
               <svg viewBox="0 0 24 24" style={{ width: 22, height: 22 }}>
-                <circle cx="12" cy="12" r="9" fill="none" stroke="var(--color-usb-text)" strokeWidth="2" />
-                <line x1="8" y1="12" x2="16" y2="12" stroke="var(--color-usb-text)" strokeWidth="2.4" strokeLinecap="round" />
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="9"
+                  fill="none"
+                  stroke="var(--color-usb-text)"
+                  strokeWidth="2"
+                />
+                <line
+                  x1="8"
+                  y1="12"
+                  x2="16"
+                  y2="12"
+                  stroke="var(--color-usb-text)"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                />
               </svg>
             ) : (
               <svg viewBox="0 0 24 24" style={{ width: 22, height: 22 }}>
                 <circle cx="12" cy="12" r="9" fill="none" stroke={DANGER} strokeWidth="2" />
-                <line x1="12" y1="8" x2="12" y2="12.5" stroke={DANGER} strokeWidth="2.4" strokeLinecap="round" />
+                <line
+                  x1="12"
+                  y1="8"
+                  x2="12"
+                  y2="12.5"
+                  stroke={DANGER}
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                />
                 <circle cx="12" cy="15.5" r="1.2" fill={DANGER} />
               </svg>
             )}
@@ -162,7 +185,9 @@ export function ErrorScreen({
                 {download.bytesDownloaded > 0 ? (
                   <>
                     {formatBytes(download.bytesDownloaded)}
-                    {knownSize ? ` of ${formatBytes(download.totalBytes)} (${percent}%)` : ' transferred'}
+                    {knownSize
+                      ? ` of ${formatBytes(download.totalBytes)} (${percent}%)`
+                      : ' transferred'}
                   </>
                 ) : (
                   'No data transferred'
@@ -172,7 +197,15 @@ export function ErrorScreen({
           </div>
 
           {/* Action Buttons in Center */}
-          <div style={{ display: 'flex', gap: 10, width: '100%', justifyContent: 'center', marginTop: 4 }}>
+          <div
+            style={{
+              display: 'flex',
+              gap: 10,
+              width: '100%',
+              justifyContent: 'center',
+              marginTop: 4
+            }}
+          >
             <button
               type="button"
               onClick={onDownloadAgain}

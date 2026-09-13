@@ -13,6 +13,7 @@ import {
   footerStyle,
   footerTextStyle,
   networkTableHeaderStyle,
+  primaryButtonStyle,
   resolveNetworkVisual,
   secondaryButtonStyle,
   sectionHeaderLabelStyle,
@@ -59,25 +60,32 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   const speedHistoryByInterface = useAppStore((store) => store.speedHistoryByInterface)
   const peakSpeedBytesPerSec = useAppStore((store) => store.peakSpeedBytesPerSec)
   const networkPreferences = useAppStore((store) => store.networkPreferences)
+  const isPaused = download.status === 'paused'
+  const percent = formatPercent(download.bytesDownloaded, download.totalBytes)
+  const knownSize = download.totalBytes > 0
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
+    if (isPaused) return
     const interval = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(interval)
-  }, [])
-
-  const percent = formatPercent(download.bytesDownloaded, download.totalBytes)
-  const knownSize = download.totalBytes > 0
-  const isPaused = download.status === 'paused'
+  }, [isPaused])
 
   useEffect(() => {
-    document.title = knownSize ? `Plexo — ${percent}%` : 'Plexo — downloading'
+    if (isPaused) {
+      document.title = knownSize ? `Plexo — Paused (${percent}%)` : 'Plexo — Paused'
+    } else {
+      document.title = knownSize ? `Plexo — ${percent}%` : 'Plexo — downloading'
+    }
     return () => {
       document.title = 'Plexo'
     }
-  }, [percent, knownSize])
+  }, [percent, knownSize, isPaused])
 
-  const elapsedSeconds = (now - download.startedAt) / 1000
+  const totalPausedMs =
+    (download.totalPausedMs || 0) +
+    (isPaused && download.pausedAt ? Math.max(0, now - download.pausedAt) : 0)
+  const elapsedSeconds = Math.max(0, (now - download.startedAt - totalPausedMs) / 1000)
 
   const handlePauseResume = (): void => {
     if (isPaused) void window.plexo.resumeDownload(download.id)
@@ -85,7 +93,8 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   }
   const handleCancel = (): void => void window.plexo.cancelDownload(download.id)
 
-  const speed = splitFormattedBytes(download.speedBytesPerSec)
+  const effectiveSpeed = isPaused ? 0 : download.speedBytesPerSec
+  const speed = splitFormattedBytes(effectiveSpeed)
   const groups = groupChunksByInterface(download.chunks)
   const visuals = groups.map((group) =>
     resolveNetworkVisual(
@@ -98,7 +107,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
     group.chunks.some((chunk) => chunk.status === 'downloading')
   )
   const weights = groups.map((group) =>
-    download.speedBytesPerSec > 0 ? group.speedBytesPerSec : group.bytesDownloaded
+    effectiveSpeed > 0 ? group.speedBytesPerSec : group.bytesDownloaded
   )
   const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || 1
 
@@ -119,7 +128,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
     border: string
   }
   const chipOptions: SpeedChipOption[] = []
-  if (groups.length > 1) {
+  if (groups.length > 1 && !isPaused) {
     const sortedIndices = groups
       .map((_, i) => i)
       .filter((i) =>
@@ -180,6 +189,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
               label: visuals[index].name,
               speedBytesPerSec: isPaused ? 0 : group.speedBytesPerSec
             }))}
+            paused={isPaused}
           />
 
           <div
@@ -195,25 +205,45 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
               style={{
                 font: `500 10px/1 ${FONT_MONO}`,
                 letterSpacing: '0.2em',
-                color: '#8d9196'
+                color: '#8d9196',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6
               }}
             >
-              TOTAL SPEED
+              <span>TOTAL SPEED</span>
+              {isPaused && (
+                <span
+                  style={{
+                    font: `600 9px/1 ${FONT_MONO}`,
+                    letterSpacing: '0.08em',
+                    color: 'var(--color-usb)',
+                    background: 'var(--color-usb-bg)',
+                    border: '0.5px solid var(--color-usb-border)',
+                    padding: '2px 5px',
+                    borderRadius: 3
+                  }}
+                >
+                  PAUSED
+                </span>
+              )}
             </div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
               <div
                 style={{
                   font: `600 38px/0.88 ${FONT_MONO}`,
                   letterSpacing: '-0.03em',
-                  color: '#f5f2ed',
+                  color: isPaused ? 'var(--text-tertiary)' : '#f5f2ed',
                   fontVariantNumeric: 'tabular-nums'
                 }}
               >
-                {speed.value}
+                {isPaused ? '—' : speed.value}
               </div>
-              <div style={{ font: `500 12px/1 ${FONT_MONO}`, color: '#8d9196' }}>
-                {speed.unit}/s
-              </div>
+              {!isPaused && (
+                <div style={{ font: `500 12px/1 ${FONT_MONO}`, color: '#8d9196' }}>
+                  {speed.unit}/s
+                </div>
+              )}
             </div>
             <div
               style={{
@@ -239,31 +269,52 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                 </span>
               </span>
             </div>
-            {activeChipOption && (
-              <button
-                type="button"
-                onClick={() => setChipModeIndex((i) => (i + 1) % chipOptions.length)}
-                title={`${activeChipOption.tooltip}${chipOptions.length > 1 ? ' (click to toggle)' : ''}`}
+            {isPaused ? (
+              <div
                 style={{
-                  ...accentChipStyle,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  cursor: chipOptions.length > 1 ? 'pointer' : 'default',
-                  userSelect: 'none',
-                  border: `0.5px solid ${activeChipOption.border}`,
-                  background: activeChipOption.bg,
-                  color: activeChipOption.color,
-                  width: 'fit-content'
+                  font: `500 11px/1.2 ${FONT_UI}`,
+                  color: 'var(--text-tertiary)',
+                  marginTop: 2
                 }}
               >
-                <span>{activeChipOption.label}</span>
-                {chipOptions.length > 1 && <span style={{ opacity: 0.55, fontSize: 8.5 }}>⇄</span>}
-              </button>
+                Download paused · Click Resume to continue
+              </div>
+            ) : (
+              activeChipOption && (
+                <button
+                  type="button"
+                  onClick={() => setChipModeIndex((i) => (i + 1) % chipOptions.length)}
+                  title={`${activeChipOption.tooltip}${chipOptions.length > 1 ? ' (click to toggle)' : ''}`}
+                  style={{
+                    ...accentChipStyle,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    cursor: chipOptions.length > 1 ? 'pointer' : 'default',
+                    userSelect: 'none',
+                    border: `0.5px solid ${activeChipOption.border}`,
+                    background: activeChipOption.bg,
+                    color: activeChipOption.color,
+                    width: 'fit-content'
+                  }}
+                >
+                  <span>{activeChipOption.label}</span>
+                  {chipOptions.length > 1 && (
+                    <span style={{ opacity: 0.55, fontSize: 8.5 }}>⇄</span>
+                  )}
+                </button>
+              )
             )}
           </div>
 
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              opacity: isPaused ? 0.45 : 1,
+              transition: 'opacity 0.2s'
+            }}
+          >
             <div
               style={{
                 font: `500 9.5px/1 ${FONT_MONO}`,
@@ -271,7 +322,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                 color: '#8d9196'
               }}
             >
-              THROUGHPUT · LAST {speedHistory.length}S
+              THROUGHPUT · {isPaused ? 'PAUSED' : `LAST ${speedHistory.length}S`}
             </div>
             <ThroughputChart
               order={groups.map((g, i) => ({
@@ -319,15 +370,34 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                 marginTop: 2,
                 font: `11.5px/1 ${FONT_MONO}`,
                 color: 'var(--text-secondary)',
-                fontVariantNumeric: 'tabular-nums'
+                fontVariantNumeric: 'tabular-nums',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6
               }}
             >
-              {formatBytes(download.bytesDownloaded)}
-              {knownSize ? ` of ${formatBytes(download.totalBytes)} · ${percent}%` : ''}
-              {!isPaused && knownSize
-                ? ` · ${formatEta(remainingBytes, download.speedBytesPerSec)} left`
-                : ''}
-              {isPaused ? ' · paused' : ''}
+              <span>
+                {formatBytes(download.bytesDownloaded)}
+                {knownSize ? ` of ${formatBytes(download.totalBytes)} · ${percent}%` : ''}
+                {!isPaused && knownSize
+                  ? ` · ${formatEta(remainingBytes, effectiveSpeed)} left`
+                  : ''}
+              </span>
+              {isPaused && (
+                <span
+                  style={{
+                    font: `600 9px/1 ${FONT_MONO}`,
+                    letterSpacing: '0.08em',
+                    color: 'var(--color-usb)',
+                    background: 'var(--color-usb-bg)',
+                    border: '0.5px solid var(--color-usb-border)',
+                    padding: '2px 6px',
+                    borderRadius: 3
+                  }}
+                >
+                  PAUSED
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -372,11 +442,10 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
           { label: 'Total', value: knownSize ? formatBytes(download.totalBytes) : '—' },
           {
             label: 'ETA',
-            value:
-              !isPaused && knownSize ? formatEta(remainingBytes, download.speedBytesPerSec) : '—'
+            value: !isPaused && knownSize ? formatEta(remainingBytes, effectiveSpeed) : '—'
           },
           { label: 'Elapsed', value: formatDuration(elapsedSeconds) },
-          { label: 'Chunks', value: `${completedChunks} / ${download.chunks.length}` }
+          { label: 'Completed', value: `${completedChunks} / ${download.chunks.length} done` }
         ].map((stat, index) => (
           <div
             key={stat.label}
@@ -415,7 +484,8 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         >
           <div style={sectionHeaderLabelStyle}>Networks</div>
           <div style={sectionHeaderMetaStyle}>
-            {groups.length} merged · {download.chunks.length} chunks · {activeGroups.length} active
+            {groups.length} merged · {download.chunks.length} chunks ·{' '}
+            {isPaused ? 'paused' : `${activeGroups.length} active`}
           </div>
         </div>
         <div style={networkTableHeaderStyle}>
@@ -444,7 +514,11 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
           {toDisplayPath(dirnameOf(download.destinationPath), homeDir)}
         </div>
         <div style={{ flex: 1 }} />
-        <button type="button" onClick={handlePauseResume} style={secondaryButtonStyle}>
+        <button
+          type="button"
+          onClick={handlePauseResume}
+          style={isPaused ? primaryButtonStyle : secondaryButtonStyle}
+        >
           {isPaused ? 'Resume' : 'Pause'}
         </button>
         <button type="button" onClick={handleCancel} style={dangerButtonStyle}>

@@ -58,6 +58,8 @@ export interface DownloadState {
   chunks: ChunkState[]
   error?: string
   startedAt: number
+  pausedAt?: number
+  totalPausedMs?: number
   completedAt?: number
 }
 

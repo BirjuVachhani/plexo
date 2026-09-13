@@ -20,10 +20,12 @@ export interface MergeDiagramNetwork {
  * directly to the final total speed on the right. */
 export function MergeDiagram({
   networks,
-  muted = false
+  muted = false,
+  paused = false
 }: {
   networks: MergeDiagramNetwork[]
   muted?: boolean
+  paused?: boolean
 }): React.JSX.Element {
   const height = Math.max(78, networks.length * ROW_HEIGHT + 10)
   const midY = height / 2
@@ -43,8 +45,9 @@ export function MergeDiagram({
               d={`M${CURVE_START_X},${y.toFixed(1)} C${CURVE_START_X + 36},${y.toFixed(1)} ${MERGE_X - 26},${midY.toFixed(1)} ${MERGE_X},${midY.toFixed(1)}`}
               stroke={color}
               strokeDasharray="6 8"
+              opacity={paused ? 0.55 : 1}
               style={
-                muted
+                muted || paused
                   ? undefined
                   : { animation: `plexo-dash ${1.1 + index * 0.2}s linear infinite` }
               }
@@ -53,13 +56,15 @@ export function MergeDiagram({
         })}
         <path
           d={`M${MERGE_X},${midY} L${STREAM_END_X},${midY}`}
-          stroke={muted ? 'var(--icon-muted)' : 'var(--text)'}
+          stroke={muted ? 'var(--icon-muted)' : paused ? 'var(--text-secondary)' : 'var(--text)'}
           strokeWidth={6.5}
+          opacity={paused ? 0.6 : 1}
         />
       </g>
       <polygon
         points={`${STREAM_END_X - 1},${midY - 4.5} ${STREAM_END_X + 6},${midY} ${STREAM_END_X - 1},${midY + 4.5}`}
-        fill={muted ? 'var(--icon-muted)' : 'var(--text)'}
+        fill={muted ? 'var(--icon-muted)' : paused ? 'var(--text-secondary)' : 'var(--text)'}
+        opacity={paused ? 0.6 : 1}
       />
       <circle
         cx={MERGE_X}
@@ -120,10 +125,13 @@ export function MergeDiagram({
           x={STREAM_END_X + 2}
           y={midY - 11}
           textAnchor="end"
-          fill="var(--text-tertiary)"
-          style={{ font: `500 8.5px ${FONT_MONO}`, letterSpacing: '0.12em' }}
+          fill={paused ? 'var(--color-usb)' : 'var(--text-tertiary)'}
+          style={{
+            font: `${paused ? '600' : '500'} 8.5px ${FONT_MONO}`,
+            letterSpacing: '0.12em'
+          }}
         >
-          MERGED
+          {paused ? 'PAUSED' : 'MERGED'}
         </text>
       )}
     </svg>

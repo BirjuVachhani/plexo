@@ -42,10 +42,16 @@ function App(): React.JSX.Element {
   let titleBarStatus: TitleBarStatus = { kind: 'none' }
 
   if (currentDownload) {
-    if (currentDownload.status === 'downloading' || currentDownload.status === 'paused') {
+    if (currentDownload.status === 'downloading') {
       screen = <DownloadingScreen download={currentDownload} />
       titleBarStatus = {
         kind: 'merged',
+        networkCount: groupChunksByInterface(currentDownload.chunks).length
+      }
+    } else if (currentDownload.status === 'paused') {
+      screen = <DownloadingScreen download={currentDownload} />
+      titleBarStatus = {
+        kind: 'paused',
         networkCount: groupChunksByInterface(currentDownload.chunks).length
       }
     } else if (currentDownload.status === 'completed') {

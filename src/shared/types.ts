@@ -19,6 +19,9 @@ export interface ProbeResult {
   totalBytes: number | null
   suggestedFileName: string
   contentType: string | null
+  /** Strong validators, used to detect if the remote content changes between pause and resume. */
+  etag: string | null
+  lastModified: string | null
 }
 
 export type DownloadStatus = 'downloading' | 'paused' | 'completed' | 'error' | 'cancelled'
@@ -70,4 +73,6 @@ export interface StartDownloadRequest {
   totalBytes: number
   supportsRanges: boolean
   interfaceIds: string[]
+  etag: string | null
+  lastModified: string | null
 }

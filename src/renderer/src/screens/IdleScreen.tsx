@@ -115,7 +115,9 @@ export function IdleScreen(): React.JSX.Element {
         suggestedFileName: probe.result.suggestedFileName,
         totalBytes: probe.result.totalBytes ?? 0,
         supportsRanges: probe.multiConnectionAllowed,
-        interfaceIds: selectedInterfaceIds
+        interfaceIds: selectedInterfaceIds,
+        etag: probe.result.etag,
+        lastModified: probe.result.lastModified
       })
     } catch (error) {
       setStartError(error instanceof Error ? error.message : String(error))

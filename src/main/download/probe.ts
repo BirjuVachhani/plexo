@@ -58,7 +58,9 @@ function fileNameFromHeaders(headers: Headers, url: URL): string {
   return base && base.length > 0 ? base : 'download'
 }
 
-export async function probeUrl(rawUrl: string): Promise<ProbeResult> {
+async function requestFollowingRedirects(
+  rawUrl: string
+): Promise<{ current: URL; response: ProbeResponse | null }> {
   let current = new URL(rawUrl)
   let response: ProbeResponse | null = null
 
@@ -72,6 +74,42 @@ export async function probeUrl(rawUrl: string): Promise<ProbeResult> {
     }
     break
   }
+
+  return { current, response }
+}
+
+/**
+ * Re-checks a previously probed URL's strong validators before a paused
+ * download resumes. Appending onto part files assumes the remote content
+ * hasn't changed since it was probed — if it has (a different ETag or
+ * Last-Modified), stitching old and new bytes together would silently
+ * produce a corrupt file. Returns true when unchanged *or* when we can't
+ * tell (no validators, or the check itself failed) — a probe failure isn't
+ * proof the file changed, so it shouldn't block a resume on its own.
+ */
+export async function isResourceUnchanged(
+  rawUrl: string,
+  etag: string | null,
+  lastModified: string | null
+): Promise<boolean> {
+  if (!etag && !lastModified) return true
+
+  try {
+    const { response } = await requestFollowingRedirects(rawUrl)
+    if (!response || response.statusCode >= 400) return true
+
+    const currentEtag = headerValue(response.headers, 'etag')
+    const currentLastModified = headerValue(response.headers, 'last-modified')
+    if (etag && currentEtag) return currentEtag === etag
+    if (lastModified && currentLastModified) return currentLastModified === lastModified
+    return true
+  } catch {
+    return true
+  }
+}
+
+export async function probeUrl(rawUrl: string): Promise<ProbeResult> {
+  const { current, response } = await requestFollowingRedirects(rawUrl)
 
   if (!response || response.statusCode === 0 || response.statusCode >= 400) {
     throw new Error(`Server responded with status ${response?.statusCode || 'unknown'}`)
@@ -100,6 +138,8 @@ export async function probeUrl(rawUrl: string): Promise<ProbeResult> {
     supportsRanges,
     totalBytes,
     suggestedFileName: fileNameFromHeaders(response.headers, current),
-    contentType: headerValue(response.headers, 'content-type') ?? null
+    contentType: headerValue(response.headers, 'content-type') ?? null,
+    etag: headerValue(response.headers, 'etag') ?? null,
+    lastModified: headerValue(response.headers, 'last-modified') ?? null
   }
 }

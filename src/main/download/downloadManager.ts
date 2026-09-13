@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { mkdir, rm, stat, truncate } from 'node:fs/promises'
+import { mkdir, rm, stat, statfs, truncate } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { BrowserWindow } from 'electron'
 import { app } from 'electron'
@@ -13,6 +13,7 @@ import type {
 } from '../../shared/types'
 import { downloadChunk } from './chunkDownloader'
 import { getAvailableDestinationPath } from './paths'
+import { isResourceUnchanged } from './probe'
 
 interface ChunkRuntime {
   controller: AbortController
@@ -120,6 +121,24 @@ async function reconcilePartFileSize(partPath: string, expectedBytes: number): P
   return safeBytes
 }
 
+function formatGigabytes(bytes: number): string {
+  return `${(bytes / 1024 ** 3).toFixed(2)} GB`
+}
+
+/** Throws if the destination volume doesn't have room for the download — a full disk should
+ * fail upfront with a clear reason, not partway through as a confusing ENOSPC write error. */
+async function ensureDiskSpace(destinationDir: string, requiredBytes: number): Promise<void> {
+  if (requiredBytes <= 0) return // unknown size — nothing to check against
+
+  const stats = await statfs(destinationDir)
+  const availableBytes = stats.bavail * stats.bsize
+  if (availableBytes < requiredBytes) {
+    throw new Error(
+      `Not enough disk space: this download needs ${formatGigabytes(requiredBytes)} but only ${formatGigabytes(availableBytes)} is free`
+    )
+  }
+}
+
 /** Appends one file's bytes onto an already-open writable, without ending it. */
 function appendFileToStream(sourcePath: string, output: NodeJS.WritableStream): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -152,6 +171,8 @@ export class DownloadManager {
     if (interfaces.length === 0) {
       throw new Error('Select at least one network interface')
     }
+
+    await ensureDiskSpace(requestPayload.destinationDir, requestPayload.totalBytes)
 
     const id = randomUUID()
     const tempDir = join(app.getPath('temp'), 'plexo', id)
@@ -225,6 +246,28 @@ export class DownloadManager {
   resume(id: string): void {
     const runtime = this.runtimes.get(id)
     if (!runtime || runtime.state.status !== 'paused') return
+
+    void this.resumeAfterVerifying(runtime)
+  }
+
+  // Appending onto part files assumes the remote file hasn't changed since
+  // it was probed — if the server's ETag/Last-Modified moved on while this
+  // download sat paused, resuming would silently stitch old and new bytes
+  // together. Check first, and refuse to resume rather than corrupt the
+  // output (the user can always start the download over from scratch).
+  private async resumeAfterVerifying(runtime: DownloadRuntime): Promise<void> {
+    const { url, etag, lastModified } = runtime.requestPayload
+    const unchanged = await isResourceUnchanged(url, etag, lastModified)
+
+    if (runtime.state.status !== 'paused') return // cancelled while we were checking
+
+    if (!unchanged) {
+      runtime.state.status = 'error'
+      runtime.state.error =
+        'The remote file changed while this download was paused, so resuming would corrupt it. Start the download over instead.'
+      this.pushUpdate(runtime)
+      return
+    }
 
     runtime.state.status = 'downloading'
     const pending = runtime.state.chunks.filter((chunk) => chunk.status !== 'completed')

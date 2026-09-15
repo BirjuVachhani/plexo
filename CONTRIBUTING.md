@@ -11,7 +11,7 @@ npm install
 npm run dev
 ```
 
-Requires macOS — interface detection relies on macOS's `networksetup` command, so the app won't run correctly on other platforms yet (see [README.md](README.md#requirements)).
+Requires Windows 10/11 or macOS and Node.js 22.12+. See [requirements](README.md#requirements).
 
 ## Before opening a PR
 
@@ -21,11 +21,11 @@ npm run typecheck
 npm run format
 ```
 
-CI runs the same three checks on every pull request, with formatting checked rather than applied — if it flags something, `npm run format` fixes it.
+CI runs these checks on every pull request, with formatting checked rather than applied — if it flags something, `npm run format` fixes it.
 
 `main` takes changes by pull request only: direct pushes and force-pushes are rejected, and CI has to be green before a PR can merge.
 
-There's no test suite yet, so please describe how you tested your change manually (which URL/file size/interfaces you tried) in the PR description.
+CI also builds the Windows installer. Please describe how you checked your change manually (which URL/file size/interfaces you tried) in the PR description.
 
 ## Making changes
 
@@ -38,7 +38,7 @@ There's no test suite yet, so please describe how you tested your change manuall
 
 Open a GitHub issue with:
 
-- macOS version
+- Operating system and version
 - What you were downloading (URL if it's public, or roughly: file size, server type)
 - Which network interfaces were involved
 - Console/error output if there was a crash

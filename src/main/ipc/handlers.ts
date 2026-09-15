@@ -12,7 +12,10 @@ import { measureLatencies } from '../network/latency'
 import { listActiveInterfaces } from '../network/interfaces'
 import { loadNetworkPreferences, saveNetworkPreference } from '../network/preferences'
 
-const NETWORK_SETTINGS_URL = 'x-apple.systempreferences:com.apple.preference.network'
+const NETWORK_SETTINGS_URL =
+  process.platform === 'win32'
+    ? 'ms-settings:network-status'
+    : 'x-apple.systempreferences:com.apple.preference.network'
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): DownloadManager {
   let cachedInterfaces: NetworkInterfaceInfo[] = []

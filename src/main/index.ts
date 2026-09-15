@@ -21,7 +21,7 @@ function createWindow(): void {
     // Matches the renderer's dark-mode background so a live window resize
     // (which briefly exposes the raw window background) doesn't flash white.
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#ffffff',
-    ...(process.platform === 'linux' ? { icon } : {}),
+    ...(process.platform !== 'darwin' ? { icon } : {}),
     // Design v2 draws its own logo + status readout where the title normally sits — on macOS,
     // keep the real traffic lights (still native, still draggable) but let the renderer's own
     // title bar occupy the rest of the strip instead of an OS-drawn title.

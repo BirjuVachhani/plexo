@@ -30,7 +30,7 @@ export function formatPercent(bytesDownloaded: number, totalBytes: number): numb
 }
 
 export function fileNameFromPath(path: string): string {
-  return path.split('/').pop() ?? path
+  return path.split(/[\\/]/).pop() ?? path
 }
 
 /** Short uppercase file-type badge from a name's extension, e.g. "Xcode_16.2.xip" -> "XIP". */
@@ -57,8 +57,10 @@ export function splitFormattedBytes(bytes: number): { value: string; unit: strin
 }
 
 export function dirnameOf(path: string): string {
-  const index = path.lastIndexOf('/')
-  return index <= 0 ? '/' : path.slice(0, index)
+  const index = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  if (index < 0) return '.'
+  if (index === 0 || (index === 2 && path[1] === ':')) return path.slice(0, index + 1)
+  return path.slice(0, index)
 }
 
 export interface NetworkGroup {
@@ -102,8 +104,16 @@ export function groupChunksByInterface(chunks: ChunkState[]): NetworkGroup[] {
 
 /** Shortens an absolute path under the user's home directory to a "~/..." form for display. */
 export function toDisplayPath(path: string, homeDir: string): string {
-  if (homeDir && (path === homeDir || path.startsWith(`${homeDir}/`))) {
-    return `~${path.slice(homeDir.length)}`
+  const normalize = (value: string): string => {
+    const normalized = value.replace(/\\/g, '/').replace(/\/$/, '')
+    return /^[a-z]:/i.test(normalized) || normalized.startsWith('//')
+      ? normalized.toLowerCase()
+      : normalized
+  }
+  const home = normalize(homeDir)
+  const target = normalize(path)
+  if (home && (target === home || target.startsWith(`${home}/`))) {
+    return `~${path.slice(home.length)}`
   }
   return path
 }

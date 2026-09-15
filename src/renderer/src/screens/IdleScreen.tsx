@@ -205,7 +205,7 @@ export function IdleScreen(): React.JSX.Element {
                 flexShrink: 0
               }}
             >
-              PASTE ⌘V
+              PASTE {window.plexo.platform === 'darwin' ? '⌘V' : 'Ctrl+V'}
             </button>
           </div>
           <button

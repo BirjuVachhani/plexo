@@ -12,6 +12,7 @@ import {
   writeFile
 } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import { finished } from 'node:stream/promises'
 import type { BrowserWindow } from 'electron'
 import { app } from 'electron'
 import { IpcChannels } from '../../shared/ipc-channels'
@@ -206,7 +207,7 @@ function appendFileToStream(sourcePath: string, output: NodeJS.WritableStream): 
         output.once('drain', () => input.resume())
       }
     })
-    input.on('end', resolve)
+    input.on('close', resolve)
   })
 }
 
@@ -899,14 +900,8 @@ export class DownloadManager {
         bytesWritten += actualBytes
       }
 
-      await new Promise<void>((resolve, reject) => {
-        if (outputErrors.length > 0) {
-          reject(outputErrors[0])
-          return
-        }
-        output.on('error', reject)
-        output.end(resolve)
-      })
+      output.end()
+      await finished(output)
       if (outputErrors.length > 0) throw outputErrors[0]
 
       if (runtime.state.totalBytes > 0 && bytesWritten !== runtime.state.totalBytes) {
@@ -916,6 +911,7 @@ export class DownloadManager {
       }
     } catch (error) {
       output.destroy()
+      await finished(output).catch(() => {})
       // Leaving a half-written file where the user expects their download is
       // worse than leaving nothing: it looks like the download they asked for.
       await rm(runtime.state.destinationPath, { force: true })

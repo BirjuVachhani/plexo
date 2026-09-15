@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { existsSync } from 'node:fs'
+import { open } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 
 export function getDefaultDownloadsDir(): string {
@@ -10,16 +10,39 @@ export function getHomeDir(): string {
   return app.getPath('home')
 }
 
-/** <directory>/<fileName>, or <directory>/<fileName> (1), (2), ... if it already exists. */
-export function getAvailableDestinationPath(directory: string, fileName: string): string {
+// Somewhere to stop rather than spin forever if every candidate is taken
+// (or if something outside the app is creating them as fast as we try).
+const MAX_NAME_ATTEMPTS = 10_000
+
+/**
+ * Claims <directory>/<fileName>, or <directory>/<fileName> (1), (2), ... if it
+ * already exists, by creating an empty file at that path.
+ *
+ * Creating it is the point. A download's bytes go to part files and only reach
+ * the destination at reassembly, so merely *checking* that a name is free
+ * leaves it free: two downloads of the same file name started minutes apart
+ * would both pick it, and the one that finished second would overwrite the
+ * first — or, if their assemblies overlapped, both would write into one file
+ * and neither would survive. An exclusive create is what makes the name ours.
+ *
+ * The caller owns the placeholder from here: it must be removed if the
+ * download doesn't end up producing a file.
+ */
+export async function reserveDestinationPath(directory: string, fileName: string): Promise<string> {
   const ext = extname(fileName)
   const base = basename(fileName, ext)
 
-  let candidate = join(directory, fileName)
-  let counter = 1
-  while (existsSync(candidate)) {
-    candidate = join(directory, `${base} (${counter})${ext}`)
-    counter += 1
+  for (let counter = 0; counter < MAX_NAME_ATTEMPTS; counter += 1) {
+    const candidate =
+      counter === 0 ? join(directory, fileName) : join(directory, `${base} (${counter})${ext}`)
+    try {
+      const handle = await open(candidate, 'wx')
+      await handle.close()
+      return candidate
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    }
   }
-  return candidate
+
+  throw new Error(`Could not find an unused file name for "${fileName}" in ${directory}`)
 }

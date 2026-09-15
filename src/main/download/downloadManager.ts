@@ -14,7 +14,7 @@ import type {
   StartDownloadRequest
 } from '../../shared/types'
 import { downloadChunk } from './chunkDownloader'
-import { getAvailableDestinationPath } from './paths'
+import { reserveDestinationPath } from './paths'
 import { isResourceUnchanged } from './probe'
 
 interface ChunkRuntime {
@@ -179,7 +179,9 @@ export class DownloadManager {
     const tempDir = join(app.getPath('temp'), 'plexo', id)
     await mkdir(tempDir, { recursive: true })
 
-    const destinationPath = getAvailableDestinationPath(
+    // Claimed on disk, not just picked, so a second download of the same file
+    // name can't pick it too and overwrite this one at reassembly time.
+    const destinationPath = await reserveDestinationPath(
       requestPayload.destinationDir,
       requestPayload.suggestedFileName
     )
@@ -357,6 +359,7 @@ export class DownloadManager {
       runtime.state.error =
         'The remote file changed while this download was paused, so resuming would corrupt it. Start the download over instead.'
       this.pushUpdate(runtime)
+      await this.discardUnfinishedDestination(runtime)
       return
     }
 
@@ -400,6 +403,7 @@ export class DownloadManager {
     }
     this.pushUpdate(runtime)
     void this.cleanupTempDir(runtime)
+    void this.discardUnfinishedDestination(runtime)
   }
 
   remove(id: string): void {
@@ -439,6 +443,7 @@ export class DownloadManager {
       if (runtime.state.status === 'error' || runtime.state.status === 'cancelled') {
         this.pushUpdate(runtime)
         await this.cleanupTempDir(runtime)
+        await this.discardUnfinishedDestination(runtime)
       }
       return
     }
@@ -455,6 +460,7 @@ export class DownloadManager {
 
     this.pushUpdate(runtime)
     await this.cleanupTempDir(runtime)
+    await this.discardUnfinishedDestination(runtime)
   }
 
   private async runWorker(runtime: DownloadRuntime, chunk: ChunkState): Promise<void> {
@@ -652,23 +658,87 @@ export class DownloadManager {
     window.webContents.send(IpcChannels.downloadUpdated, structuredClone(runtime.state))
   }
 
+  /**
+   * Concatenates the part files into the destination, refusing to write a file
+   * that isn't demonstrably the whole download. Every check here is a backstop
+   * for a bug elsewhere rather than an expected condition — but the failure
+   * mode it guards against is the worst one this app has: handing the user a
+   * truncated file, calling it completed, and deleting the parts that would
+   * have let them resume it.
+   */
   private async reassemble(runtime: DownloadRuntime): Promise<void> {
+    const missing = runtime.blocks.filter((block) => block.status !== 'completed')
+    if (missing.length > 0) {
+      throw new Error(
+        `Download is incomplete: ${missing.length} of ${runtime.totalBlocks} parts never finished`
+      )
+    }
+
     const output = createWriteStream(runtime.state.destinationPath)
+    let bytesWritten = 0
+
+    // Attached before the first write, and kept for the stream's whole life:
+    // destroying the output after a failed check can surface an in-flight
+    // write as an 'error' event, and an unhandled 'error' on a stream takes
+    // down the main process rather than failing this one download.
+    const outputErrors: Error[] = []
+    output.on('error', (error: Error) => outputErrors.push(error))
 
     try {
       for (let i = 0; i < runtime.totalBlocks; i++) {
         const partPath = join(runtime.tempDir, `part-${i}`)
+        const block = runtime.blocks[i]
+        const expectedBytes = block.rangeEnd === null ? null : block.rangeEnd - block.rangeStart + 1
+        const actualBytes = (await stat(partPath)).size
+
+        if (expectedBytes !== null && actualBytes !== expectedBytes) {
+          throw new Error(
+            `Part ${i} is ${actualBytes} bytes but should be ${expectedBytes} — refusing to write a corrupt file`
+          )
+        }
+
         await appendFileToStream(partPath, output)
+        if (outputErrors.length > 0) throw outputErrors[0]
+        bytesWritten += actualBytes
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        if (outputErrors.length > 0) {
+          reject(outputErrors[0])
+          return
+        }
+        output.on('error', reject)
+        output.end(resolve)
+      })
+      if (outputErrors.length > 0) throw outputErrors[0]
+
+      if (runtime.state.totalBytes > 0 && bytesWritten !== runtime.state.totalBytes) {
+        throw new Error(
+          `Assembled file is ${bytesWritten} bytes but should be ${runtime.state.totalBytes} — refusing to keep a corrupt file`
+        )
       }
     } catch (error) {
       output.destroy()
+      // Leaving a half-written file where the user expects their download is
+      // worse than leaving nothing: it looks like the download they asked for.
+      await rm(runtime.state.destinationPath, { force: true })
       throw error
     }
+  }
 
-    await new Promise<void>((resolve, reject) => {
-      output.on('error', reject)
-      output.end(resolve)
-    })
+  /**
+   * Releases the placeholder file reserved at start when the download won't be
+   * filling it in, so its name is free for the next attempt. Only ever removes
+   * a path this download created and never finished writing — a completed
+   * download keeps its file.
+   */
+  private async discardUnfinishedDestination(runtime: DownloadRuntime): Promise<void> {
+    if (runtime.state.status === 'completed') return
+    try {
+      await rm(runtime.state.destinationPath, { force: true })
+    } catch {
+      // Best-effort — a stray empty file isn't worth failing the download over.
+    }
   }
 
   private async cleanupTempDir(runtime: DownloadRuntime): Promise<void> {

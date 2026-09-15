@@ -21,6 +21,10 @@ npm run typecheck
 npm run format
 ```
 
+CI runs the same three checks on every pull request, with formatting checked rather than applied — if it flags something, `npm run format` fixes it.
+
+`main` takes changes by pull request only: direct pushes and force-pushes are rejected, and CI has to be green before a PR can merge.
+
 There's no test suite yet, so please describe how you tested your change manually (which URL/file size/interfaces you tried) in the PR description.
 
 ## Making changes
@@ -33,6 +37,7 @@ There's no test suite yet, so please describe how you tested your change manuall
 ## Reporting bugs
 
 Open a GitHub issue with:
+
 - macOS version
 - What you were downloading (URL if it's public, or roughly: file size, server type)
 - Which network interfaces were involved

@@ -10,11 +10,7 @@ For example, if your Mac has:
 
 Plexo can utilize all of them simultaneously to download the **same file**.
 
-
-
 https://github.com/user-attachments/assets/e57728f4-fb63-441f-839c-174eef954b17
-
-
 
 ---
 
@@ -85,7 +81,9 @@ Range: bytes=8388608-16777215
 Servers advertise this capability with the `Accept-Ranges: bytes` response header and reply with HTTP status `206 Partial Content`. Because byte slices are stateless and independent, Plexo can request dozens of chunks at once, in any order, and stitch them together later.
 
 #### Probing before downloading
+
 Before starting a multi-connection download, Plexo sends a **1-byte ranged GET** (`Range: bytes=0-0`), following any redirects:
+
 - Unlike a `HEAD` request (which servers and CDNs frequently misreport), receiving a `206 Partial Content` response conclusively proves that range requests are supported and functional.
 - The probe response provides the total file size (`Content-Range` / `Content-Length`), suggested filename (`Content-Disposition`), and cache validators (`ETag` and `Last-Modified`).
 - If the server answers with `200 OK` (ignoring the `Range` header), Plexo falls back to a standard single-connection stream instead of failing.
@@ -108,6 +106,7 @@ https.request({
 ```
 
 This single option is Plexo's entire multi-network routing engine:
+
 - **No virtual network adapters or VPN tunnels**
 - **No packet bonding or link aggregation**
 - **No kernel extensions (`kext`) or root privileges**
@@ -138,6 +137,7 @@ Work distribution is dynamically proportional to each interface's real-time thro
 Each worker writes its assigned byte range directly to an isolated temporary file on disk (`part-0`, `part-1`, ... `part-N`).
 
 Once the queue is drained and all chunk promises resolve:
+
 - Plexo streams each `part-N` file sequentially into the final destination file using Node.js streams (`createReadStream` piped into `createWriteStream` with `{ flags: 'a' }`).
 - The temporary chunk directory is cleaned up.
 - The assembled file is verified against the expected byte length.
@@ -147,10 +147,12 @@ Once the queue is drained and all chunk promises resolve:
 # Downloads are resumable
 
 When you pause a download:
+
 - Plexo aborts all active HTTP socket connections via `AbortController`.
 - All completed `part-N` files remain cached on disk in a temporary directory.
 
 When you resume:
+
 1. **Validator check**: Plexo sends a probe request to compare the server's current `ETag` and `Last-Modified` headers against the values recorded when the download started.
 2. **Safe resume**: If the validators match, Plexo checks which `part-N` files are already complete on disk, skips them, and queues only the remaining chunks.
 3. **Guard against corruption**: If the file on the server has changed, Plexo refuses to resume to prevent combining incompatible slices into a corrupt file.
@@ -173,6 +175,7 @@ Chunk #2 → Range: bytes=16777216-25165823 → part-2 (USB Tether)
 ```
 
 ### Why 8 MB?
+
 8 MB provides the optimal balance: large enough to minimize HTTP connection overhead and TLS handshakes, yet small enough to keep the work-stealing queue fluid, ensure fine-grained load balancing across mismatched connections, and keep retries cheap (a failed or stalled connection only discards at most 8 MB).
 
 ---
@@ -251,7 +254,7 @@ dist/mac/Plexo.app
 
 > **Note on Gatekeeper:** The app is unsigned because it is not distributed with a paid Apple Developer certificate. However, because you compile it locally on your machine, macOS will not apply the quarantine flag (`com.apple.quarantine`). Gatekeeper only quarantines files downloaded from the web (via browsers, curl, etc.), so your locally built `Plexo.app` will launch cleanly without quarantine warnings.
 
-*(Build scripts for Windows and Linux exist in `package.json`, but multi-interface routing and hardware detection have only been verified on macOS.)*
+_(Build scripts for Windows and Linux exist in `package.json`, but multi-interface routing and hardware detection have only been verified on macOS.)_
 
 ---
 
@@ -272,6 +275,7 @@ brew install XiaoMiku01/tap/tetherkit
 ```
 
 ### Steps:
+
 1. Connect your Android device via USB.
 2. On your phone, navigate to **Settings → Network & Internet → Hotspot & tethering** and enable **USB tethering**.
 3. Once TetherKit is active, macOS registers the device as a network interface.

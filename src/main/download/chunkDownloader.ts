@@ -68,6 +68,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
     let bytesDownloaded = 0
     let settled = false
     let currentReq: ClientRequest | null = null
+    let currentFileStream: WriteStream | null = null
 
     const finish = (fn: () => void): void => {
       if (settled) return
@@ -79,6 +80,15 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
     const fail = (error: Error): void =>
       finish(() => {
         currentReq?.destroy()
+        // Closing the part file matters twice over: an abandoned stream holds
+        // its descriptor for the life of the process (a paused-and-resumed
+        // download, or a chunk that retries a few times, leaks one per
+        // attempt until the process hits its open-file limit), and its
+        // buffered writes would otherwise land in the part file *after* a
+        // resume has already reconciled that file's length. Discarding those
+        // writes is safe: what survives on disk is what the next attempt
+        // resumes from.
+        currentFileStream?.destroy()
         reject(error)
       })
 
@@ -161,6 +171,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
           const fileStream: WriteStream = createWriteStream(destinationPath, {
             flags: append ? 'a' : 'w'
           })
+          currentFileStream = fileStream
 
           res.on('error', fail)
           fileStream.on('error', fail)

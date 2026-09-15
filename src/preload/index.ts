@@ -7,7 +7,8 @@ import type {
   NetworkPreference,
   NetworkPreferences,
   ProbeResult,
-  StartDownloadRequest
+  StartDownloadRequest,
+  ThemeSource
 } from '../shared/types'
 
 export interface InitialPaths {
@@ -31,6 +32,11 @@ const plexoApi = {
 
   setNetworkPreference: (id: string, patch: NetworkPreference): Promise<NetworkPreferences> =>
     ipcRenderer.invoke(IpcChannels.setNetworkPreference, id, patch),
+
+  getThemeSource: (): Promise<ThemeSource> => ipcRenderer.invoke(IpcChannels.getThemeSource),
+
+  setThemeSource: (source: ThemeSource): Promise<ThemeSource> =>
+    ipcRenderer.invoke(IpcChannels.setThemeSource, source),
 
   probeUrl: (url: string): Promise<ProbeResult> => ipcRenderer.invoke(IpcChannels.probeUrl, url),
 

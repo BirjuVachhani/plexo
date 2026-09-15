@@ -62,7 +62,7 @@ export function ThroughputChart({
       <polyline
         points={outline}
         fill="none"
-        stroke="var(--text)"
+        stroke="var(--node-accent)"
         strokeWidth={2}
         strokeOpacity={0.85}
       />

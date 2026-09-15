@@ -1,9 +1,10 @@
-import { clipboard, dialog, ipcMain, shell, type BrowserWindow } from 'electron'
+import { clipboard, dialog, ipcMain, nativeTheme, shell, type BrowserWindow } from 'electron'
 import { IpcChannels } from '../../shared/ipc-channels'
 import type {
   NetworkInterfaceInfo,
   NetworkPreference,
-  StartDownloadRequest
+  StartDownloadRequest,
+  ThemeSource
 } from '../../shared/types'
 import { DownloadManager } from '../download/downloadManager'
 import { getDefaultDownloadsDir, getHomeDir } from '../download/paths'
@@ -11,6 +12,7 @@ import { probeUrl } from '../download/probe'
 import { measureLatencies } from '../network/latency'
 import { listActiveInterfaces } from '../network/interfaces'
 import { loadNetworkPreferences, saveNetworkPreference } from '../network/preferences'
+import { saveThemeSource } from '../settings'
 
 const NETWORK_SETTINGS_URL =
   process.platform === 'win32'
@@ -41,6 +43,14 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
     IpcChannels.setNetworkPreference,
     async (_event, id: string, patch: NetworkPreference) => saveNetworkPreference(id, patch)
   )
+
+  ipcMain.handle(IpcChannels.getThemeSource, async () => nativeTheme.themeSource)
+
+  ipcMain.handle(IpcChannels.setThemeSource, async (_event, source: ThemeSource) => {
+    nativeTheme.themeSource = source
+    await saveThemeSource(source)
+    return nativeTheme.themeSource
+  })
 
   ipcMain.handle(IpcChannels.openNetworkSettings, async () => {
     await shell.openExternal(NETWORK_SETTINGS_URL)

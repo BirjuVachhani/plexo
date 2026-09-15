@@ -1,4 +1,5 @@
 import { FONT_UI, TITLE_BAR_HEIGHT, pillStyle } from '../theme'
+import { ThemeToggle } from './ThemeToggle'
 
 export type TitleBarStatus =
   | { kind: 'none' }
@@ -27,25 +28,15 @@ export function TitleBar({ status }: { status: TitleBarStatus }): React.JSX.Elem
         WebkitAppRegion: 'drag'
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div
-          style={{
-            width: 15,
-            height: 15,
-            borderRadius: 4,
-            background: dimmed ? 'var(--icon-muted)' : 'var(--color-accent)',
-            flexShrink: 0
-          }}
-        />
-        <div
-          style={{
-            font: `700 12.5px/1 ${FONT_UI}`,
-            letterSpacing: '0.005em',
-            color: dimmed ? 'var(--text-tertiary)' : 'var(--text)'
-          }}
-        >
-          Plexo
-        </div>
+      <div
+        style={{
+          // Matches the "LOCKUP · horizontal" wordmark spec from the final icon design.
+          font: `700 13px/1 ${FONT_UI}`,
+          letterSpacing: '-0.02em',
+          color: dimmed ? 'var(--text-tertiary)' : 'var(--text)'
+        }}
+      >
+        Plexo
       </div>
       <div style={{ flex: 1 }} />
       {status.kind === 'merged' && (
@@ -83,6 +74,7 @@ export function TitleBar({ status }: { status: TitleBarStatus }): React.JSX.Elem
           Offline
         </div>
       )}
+      <ThemeToggle />
     </div>
   )
 }

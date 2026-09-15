@@ -2,7 +2,8 @@ import type {
   DownloadState,
   NetworkInterfaceInfo,
   NetworkPreference,
-  NetworkPreferences
+  NetworkPreferences,
+  ThemeSource
 } from '@shared/types'
 import { create } from 'zustand'
 import { groupChunksByInterface } from '../utils/format'
@@ -23,6 +24,9 @@ interface AppStore {
   latencies: Record<string, number | null>
   /** User customizations (name/color) per network interface id — persisted in the main process. */
   networkPreferences: NetworkPreferences
+
+  /** 'system' by default — persisted in the main process alongside nativeTheme.themeSource. */
+  themeSource: ThemeSource
 
   homeDir: string
   downloadsDir: string
@@ -47,6 +51,8 @@ interface AppStore {
   loadInitialPaths: () => Promise<void>
   loadNetworkPreferences: () => Promise<void>
   setNetworkPreference: (id: string, patch: NetworkPreference) => Promise<void>
+  loadThemeSource: () => Promise<void>
+  setThemeSource: (source: ThemeSource) => Promise<void>
   setCurrentDownload: (state: DownloadState) => void
   clearCurrentDownload: () => void
   setDraftUrl: (url: string) => void
@@ -59,6 +65,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   interfacesError: null,
   latencies: {},
   networkPreferences: {},
+  themeSource: 'system',
 
   homeDir: '',
   downloadsDir: '',
@@ -125,6 +132,25 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const networkPreferences = await window.plexo.setNetworkPreference(id, patch)
       set({ networkPreferences })
+    } catch {
+      // Leave the optimistic value in place — not persisted to disk, but still usable this session.
+    }
+  },
+
+  loadThemeSource: async () => {
+    try {
+      const themeSource = await window.plexo.getThemeSource()
+      set({ themeSource })
+    } catch {
+      // Best-effort — a failed read just leaves the toggle showing the 'system' default.
+    }
+  },
+
+  setThemeSource: async (themeSource) => {
+    // Optimistic update, same as setNetworkPreference — the toggle should feel instant.
+    set({ themeSource })
+    try {
+      await window.plexo.setThemeSource(themeSource)
     } catch {
       // Leave the optimistic value in place — not persisted to disk, but still usable this session.
     }

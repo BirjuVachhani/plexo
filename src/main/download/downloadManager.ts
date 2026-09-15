@@ -652,23 +652,72 @@ export class DownloadManager {
     window.webContents.send(IpcChannels.downloadUpdated, structuredClone(runtime.state))
   }
 
+  /**
+   * Concatenates the part files into the destination, refusing to write a file
+   * that isn't demonstrably the whole download. Every check here is a backstop
+   * for a bug elsewhere rather than an expected condition — but the failure
+   * mode it guards against is the worst one this app has: handing the user a
+   * truncated file, calling it completed, and deleting the parts that would
+   * have let them resume it.
+   */
   private async reassemble(runtime: DownloadRuntime): Promise<void> {
+    const missing = runtime.blocks.filter((block) => block.status !== 'completed')
+    if (missing.length > 0) {
+      throw new Error(
+        `Download is incomplete: ${missing.length} of ${runtime.totalBlocks} parts never finished`
+      )
+    }
+
     const output = createWriteStream(runtime.state.destinationPath)
+    let bytesWritten = 0
+
+    // Attached before the first write, and kept for the stream's whole life:
+    // destroying the output after a failed check can surface an in-flight
+    // write as an 'error' event, and an unhandled 'error' on a stream takes
+    // down the main process rather than failing this one download.
+    const outputErrors: Error[] = []
+    output.on('error', (error: Error) => outputErrors.push(error))
 
     try {
       for (let i = 0; i < runtime.totalBlocks; i++) {
         const partPath = join(runtime.tempDir, `part-${i}`)
+        const block = runtime.blocks[i]
+        const expectedBytes = block.rangeEnd === null ? null : block.rangeEnd - block.rangeStart + 1
+        const actualBytes = (await stat(partPath)).size
+
+        if (expectedBytes !== null && actualBytes !== expectedBytes) {
+          throw new Error(
+            `Part ${i} is ${actualBytes} bytes but should be ${expectedBytes} — refusing to write a corrupt file`
+          )
+        }
+
         await appendFileToStream(partPath, output)
+        if (outputErrors.length > 0) throw outputErrors[0]
+        bytesWritten += actualBytes
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        if (outputErrors.length > 0) {
+          reject(outputErrors[0])
+          return
+        }
+        output.on('error', reject)
+        output.end(resolve)
+      })
+      if (outputErrors.length > 0) throw outputErrors[0]
+
+      if (runtime.state.totalBytes > 0 && bytesWritten !== runtime.state.totalBytes) {
+        throw new Error(
+          `Assembled file is ${bytesWritten} bytes but should be ${runtime.state.totalBytes} — refusing to keep a corrupt file`
+        )
       }
     } catch (error) {
       output.destroy()
+      // Leaving a half-written file where the user expects their download is
+      // worse than leaving nothing: it looks like the download they asked for.
+      await rm(runtime.state.destinationPath, { force: true })
       throw error
     }
-
-    await new Promise<void>((resolve, reject) => {
-      output.on('error', reject)
-      output.end(resolve)
-    })
   }
 
   private async cleanupTempDir(runtime: DownloadRuntime): Promise<void> {

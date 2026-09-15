@@ -51,6 +51,10 @@ This builds `dist/mac/Plexo.app` locally, unsigned (no Apple Developer certifica
 
 Windows and Linux build scripts exist (`build:win`, `build:linux`) but are untested — Plexo has only been developed and verified on macOS.
 
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, PR expectations, and bug report format.
+
 ## Tech stack
 
 Electron, React 19, TypeScript, Zustand, built with `electron-vite`/`electron-builder`.

@@ -4,6 +4,8 @@ export const IpcChannels = {
   openNetworkSettings: 'network:open-settings',
   getNetworkPreferences: 'network:get-preferences',
   setNetworkPreference: 'network:set-preference',
+  getThemeSource: 'theme:get-source',
+  setThemeSource: 'theme:set-source',
   probeUrl: 'download:probe',
   getInitialPaths: 'paths:get-initial',
   chooseDestinationFolder: 'dialog:choose-destination-folder',

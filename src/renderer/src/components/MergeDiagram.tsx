@@ -56,14 +56,16 @@ export function MergeDiagram({
         })}
         <path
           d={`M${MERGE_X},${midY} L${STREAM_END_X},${midY}`}
-          stroke={muted ? 'var(--icon-muted)' : paused ? 'var(--text-secondary)' : 'var(--text)'}
+          stroke={
+            muted ? 'var(--icon-muted)' : paused ? 'var(--text-secondary)' : 'var(--node-accent)'
+          }
           strokeWidth={6.5}
           opacity={paused ? 0.6 : 1}
         />
       </g>
       <polygon
         points={`${STREAM_END_X - 1},${midY - 4.5} ${STREAM_END_X + 6},${midY} ${STREAM_END_X - 1},${midY + 4.5}`}
-        fill={muted ? 'var(--icon-muted)' : paused ? 'var(--text-secondary)' : 'var(--text)'}
+        fill={muted ? 'var(--icon-muted)' : paused ? 'var(--text-secondary)' : 'var(--node-accent)'}
         opacity={paused ? 0.6 : 1}
       />
       <circle
@@ -71,12 +73,17 @@ export function MergeDiagram({
         cy={midY}
         r={9.5}
         fill="none"
-        stroke={muted ? 'var(--icon-muted)' : 'var(--text)'}
+        stroke={muted ? 'var(--icon-muted)' : 'var(--node-accent)'}
         strokeOpacity={muted ? 1 : 0.25}
         strokeWidth={1.5}
         strokeDasharray={muted ? '3 4' : undefined}
       />
-      <circle cx={MERGE_X} cy={midY} r={3.5} fill={muted ? 'var(--icon-muted)' : 'var(--text)'} />
+      <circle
+        cx={MERGE_X}
+        cy={midY}
+        r={3.5}
+        fill={muted ? 'var(--icon-muted)' : 'var(--node-accent)'}
+      />
       {networks.map((network, index) => {
         const y = (index + 0.5) * (height / networks.length)
         const color = muted ? 'var(--icon-muted)' : network.solid

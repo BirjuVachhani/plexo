@@ -1,5 +1,8 @@
 export type NetworkInterfaceKind = 'wifi' | 'usb' | 'ethernet' | 'bridge' | 'other'
 
+/** 'system' follows the OS appearance; 'light'/'dark' pin it regardless of the OS setting. */
+export type ThemeSource = 'system' | 'light' | 'dark'
+
 export interface NetworkInterfaceInfo {
   /** Stable identifier for this interface (currently the OS device name, e.g. "en0"). */
   id: string

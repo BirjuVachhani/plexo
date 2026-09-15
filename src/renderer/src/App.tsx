@@ -17,10 +17,12 @@ function App(): React.JSX.Element {
   const currentDownload = useAppStore((store) => store.currentDownload)
   const clearCurrentDownload = useAppStore((store) => store.clearCurrentDownload)
   const loadNetworkPreferences = useAppStore((store) => store.loadNetworkPreferences)
+  const loadThemeSource = useAppStore((store) => store.loadThemeSource)
 
   useEffect(() => {
     loadNetworkPreferences()
-  }, [loadNetworkPreferences])
+    loadThemeSource()
+  }, [loadNetworkPreferences, loadThemeSource])
 
   const handleNewDownload = (): void => {
     if (currentDownload) void window.plexo.removeDownload(currentDownload.id)

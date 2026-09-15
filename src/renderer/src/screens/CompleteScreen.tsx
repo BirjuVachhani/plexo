@@ -114,8 +114,8 @@ export function CompleteScreen({
               width: 44,
               height: 44,
               borderRadius: '50%',
-              background: '#22312e',
-              border: '1px solid #3a5450',
+              background: 'var(--color-wifi-bg)',
+              border: '1px solid var(--color-wifi-border)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -126,7 +126,7 @@ export function CompleteScreen({
               <path
                 d="M5,13 L10,18 L19,7"
                 fill="none"
-                stroke="#4ea89a"
+                stroke="var(--color-wifi)"
                 strokeWidth={2.4}
                 strokeLinecap="round"
                 strokeLinejoin="round"

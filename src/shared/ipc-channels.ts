@@ -10,6 +10,7 @@ export const IpcChannels = {
   readClipboardText: 'clipboard:read-text',
   revealInFolder: 'shell:reveal-in-folder',
   startDownload: 'download:start',
+  getCurrentDownload: 'download:get-current',
   pauseDownload: 'download:pause',
   resumeDownload: 'download:resume',
   cancelDownload: 'download:cancel',

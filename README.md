@@ -52,6 +52,7 @@ File ──→ Split ─────┼── Ethernet (IP: 10.0.0.12) ───
 - 🔌 **Hardware interface detection** — queries macOS hardware ports via `networksetup` so Wi-Fi, Ethernet, tethered iPhones, and Thunderbolt bridges are labeled by real device names instead of bare BSD names (`en0`, `en6`).
 - ⚖️ **Dynamic work-stealing queue** — chunks are leased from a shared pending queue; faster networks pull more chunks instead of waiting for slower connections to finish.
 - ⏸️ **Resumable downloads** — pausing cleanly aborts in-flight socket connections while preserving downloaded `part-N` chunk files on disk.
+- 💾 **Relaunch recovery** — interrupted downloads are restored as paused after Plexo restarts, with progress and part files preserved in application data.
 - 🛡️ **Safe, integrity-checked resume** — re-verifies remote `ETag` and `Last-Modified` validators before resuming, refusing to resume (rather than corrupting the file) if the server-side file has changed.
 - 🔁 **Automatic retry with backoff** — failed chunks are automatically returned to the queue and retried with exponential backoff (up to 5 retries, 1s–15s backoff).
 - 💤 **Stall detection** — automatically drops and re-queues connections that remain open but silent (>20s without incoming data).
@@ -156,6 +157,10 @@ When you resume:
 1. **Validator check**: Plexo sends a probe request to compare the server's current `ETag` and `Last-Modified` headers against the values recorded when the download started.
 2. **Safe resume**: If the validators match, Plexo checks which `part-N` files are already complete on disk, skips them, and queues only the remaining chunks.
 3. **Guard against corruption**: If the file on the server has changed, Plexo refuses to resume to prevent combining incompatible slices into a corrupt file.
+
+Download manifests and partial data are stored under Plexo's application-data directory. If Plexo
+quits or crashes during a transfer, it restores that transfer as paused on the next launch. Explicitly
+cancelling or removing a download still deletes its partial data.
 
 ---
 

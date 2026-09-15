@@ -1,6 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { mkdir, rm, stat, statfs, truncate } from 'node:fs/promises'
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  statfs,
+  truncate,
+  writeFile
+} from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { BrowserWindow } from 'electron'
 import { app } from 'electron'
@@ -37,6 +47,17 @@ interface DownloadRuntime {
   pushScheduled: boolean
   blocks: BlockState[]
   totalBlocks: number
+  persistenceTimer?: NodeJS.Timeout
+  persistenceChain: Promise<void>
+  removed: boolean
+}
+
+interface PersistedDownload {
+  version: 1
+  savedAt: number
+  state: DownloadState
+  requestPayload: StartDownloadRequest
+  activeInterfaces: NetworkInterfaceInfo[]
 }
 
 const PROGRESS_THROTTLE_MS = 200
@@ -191,13 +212,99 @@ function appendFileToStream(sourcePath: string, output: NodeJS.WritableStream): 
 
 export class DownloadManager {
   private runtimes = new Map<string, DownloadRuntime>()
+  private readonly initialization: Promise<void>
 
   constructor(
     private getWindow: () => BrowserWindow | null,
-    private getInterfaceById: (id: string) => NetworkInterfaceInfo | undefined
-  ) {}
+    private getInterfaceById: (id: string) => NetworkInterfaceInfo | undefined,
+    private refreshInterfaces: () => Promise<NetworkInterfaceInfo[]>
+  ) {
+    this.initialization = this.restorePersistedDownloads()
+  }
+
+  private downloadsRoot(): string {
+    return join(app.getPath('userData'), 'downloads')
+  }
+
+  private downloadDir(id: string): string {
+    return join(this.downloadsRoot(), id)
+  }
+
+  private manifestPath(id: string): string {
+    return join(this.downloadDir(id), 'manifest.json')
+  }
+
+  private async restorePersistedDownloads(): Promise<void> {
+    let entries: string[]
+    try {
+      entries = await readdir(this.downloadsRoot())
+    } catch {
+      return
+    }
+
+    await Promise.all(
+      entries.map(async (id) => {
+        try {
+          const persisted = JSON.parse(
+            await readFile(this.manifestPath(id), 'utf-8')
+          ) as PersistedDownload
+          if (persisted.version !== 1 || persisted.state.id !== id || !persisted.state.blocks)
+            return
+
+          const state = persisted.state
+          const blocks = state.blocks
+          if (!blocks) return
+          if (state.status === 'downloading') {
+            state.status = 'paused'
+            state.pausedAt = persisted.savedAt || Date.now()
+          }
+          state.speedBytesPerSec = 0
+          for (const chunk of state.chunks) {
+            chunk.speedBytesPerSec = 0
+            if (
+              chunk.status === 'downloading' ||
+              chunk.status === 'retrying' ||
+              chunk.status === 'pending'
+            ) {
+              chunk.status = 'paused'
+            }
+          }
+          for (const block of blocks) {
+            if (block.status === 'downloading') block.status = 'pending'
+          }
+
+          const runtime: DownloadRuntime = {
+            state,
+            requestPayload: persisted.requestPayload,
+            activeInterfaces: persisted.activeInterfaces,
+            chunkRuntimes: new Map(),
+            tempDir: join(this.downloadDir(id), 'parts'),
+            speedSamplesByChunk: new Map(),
+            pushScheduled: false,
+            blocks,
+            totalBlocks: state.totalBlocks ?? blocks.length,
+            persistenceChain: Promise.resolve(),
+            removed: false
+          }
+          this.runtimes.set(id, runtime)
+          await this.persistNow(runtime)
+        } catch {
+          // Ignore incomplete or corrupt manifests; other downloads can still be restored.
+        }
+      })
+    )
+  }
+
+  async getCurrentDownload(): Promise<DownloadState | null> {
+    await this.initialization
+    const latest = [...this.runtimes.values()].sort(
+      (a, b) => b.state.startedAt - a.state.startedAt
+    )[0]
+    return latest ? structuredClone(latest.state) : null
+  }
 
   async start(requestPayload: StartDownloadRequest): Promise<string> {
+    await this.initialization
     const interfaces = requestPayload.interfaceIds
       .map((interfaceId) => this.getInterfaceById(interfaceId))
       .filter((iface): iface is NetworkInterfaceInfo => Boolean(iface))
@@ -209,7 +316,7 @@ export class DownloadManager {
     await ensureDiskSpace(requestPayload.destinationDir, requestPayload.totalBytes)
 
     const id = randomUUID()
-    const tempDir = join(app.getPath('temp'), 'plexo', id)
+    const tempDir = join(this.downloadDir(id), 'parts')
     await mkdir(tempDir, { recursive: true })
 
     // Claimed on disk, not just picked, so a second download of the same file
@@ -337,9 +444,12 @@ export class DownloadManager {
       speedSamplesByChunk: new Map(),
       pushScheduled: false,
       blocks,
-      totalBlocks: blocks.length
+      totalBlocks: blocks.length,
+      persistenceChain: Promise.resolve(),
+      removed: false
     }
     this.runtimes.set(id, runtime)
+    await this.persistNow(runtime)
     this.pushUpdate(runtime)
 
     void this.runChunksToCompletion(runtime, runtime.state.chunks)
@@ -347,7 +457,7 @@ export class DownloadManager {
     return id
   }
 
-  pause(id: string): void {
+  async pause(id: string): Promise<void> {
     const runtime = this.runtimes.get(id)
     if (!runtime || runtime.state.status !== 'downloading') return
 
@@ -369,6 +479,7 @@ export class DownloadManager {
       chunkRuntime.controller.abort()
     }
     this.pushUpdate(runtime)
+    await this.persistNow(runtime)
   }
 
   resume(id: string): void {
@@ -394,11 +505,42 @@ export class DownloadManager {
       runtime.state.error =
         'The remote file changed while this download was paused, so resuming would corrupt it. Start the download over instead.'
       this.pushUpdate(runtime)
+      await this.cleanupTempDir(runtime)
       await this.discardUnfinishedDestination(runtime)
       return
     }
 
+    let availableInterfaces: NetworkInterfaceInfo[]
+    try {
+      availableInterfaces = await this.refreshInterfaces()
+    } catch {
+      runtime.state.error = 'Could not refresh network interfaces. Try resuming again.'
+      this.pushUpdate(runtime)
+      return
+    }
+    if (runtime.state.status !== 'paused') return
+
+    const selectedIds = new Set(runtime.requestPayload.interfaceIds)
+    runtime.activeInterfaces = availableInterfaces.filter((iface) => selectedIds.has(iface.id))
+    if (runtime.activeInterfaces.length === 0) {
+      runtime.state.error =
+        'None of the networks selected for this download are currently available. Reconnect one and try again.'
+      this.pushUpdate(runtime)
+      return
+    }
+
+    for (let index = 0; index < runtime.state.chunks.length; index++) {
+      const chunk = runtime.state.chunks[index]
+      const iface =
+        runtime.activeInterfaces.find((entry) => entry.id === chunk.interfaceId) ??
+        runtime.activeInterfaces[index % runtime.activeInterfaces.length]
+      chunk.interfaceId = iface.id
+      chunk.interfaceLabel = iface.displayName
+      chunk.interfaceKind = iface.kind
+    }
+
     runtime.state.status = 'downloading'
+    runtime.state.error = undefined
     if (runtime.state.pausedAt) {
       runtime.state.totalPausedMs =
         (runtime.state.totalPausedMs || 0) + (Date.now() - runtime.state.pausedAt)
@@ -436,9 +578,10 @@ export class DownloadManager {
     for (const chunkRuntime of runtime.chunkRuntimes.values()) {
       chunkRuntime.controller.abort()
     }
-    this.pushUpdate(runtime)
+    this.pushUpdate(runtime, false)
     void this.cleanupTempDir(runtime)
     void this.discardUnfinishedDestination(runtime)
+    void this.removePersistedDownload(runtime)
   }
 
   remove(id: string): void {
@@ -447,12 +590,17 @@ export class DownloadManager {
       this.cancel(id)
     }
     this.runtimes.delete(id)
+    if (runtime) void this.removePersistedDownload(runtime)
   }
 
-  cancelAll(): void {
-    for (const id of this.runtimes.keys()) {
-      this.cancel(id)
-    }
+  async suspendAll(): Promise<void> {
+    await this.initialization
+    await Promise.all(
+      [...this.runtimes.values()].map(async (runtime) => {
+        if (runtime.state.status === 'downloading') await this.pause(runtime.state.id)
+        else await this.persistNow(runtime)
+      })
+    )
   }
 
   /** Runs (or resumes) fixed worker streams in parallel, leasing blocks until all are completed. */
@@ -694,7 +842,8 @@ export class DownloadManager {
     }, PROGRESS_THROTTLE_MS)
   }
 
-  private pushUpdate(runtime: DownloadRuntime): void {
+  private pushUpdate(runtime: DownloadRuntime, persist = true): void {
+    if (persist) this.schedulePersistence(runtime)
     const window = this.getWindow()
     if (!window || window.isDestroyed()) return
     if (runtime.state.status === 'paused' || runtime.state.status === 'cancelled') {
@@ -792,5 +941,51 @@ export class DownloadManager {
     } catch {
       // Best-effort cleanup — a leftover temp dir isn't worth surfacing an error for.
     }
+  }
+
+  private schedulePersistence(runtime: DownloadRuntime): void {
+    if (runtime.removed || runtime.persistenceTimer) return
+    runtime.persistenceTimer = setTimeout(() => {
+      runtime.persistenceTimer = undefined
+      void this.persistNow(runtime)
+    }, PROGRESS_THROTTLE_MS)
+  }
+
+  private persistNow(runtime: DownloadRuntime): Promise<void> {
+    if (runtime.removed) return runtime.persistenceChain
+    if (runtime.persistenceTimer) {
+      clearTimeout(runtime.persistenceTimer)
+      runtime.persistenceTimer = undefined
+    }
+
+    runtime.persistenceChain = runtime.persistenceChain
+      .catch(() => {})
+      .then(async () => {
+        if (runtime.removed) return
+        const dir = this.downloadDir(runtime.state.id)
+        const path = this.manifestPath(runtime.state.id)
+        const temporaryPath = `${path}.tmp`
+        const persisted: PersistedDownload = {
+          version: 1,
+          savedAt: Date.now(),
+          state: structuredClone(runtime.state),
+          requestPayload: runtime.requestPayload,
+          activeInterfaces: runtime.activeInterfaces
+        }
+        await mkdir(dir, { recursive: true })
+        await writeFile(temporaryPath, JSON.stringify(persisted), 'utf-8')
+        await rename(temporaryPath, path)
+      })
+      .catch(() => {
+        // Progress persistence is best-effort; transfer errors are surfaced separately.
+      })
+    return runtime.persistenceChain
+  }
+
+  private async removePersistedDownload(runtime: DownloadRuntime): Promise<void> {
+    runtime.removed = true
+    if (runtime.persistenceTimer) clearTimeout(runtime.persistenceTimer)
+    await runtime.persistenceChain.catch(() => {})
+    await rm(this.downloadDir(runtime.state.id), { recursive: true, force: true })
   }
 }

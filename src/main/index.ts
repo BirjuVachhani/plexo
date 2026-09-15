@@ -7,6 +7,7 @@ import type { DownloadManager } from './download/downloadManager'
 
 let mainWindow: BrowserWindow | null = null
 let downloadManager: DownloadManager | null = null
+let quitAfterSuspending = false
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -73,8 +74,14 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('before-quit', () => {
-  downloadManager?.cancelAll()
+app.on('before-quit', (event) => {
+  if (quitAfterSuspending || !downloadManager) return
+
+  event.preventDefault()
+  void downloadManager.suspendAll().finally(() => {
+    quitAfterSuspending = true
+    app.quit()
+  })
 })
 
 app.on('window-all-closed', () => {

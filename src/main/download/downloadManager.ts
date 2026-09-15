@@ -72,6 +72,39 @@ function retryDelayMs(attempt: number): number {
   return Math.min(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), RETRY_MAX_DELAY_MS)
 }
 
+/** Records that `interfaceId` delivered `deltaBytes` of this block. Attribution is per-network
+ * rather than a single winner because one block can be started on one network and finished on
+ * another (a retry after a dropped connection, or a pause/resume), and the grid colors blocks
+ * by who actually moved the bytes. */
+function creditBlockBytes(block: BlockState, interfaceId: string, deltaBytes: number): void {
+  if (deltaBytes <= 0) return
+  block.bytesByInterface[interfaceId] = (block.bytesByInterface[interfaceId] ?? 0) + deltaBytes
+}
+
+/** Drops attribution for bytes that turned out not to be on disk, so the per-network tallies
+ * keep summing to the block's real byte count. The lost bytes are always at the tail of the
+ * part file, so they come off the network that wrote last before spilling over to the rest. */
+function trimBlockAttribution(block: BlockState, keepBytes: number, lastWriter?: string): void {
+  let attributed = 0
+  for (const bytes of Object.values(block.bytesByInterface)) attributed += bytes
+
+  let excess = attributed - keepBytes
+  if (excess <= 0) return
+
+  const order = Object.keys(block.bytesByInterface).sort((a, b) =>
+    a === lastWriter ? -1 : b === lastWriter ? 1 : 0
+  )
+
+  for (const interfaceId of order) {
+    if (excess <= 0) break
+    const taken = Math.min(block.bytesByInterface[interfaceId], excess)
+    const remaining = block.bytesByInterface[interfaceId] - taken
+    excess -= taken
+    if (remaining > 0) block.bytesByInterface[interfaceId] = remaining
+    else delete block.bytesByInterface[interfaceId]
+  }
+}
+
 /** Total live speed across a download's worker connections (bounded by MAX_CHUNKS, unlike blocks). */
 function sumChunkSpeeds(runtime: DownloadRuntime): number {
   let total = 0
@@ -223,7 +256,8 @@ export class DownloadManager {
           rangeStart: offset,
           rangeEnd: bEnd,
           status: 'pending',
-          bytesDownloaded: 0
+          bytesDownloaded: 0,
+          bytesByInterface: {}
         })
         offset = bEnd + 1
       }
@@ -234,7 +268,8 @@ export class DownloadManager {
         rangeStart: 0,
         rangeEnd: requestPayload.totalBytes > 0 ? requestPayload.totalBytes - 1 : null,
         status: 'pending',
-        bytesDownloaded: 0
+        bytesDownloaded: 0,
+        bytesByInterface: {}
       })
     }
 
@@ -493,6 +528,9 @@ export class DownloadManager {
         break
       }
 
+      // Whoever held this block before now is the one whose tail bytes a truncation below
+      // would discard — capture it before the lease overwrites the field.
+      const previousWriter = block.interfaceId
       block.status = 'downloading'
       block.interfaceId = iface.id
       chunk.status = 'downloading'
@@ -510,6 +548,7 @@ export class DownloadManager {
       const resumeOffset = await reconcilePartFileSize(partPath, block.bytesDownloaded)
       if (resumeOffset !== block.bytesDownloaded) {
         block.bytesDownloaded = resumeOffset
+        trimBlockAttribution(block, resumeOffset, previousWriter)
         this.recomputeAggregates(runtime)
       }
 
@@ -536,7 +575,7 @@ export class DownloadManager {
             const delta = bytesThisRun - lastReportedThisRun
             lastReportedThisRun = bytesThisRun
             if (delta > 0) {
-              this.onWorkerProgress(runtime, chunk.id, block.index, delta)
+              this.onWorkerProgress(runtime, chunk.id, block.index, iface.id, delta)
             }
           }
         })
@@ -545,7 +584,11 @@ export class DownloadManager {
         block.status = 'completed'
         block.interfaceId = iface.id
         if (block.rangeEnd !== null) {
-          block.bytesDownloaded = block.rangeEnd - block.rangeStart + 1
+          // Progress events can lag the final write, so square the block up to its exact size
+          // and credit the shortfall to the network that finished it.
+          const blockBytes = block.rangeEnd - block.rangeStart + 1
+          creditBlockBytes(block, iface.id, blockBytes - block.bytesDownloaded)
+          block.bytesDownloaded = blockBytes
         }
         attempt = 0
         this.recomputeAggregates(runtime)
@@ -605,6 +648,7 @@ export class DownloadManager {
     runtime: DownloadRuntime,
     chunkId: number,
     blockIndex: number,
+    interfaceId: string,
     deltaBytes: number
   ): void {
     const chunk = runtime.state.chunks.find((entry) => entry.id === chunkId)
@@ -613,6 +657,7 @@ export class DownloadManager {
 
     chunk.bytesDownloaded += deltaBytes
     block.bytesDownloaded += deltaBytes
+    creditBlockBytes(block, interfaceId, deltaBytes)
     chunk.currentBlockIndex = blockIndex
 
     const now = Date.now()

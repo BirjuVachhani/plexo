@@ -3,99 +3,138 @@ import { useCallback, useRef, useState } from 'react'
 import { FONT_MONO, type NetworkVisual } from '../theme'
 import { formatBytes, type NetworkGroup } from '../utils/format'
 
-// The grid is a byte-space map of the file: cells run left-to-right, top-to-bottom, and each
-// is colored by the network that downloaded most of it.
+// The grid is a byte-space map of the file: one square per chunk, running left-to-right,
+// top-to-bottom. Each square is drawn in exactly one network's color — a square reads as one
+// network's work, never as a gradient. Which network that is comes from per-network byte tallies
+// (see describeBlocks), so the winner is whoever truly moved the most bytes there, including when
+// a chunk changed hands mid-flight after a dropped connection or a pause/resume. Hovering reads
+// out the exact split.
 //
-// Vocabulary, kept consistent with the streams table: a *chunk* is one real 8 MB unit the
-// downloader actually fetches (what NetworkRow labels "Chunk #N"), and a *block* is one grid
-// square, which normalizes a fixed number of consecutive chunks into a single cell. The
-// legend states that ratio and every cell's tooltip names the exact chunk range it covers,
-// so the two views can be read against each other.
+// Vocabulary is the same as the streams table's: a *chunk* is one real 8 MB unit the downloader
+// actually fetches (what NetworkRow labels "Chunk #N"), and every chunk gets its own square. No
+// grouping, no averaging — square #7 is chunk #7, so a hovered square points at exactly the work
+// one stream did and the two views can be read against each other directly.
 //
-// How many blocks there are is itself information — more blocks means a bigger file — so the
-// count is derived from the file's size alone and never from the window's. Resizing only
-// changes how those blocks wrap into rows, the same way a paragraph rewraps without gaining
-// or losing words. Chunks are a fixed 8 MB, so their count is already proportional to file
-// size; grouping a fixed number of them per block preserves that proportionality.
-const CHUNKS_PER_BLOCK = 8 // ~64 MB of file per grid square
-const MIN_CELLS = 8
-const MAX_CELLS = 256
-
+// A big file therefore makes a tall grid rather than a coarser one. Past MAX_VISIBLE_ROWS the
+// grid scrolls instead of growing without bound or shrinking its squares: keeping the squares at
+// a fixed size is what keeps them the same unit of meaning on every download, and the scroll
+// height is what a multi-gigabyte file's chunk count honestly looks like.
 const TARGET_CELL_PX = 12
 const CELL_GAP_PX = 3
 const CELL_HEIGHT_PX = 13
 const MIN_COLS = 8
-const MAX_ROWS = 6
+// Rows visible before the grid starts scrolling.
+const MAX_VISIBLE_ROWS = 6
+// Room for the hover outline (1.5px, offset 1) so it isn't clipped against the scroll edges.
+const GRID_INSET_PX = 3
+
+// A cell whose bytes can't be traced to a network must not borrow a network's color: the brand
+// amber IS the USB network's color (--color-accent and --color-usb are the same hex), so the old
+// accent fallback rendered every unattributed cell as though the USB network had downloaded it.
+// Unknown provenance reads as neutral gray instead, which is honest and impossible to misread.
+const UNATTRIBUTED_SOLID = 'var(--text-tertiary)'
+const UNATTRIBUTED_BG = 'var(--track-bg)'
+
+/** One network's share of a cell's downloaded bytes. */
+interface CellSegment {
+  interfaceId: string
+  bytes: number
+}
 
 interface DisplayCell {
   status: BlockStatus
+  /** The network that delivered the most bytes here — what the cell reads out as, and what
+   * colors it when its share is drawn as a single block. */
   interfaceId?: string
+  /** Every network that delivered bytes here, in legend order. The square itself is painted a
+   * single color (`interfaceId`), but this is what decides that winner honestly and what the
+   * hover readout breaks down, so a cell shared between networks still says so. */
+  segments: CellSegment[]
   fillRatio: number
   totalBytes: number
   bytesDownloaded: number
-  /** 1-based, inclusive chunk numbers this block covers — matches the "Chunk #N" badges
-   * in the streams table, so a hovered block points back at a specific stream's work. */
-  firstChunk: number
-  lastChunk: number
+  /** 1-based chunk number, matching the "Chunk #N" badges in the streams table so a hovered
+   * square points back at a specific stream's work. */
+  chunkNumber: number
 }
 
-/** Aggregates chunks into exactly `cellCount` contiguous blocks, sizes differing by at most one. */
-function bucketBlocks(blocks: BlockState[], cellCount: number): DisplayCell[] {
-  const cells: DisplayCell[] = []
+/** Describes each chunk as one grid square.
+ *
+ * Attribution comes from a block's per-network byte tallies, never from its current
+ * `interfaceId`: that field is only the worker holding the block right now, so a block that a
+ * retry or a pause/resume handed from one network to another would otherwise be repainted in the
+ * finishing network's color. `orderedInterfaceIds` fixes the order contributors are listed in, so
+ * a square's readout doesn't reshuffle between progress pushes. */
+function describeBlocks(blocks: BlockState[], orderedInterfaceIds: string[]): DisplayCell[] {
+  return blocks.map((block, index) => {
+    const totalBytes = block.rangeEnd !== null ? block.rangeEnd - block.rangeStart + 1 : 0
 
-  for (let i = 0; i < cellCount; i++) {
-    const groupStart = Math.floor((i * blocks.length) / cellCount)
-    const groupEnd = Math.floor(((i + 1) * blocks.length) / cellCount)
-
-    let totalBytes = 0
-    let bytesDownloaded = 0
-    let hasError = false
-    let hasDownloading = false
-    let allCompleted = true
-    const bytesByInterface = new Map<string, number>()
-
-    for (let j = groupStart; j < groupEnd; j++) {
-      const block = blocks[j]
-      totalBytes += block.rangeEnd !== null ? block.rangeEnd - block.rangeStart + 1 : 0
-      bytesDownloaded += block.bytesDownloaded
-      if (block.status === 'error') hasError = true
-      if (block.status === 'downloading') hasDownloading = true
-      if (block.status !== 'completed') allCompleted = false
-      if (block.interfaceId) {
-        bytesByInterface.set(
-          block.interfaceId,
-          (bytesByInterface.get(block.interfaceId) || 0) + block.bytesDownloaded
-        )
-      }
+    // Per-network tallies are the accurate source. When a block has none — bytes recorded by an
+    // older main process, or a block adopted whole off disk — fall back to crediting its whole
+    // byte count to the network holding it. That is the coarse attribution this replaced, but it
+    // is still far better than dropping the block to "unknown".
+    let tallies = Object.entries(block.bytesByInterface ?? {}).filter(([, bytes]) => bytes > 0)
+    if (tallies.length === 0 && block.interfaceId && block.bytesDownloaded > 0) {
+      tallies = [[block.interfaceId, block.bytesDownloaded]]
     }
+    const bytesByInterface = new Map(tallies)
+
+    const knownOrder = orderedInterfaceIds.filter((id) => bytesByInterface.has(id))
+    const extras = [...bytesByInterface.keys()].filter((id) => !orderedInterfaceIds.includes(id))
+    const segments: CellSegment[] = [...knownOrder, ...extras].map((interfaceId) => ({
+      interfaceId,
+      bytes: bytesByInterface.get(interfaceId)!
+    }))
 
     let dominantInterfaceId: string | undefined
-    let dominantBytes = -1
-    for (const [interfaceId, bytes] of bytesByInterface) {
-      if (bytes > dominantBytes) {
-        dominantBytes = bytes
-        dominantInterfaceId = interfaceId
+    let dominantBytes = 0
+    for (const segment of segments) {
+      if (segment.bytes > dominantBytes) {
+        dominantBytes = segment.bytes
+        dominantInterfaceId = segment.interfaceId
       }
     }
 
-    cells.push({
-      status: allCompleted
-        ? 'completed'
-        : hasError
-          ? 'error'
-          : hasDownloading
-            ? 'downloading'
-            : 'pending',
-      interfaceId: dominantInterfaceId,
-      fillRatio: totalBytes > 0 ? bytesDownloaded / totalBytes : 0,
+    return {
+      status: block.status,
+      // Before any bytes land, a chunk in flight is still fairly labelled by the network that is
+      // fetching it — but only then.
+      interfaceId:
+        dominantInterfaceId ?? (block.status === 'downloading' ? block.interfaceId : undefined),
+      segments,
+      fillRatio: totalBytes > 0 ? block.bytesDownloaded / totalBytes : 0,
       totalBytes,
-      bytesDownloaded,
-      firstChunk: groupStart + 1,
-      lastChunk: groupEnd
-    })
-  }
+      bytesDownloaded: block.bytesDownloaded,
+      chunkNumber: index + 1
+    }
+  })
+}
 
-  return cells
+/** Names the networks behind a cell: one name when a single network delivered it, and a
+ * share-annotated list when several did — the point of the split coloring is that the user can
+ * see, and read out, that a square was a joint effort. */
+function describeContributors(
+  cell: DisplayCell,
+  visualByInterfaceId: Map<string, NetworkVisual>
+): string | undefined {
+  const named = cell.segments
+    .filter((segment) => segment.bytes > 0)
+    .map((segment) => ({
+      name: visualByInterfaceId.get(segment.interfaceId)?.name,
+      bytes: segment.bytes
+    }))
+    .filter((entry): entry is { name: string; bytes: number } => Boolean(entry.name))
+    .sort((a, b) => b.bytes - a.bytes)
+
+  if (named.length === 0) {
+    return cell.interfaceId ? visualByInterfaceId.get(cell.interfaceId)?.name : undefined
+  }
+  if (named.length === 1) return named[0].name
+
+  const total = named.reduce((sum, entry) => sum + entry.bytes, 0)
+  return named
+    .map((entry) => `${entry.name} ${Math.round((entry.bytes / total) * 100)}%`)
+    .join(' · ')
 }
 
 interface BlockGridProps {
@@ -139,19 +178,20 @@ export function BlockGrid({
       }
     })
 
-    const cellCount = Math.min(
-      blocks.length,
-      Math.max(MIN_CELLS, Math.min(MAX_CELLS, Math.ceil(blocks.length / CHUNKS_PER_BLOCK)))
-    )
     const fittedCols = Math.floor((gridWidth + CELL_GAP_PX) / (TARGET_CELL_PX + CELL_GAP_PX))
-    // A narrow window must not wrap into an unbounded stack of rows — past MAX_ROWS the cells
-    // shrink below their target width instead of adding another row.
-    const minColsForRowCap = Math.ceil(cellCount / MAX_ROWS)
-    const cols = Math.min(cellCount, Math.max(MIN_COLS, fittedCols, minColsForRowCap))
-    const cells = gridWidth > 0 ? bucketBlocks(blocks, cellCount) : []
+    // Squares keep their size and the grid wraps; how many rows that takes is the file's business,
+    // not the window's. Only the width decides the wrap, exactly like a paragraph reflowing.
+    const cols = Math.min(blocks.length, Math.max(MIN_COLS, fittedCols))
+    const orderedInterfaceIds = groups.map((g) => g.interfaceId)
+    const cells = gridWidth > 0 ? describeBlocks(blocks, orderedInterfaceIds) : []
     const chunkBytes =
       blocks[0].rangeEnd !== null ? blocks[0].rangeEnd - blocks[0].rangeStart + 1 : 0
-    const chunksPerBlock = cells.length > 0 ? Math.round(blocks.length / cells.length) : 0
+    const rows = Math.ceil(blocks.length / cols)
+    const visibleRows = Math.min(rows, MAX_VISIBLE_ROWS)
+    // Cut the viewport exactly on a row boundary, so a scrollable grid never shows a half-row
+    // that could be mistaken for a shorter square.
+    const gridMaxHeight =
+      visibleRows * CELL_HEIGHT_PX + (visibleRows - 1) * CELL_GAP_PX + GRID_INSET_PX * 2
 
     // Hovering reads out into the legend line rather than a native `title` tooltip: the grid
     // re-renders on every progress push, which resets Chromium's tooltip timer so it never
@@ -159,22 +199,13 @@ export function BlockGrid({
     const hoveredCell = hoveredIndex !== null ? cells[hoveredIndex] : undefined
     let readout: string
     if (hoveredCell) {
-      const hoveredVisual = hoveredCell.interfaceId
-        ? visualByInterfaceId.get(hoveredCell.interfaceId)
-        : undefined
-      const range =
-        hoveredCell.firstChunk === hoveredCell.lastChunk
-          ? `Chunk #${hoveredCell.firstChunk}`
-          : `Chunks #${hoveredCell.firstChunk}–${hoveredCell.lastChunk}`
-      const where = hoveredVisual?.name ?? (hoveredCell.status === 'pending' ? 'queued' : '—')
-      readout = `${range} · ${formatBytes(hoveredCell.bytesDownloaded)} / ${formatBytes(hoveredCell.totalBytes)} · ${where}`
-    } else if (chunksPerBlock > 1) {
-      // Group sizes differ by one when the chunk count doesn't divide evenly, so don't state
-      // a ratio as exact when it is only the average.
-      const approx = blocks.length % cells.length === 0 ? '' : '~'
-      readout = `${cells.length} blocks · ${approx}${chunksPerBlock} × ${formatBytes(chunkBytes)} chunks`
+      const where =
+        describeContributors(hoveredCell, visualByInterfaceId) ??
+        (hoveredCell.status === 'pending' ? 'queued' : '—')
+      readout = `Chunk #${hoveredCell.chunkNumber} · ${formatBytes(hoveredCell.bytesDownloaded)} / ${formatBytes(hoveredCell.totalBytes)} · ${where}`
     } else {
-      readout = `${cells.length} blocks · ${formatBytes(chunkBytes)} each`
+      const scrollHint = rows > MAX_VISIBLE_ROWS ? ' · scroll' : ''
+      readout = `${blocks.length} chunks · ${formatBytes(chunkBytes)} each${scrollHint}`
     }
 
     return (
@@ -231,11 +262,9 @@ export function BlockGrid({
                 color: 'var(--text-tertiary)',
                 fontVariantNumeric: 'tabular-nums'
               }}
-              title={
-                chunksPerBlock > 1
-                  ? `This file downloads as ${blocks.length} chunks of ${formatBytes(chunkBytes)}. Each square groups ${chunksPerBlock} of them so the grid stays readable.`
-                  : `This file downloads as ${blocks.length} chunks of ${formatBytes(chunkBytes)}, one per square.`
-              }
+              title={`This file downloads as ${blocks.length} chunks of ${formatBytes(chunkBytes)}, one per square.${
+                rows > MAX_VISIBLE_ROWS ? ' Scroll the grid to see the rest.' : ''
+              }`}
             >
               {readout}
             </div>
@@ -243,86 +272,104 @@ export function BlockGrid({
         </div>
 
         <div
-          ref={measureGrid}
           onMouseLeave={() => setHoveredIndex(null)}
           style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-            gap: CELL_GAP_PX,
-            width: '100%',
-            minHeight: CELL_HEIGHT_PX
+            maxHeight: gridMaxHeight,
+            // gridMaxHeight is measured including the inset padding, so say so rather than
+            // leaning on the global reset — a content-box here would cut a half-row.
+            boxSizing: 'border-box',
+            overflowY: rows > MAX_VISIBLE_ROWS ? 'auto' : 'visible',
+            // The scrollbar takes width from the grid, and the ResizeObserver sits on the grid
+            // itself rather than this scroller, so the column count already accounts for it.
+            padding: GRID_INSET_PX,
+            margin: -GRID_INSET_PX
           }}
         >
-          {cells.map((cell, index) => {
-            const visual = cell.interfaceId ? visualByInterfaceId.get(cell.interfaceId) : undefined
+          <div
+            ref={measureGrid}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+              gap: CELL_GAP_PX,
+              width: '100%',
+              minHeight: CELL_HEIGHT_PX
+            }}
+          >
+            {cells.map((cell, index) => {
+              const visual = cell.interfaceId
+                ? visualByInterfaceId.get(cell.interfaceId)
+                : undefined
 
-            // Base track uses theme-aware tokens (not hardcoded white-based rgba) so a
-            // mostly-pending bucket stays visible in light theme, not just dark.
-            let background = 'var(--track-bg)'
-            let border = '0.5px solid var(--border-strong)'
-            let boxShadow = 'none'
-            let opacity = 1
-            let fillColor = visual?.solid || 'var(--color-accent)'
+              // Base track uses theme-aware tokens (not hardcoded white-based rgba) so a
+              // mostly-pending bucket stays visible in light theme, not just dark.
+              let background = 'var(--track-bg)'
+              let border = '0.5px solid var(--border-strong)'
+              let boxShadow = 'none'
+              let opacity = 1
+              let fillColor = visual?.solid || UNATTRIBUTED_SOLID
 
-            if (cell.status === 'downloading') {
-              background = visual?.bg || 'var(--color-accent-bg)'
-              border = `1px solid ${visual?.solid || 'var(--color-accent)'}`
-              boxShadow = isPaused ? 'none' : `0 0 7px ${visual?.solid || 'var(--color-accent)'}`
-              opacity = isPaused ? 0.6 : 1
-            } else if (cell.status === 'error') {
-              fillColor = 'var(--color-danger)'
-              border = 'none'
-            } else if (cell.status === 'completed') {
-              border = 'none'
-              opacity = 0.92
-            }
+              if (cell.status === 'downloading') {
+                background = visual?.bg || UNATTRIBUTED_BG
+                border = `1px solid ${visual?.solid || UNATTRIBUTED_SOLID}`
+                boxShadow = isPaused ? 'none' : `0 0 7px ${visual?.solid || UNATTRIBUTED_SOLID}`
+                opacity = isPaused ? 0.6 : 1
+              } else if (cell.status === 'error') {
+                fillColor = 'var(--color-danger)'
+                border = 'none'
+              } else if (cell.status === 'completed') {
+                border = 'none'
+                opacity = 0.92
+              }
 
-            const networkName = visual?.name || (cell.interfaceId ? 'Assigned' : 'Pending')
-            // Named by chunk range rather than cell index, so a hovered square maps onto the
-            // "Chunk #N" badges the streams table shows for each active connection.
-            const chunkLabel =
-              cell.firstChunk === cell.lastChunk
-                ? `Chunk #${cell.firstChunk}`
-                : `Chunks #${cell.firstChunk}–${cell.lastChunk}`
-            const title = `${chunkLabel} · ${formatBytes(cell.bytesDownloaded)} / ${formatBytes(cell.totalBytes)} · ${networkName} · ${cell.status}`
-            const rawFillPercent = Math.min(1, Math.max(0, cell.fillRatio)) * 100
-            // A cell aggregates several real blocks, so early progress within it can be a
-            // fraction of a percent — floor it to a visible sliver rather than 0 width.
-            const fillPercent = rawFillPercent > 0 ? Math.max(6, Math.round(rawFillPercent)) : 0
+              const networkName =
+                describeContributors(cell, visualByInterfaceId) ||
+                (cell.interfaceId ? 'Assigned' : 'Pending')
+              // Numbered to match the "Chunk #N" badges the streams table shows for each active
+              // connection, so a hovered square maps onto a specific stream's work.
+              const title = `Chunk #${cell.chunkNumber} · ${formatBytes(cell.bytesDownloaded)} / ${formatBytes(cell.totalBytes)} · ${networkName} · ${cell.status}`
+              const rawFillPercent = Math.min(1, Math.max(0, cell.fillRatio)) * 100
+              // A square is only ~12px wide, so the first bytes of a chunk round to nothing —
+              // floor a started chunk to a visible sliver rather than 0 width.
+              const fillPercent = rawFillPercent > 0 ? Math.max(6, Math.round(rawFillPercent)) : 0
 
-            return (
-              <div
-                key={index}
-                title={title}
-                onMouseEnter={() => setHoveredIndex(index)}
-                style={{
-                  position: 'relative',
-                  height: CELL_HEIGHT_PX,
-                  borderRadius: 2.5,
-                  background,
-                  border,
-                  boxShadow,
-                  opacity,
-                  outline: hoveredIndex === index ? '1.5px solid var(--text-secondary)' : 'none',
-                  outlineOffset: 1,
-                  overflow: 'hidden',
-                  transition: 'opacity 0.15s, box-shadow 0.15s'
-                }}
-              >
-                {fillPercent > 0 && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      width: `${fillPercent}%`,
-                      background: fillColor,
-                      transition: 'width 0.15s, background 0.15s'
-                    }}
-                  />
-                )}
-              </div>
-            )
-          })}
+              return (
+                <div
+                  key={index}
+                  title={title}
+                  onMouseEnter={() => setHoveredIndex(index)}
+                  style={{
+                    position: 'relative',
+                    height: CELL_HEIGHT_PX,
+                    borderRadius: 2.5,
+                    background,
+                    border,
+                    boxShadow,
+                    opacity,
+                    outline: hoveredIndex === index ? '1.5px solid var(--text-secondary)' : 'none',
+                    outlineOffset: 1,
+                    overflow: 'hidden',
+                    transition: 'opacity 0.15s, box-shadow 0.15s'
+                  }}
+                >
+                  {/* One square, one color: the network that actually delivered most of this
+                    square's bytes. The full per-network breakdown is still exact underneath —
+                    hovering reads it out — but the grid itself stays a glanceable map of which
+                    network owns which stretch of the file rather than a stack of gradients. */}
+                  {fillPercent > 0 && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        width: `${fillPercent}%`,
+                        background: fillColor,
+                        transition: 'width 0.15s, background 0.15s'
+                      }}
+                    />
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
       </div>
     )

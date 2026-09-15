@@ -54,8 +54,16 @@ export interface BlockState {
   rangeStart: number
   rangeEnd: number | null
   status: BlockStatus
+  /** The network currently leasing this block (or the last one to touch it). Only meaningful
+   * as "who is working on it now" — for who actually *delivered* the bytes, read
+   * `bytesByInterface`, since a block can be started on one network and finished on another
+   * after a retry or a pause/resume. */
   interfaceId?: string
   bytesDownloaded: number
+  /** Bytes of this block delivered by each network, keyed by interface id. Summing to
+   * `bytesDownloaded`, this is what the block grid colors by, so a block split across
+   * networks is attributed to all of them instead of only the one that happened to finish it. */
+  bytesByInterface: Record<string, number>
 }
 
 export interface DownloadState {

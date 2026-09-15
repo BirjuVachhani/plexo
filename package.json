@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Speed up downloads by combining multiple network connections in parallel",
   "main": "./out/main/index.js",
-  "author": "example.com",
+  "author": "Anmol Kapil",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",

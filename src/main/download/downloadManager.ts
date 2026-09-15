@@ -14,7 +14,7 @@ import type {
   StartDownloadRequest
 } from '../../shared/types'
 import { downloadChunk } from './chunkDownloader'
-import { getAvailableDestinationPath } from './paths'
+import { reserveDestinationPath } from './paths'
 import { isResourceUnchanged } from './probe'
 
 interface ChunkRuntime {
@@ -179,7 +179,9 @@ export class DownloadManager {
     const tempDir = join(app.getPath('temp'), 'plexo', id)
     await mkdir(tempDir, { recursive: true })
 
-    const destinationPath = getAvailableDestinationPath(
+    // Claimed on disk, not just picked, so a second download of the same file
+    // name can't pick it too and overwrite this one at reassembly time.
+    const destinationPath = await reserveDestinationPath(
       requestPayload.destinationDir,
       requestPayload.suggestedFileName
     )
@@ -357,6 +359,7 @@ export class DownloadManager {
       runtime.state.error =
         'The remote file changed while this download was paused, so resuming would corrupt it. Start the download over instead.'
       this.pushUpdate(runtime)
+      await this.discardUnfinishedDestination(runtime)
       return
     }
 
@@ -400,6 +403,7 @@ export class DownloadManager {
     }
     this.pushUpdate(runtime)
     void this.cleanupTempDir(runtime)
+    void this.discardUnfinishedDestination(runtime)
   }
 
   remove(id: string): void {
@@ -439,6 +443,7 @@ export class DownloadManager {
       if (runtime.state.status === 'error' || runtime.state.status === 'cancelled') {
         this.pushUpdate(runtime)
         await this.cleanupTempDir(runtime)
+        await this.discardUnfinishedDestination(runtime)
       }
       return
     }
@@ -455,6 +460,7 @@ export class DownloadManager {
 
     this.pushUpdate(runtime)
     await this.cleanupTempDir(runtime)
+    await this.discardUnfinishedDestination(runtime)
   }
 
   private async runWorker(runtime: DownloadRuntime, chunk: ChunkState): Promise<void> {
@@ -717,6 +723,21 @@ export class DownloadManager {
       // worse than leaving nothing: it looks like the download they asked for.
       await rm(runtime.state.destinationPath, { force: true })
       throw error
+    }
+  }
+
+  /**
+   * Releases the placeholder file reserved at start when the download won't be
+   * filling it in, so its name is free for the next attempt. Only ever removes
+   * a path this download created and never finished writing — a completed
+   * download keeps its file.
+   */
+  private async discardUnfinishedDestination(runtime: DownloadRuntime): Promise<void> {
+    if (runtime.state.status === 'completed') return
+    try {
+      await rm(runtime.state.destinationPath, { force: true })
+    } catch {
+      // Best-effort — a stray empty file isn't worth failing the download over.
     }
   }
 

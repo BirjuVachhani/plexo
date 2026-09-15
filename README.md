@@ -10,7 +10,11 @@ For example, if your Mac has:
 
 Plexo can utilize all of them simultaneously to download the **same file**.
 
-![Plexo](https://github.com/user-attachments/assets/d1aace52-339d-4145-b0d0-c9d65245a9d4)
+
+
+https://github.com/user-attachments/assets/e57728f4-fb63-441f-839c-174eef954b17
+
+
 
 ---
 

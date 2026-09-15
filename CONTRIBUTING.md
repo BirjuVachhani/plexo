@@ -11,7 +11,7 @@ npm install
 npm run dev
 ```
 
-Requires macOS — interface detection relies on macOS's `networksetup` command, so the app won't run correctly on other platforms yet (see [README.md](README.md#running-it)).
+Requires macOS — interface detection relies on macOS's `networksetup` command, so the app won't run correctly on other platforms yet (see [README.md](README.md#requirements)).
 
 ## Before opening a PR
 

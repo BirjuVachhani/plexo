@@ -72,6 +72,15 @@ function retryDelayMs(attempt: number): number {
   return Math.min(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), RETRY_MAX_DELAY_MS)
 }
 
+/** Total live speed across a download's worker connections (bounded by MAX_CHUNKS, unlike blocks). */
+function sumChunkSpeeds(runtime: DownloadRuntime): number {
+  let total = 0
+  for (const chunk of runtime.state.chunks) {
+    total += chunk.speedBytesPerSec
+  }
+  return total
+}
+
 /** Waits, but returns early if the signal aborts (pause/cancel shouldn't wait out a retry backoff). */
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -185,16 +194,23 @@ export class DownloadManager {
     )
     const canSplit = requestPayload.supportsRanges && requestPayload.totalBytes > 0
 
-    const TARGET_BLOCKS = 64
-    const MIN_BLOCK_BYTES = 4 * 1024 * 1024 // 4 MB minimum block size
+    // Block size stays fixed regardless of file size, so work granularity — and
+    // therefore resumability and load-balancing across workers — doesn't degrade
+    // on huge files. MAX_REAL_BLOCKS is only a safety valve for pathologically
+    // large files (multi-TB) so the block array doesn't blow up; it grows the
+    // block size instead of the count once a file is big enough to hit it.
+    // The UI caps how many cells it renders separately (see BlockGrid), by
+    // bucketing these blocks rather than by shrinking their count here.
+    const BASE_BLOCK_BYTES = 8 * 1024 * 1024 // 8 MB
+    const MAX_REAL_BLOCKS = 4096
 
     let blockSizeBytes = 0
     const blocks: BlockState[] = []
 
     if (canSplit) {
       blockSizeBytes = Math.max(
-        MIN_BLOCK_BYTES,
-        Math.ceil(requestPayload.totalBytes / TARGET_BLOCKS)
+        BASE_BLOCK_BYTES,
+        Math.ceil(requestPayload.totalBytes / MAX_REAL_BLOCKS)
       )
       let offset = 0
       let bIdx = 0
@@ -601,7 +617,12 @@ export class DownloadManager {
     }
     chunk.speedBytesPerSec = pushSpeedSample(samples, chunk.bytesDownloaded, now)
 
-    this.recomputeAggregates(runtime)
+    // This runs on every socket data event, so it folds the delta in rather than re-summing
+    // every block — that sum is O(blocks), and a large file has thousands of them. The other
+    // callers of recomputeAggregates are rare enough to afford the full pass, and each one
+    // re-derives the true total, so any drift here cannot accumulate.
+    runtime.state.bytesDownloaded += deltaBytes
+    runtime.state.speedBytesPerSec = sumChunkSpeeds(runtime)
     this.scheduleUpdate(runtime)
   }
 
@@ -610,10 +631,7 @@ export class DownloadManager {
       (sum, entry) => sum + entry.bytesDownloaded,
       0
     )
-    runtime.state.speedBytesPerSec = runtime.state.chunks.reduce(
-      (sum, entry) => sum + entry.speedBytesPerSec,
-      0
-    )
+    runtime.state.speedBytesPerSec = sumChunkSpeeds(runtime)
   }
 
   private scheduleUpdate(runtime: DownloadRuntime): void {

@@ -418,7 +418,6 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
           knownSize={knownSize}
           remainingBytes={remainingBytes}
           isPaused={isPaused}
-          blockSizeBytes={download.blockSizeBytes}
         />
       </div>
 

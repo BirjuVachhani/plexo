@@ -2,7 +2,9 @@
 
 Plexo is a macOS download manager that speeds up downloads by splitting a file into blocks and pulling them in parallel across your available network interfaces — Wi-Fi, Ethernet, a USB-tethered phone, whatever you've got connected at once.
 
-<!-- Demo video coming soon -->
+
+https://github.com/user-attachments/assets/d1aace52-339d-4145-b0d0-c9d65245a9d4
+
 
 ## Why
 

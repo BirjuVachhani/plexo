@@ -184,7 +184,7 @@ Chunk #2 → Range: bytes=16777216-25165823 → part-2 (USB Tether)
 
 The progress grid provides a real-time visual map of the entire download.
 
-Instead of bucketing or averaging chunks together, every 8 MB chunk maps **1:1 to its own square** in the grid. Square #N directly corresponds to the **Chunk #N** badge shown in the active streams table, allowing you to cross-reference active connections with their location in the file.
+Every 8 MB chunk maps **1:1 to its own square** in the grid. Square #N directly corresponds to the **Chunk #N** badge shown in the active streams table, allowing you to cross-reference active connections with their location in the file.
 
 ```text
 Active Streams:
@@ -196,10 +196,10 @@ Progress Grid:
 [#1][#2][#3][#4][#5][#6][#7][#8]...
 ```
 
-- **1:1 chunk mapping**: No chunk bucketing or coarse grouping. Each square represents an atomic 8 MB unit of work.
-- **Accurate byte attribution**: Each square is colored by the network interface that delivered the dominant share of its bytes. If a chunk changes hands mid-flight (due to a dropped connection, retry, or pause/resume), Plexo tracks exact per-network byte tallies rather than naively recoloring the whole chunk to the last worker that touched it.
+- **1:1 chunk mapping**: Every square represents an atomic 8 MB chunk of the file.
+- **Accurate per-network attribution**: Each square is colored by the network interface that delivered the dominant share of its bytes. If a chunk changes hands mid-flight (due to a dropped connection, retry, or pause/resume), Plexo tracks per-network byte tallies so each interface's contribution is accurately credited.
 - **Joint contributor breakdown**: Hovering over any square displays the chunk index, bytes downloaded, and an exact breakdown of contributing networks (e.g., `Wi-Fi 70% · Ethernet 30%`).
-- **Consistent square size & scrolling**: Squares maintain a fixed size across all downloads. On large files, the grid wraps with window width and scrolls past 6 rows instead of compressing or shrinking squares.
+- **Responsive & scrollable**: Squares maintain a fixed, readable size across all downloads. The grid wraps to fit the window width and smoothly scrolls past 6 rows on large files.
 
 ---
 

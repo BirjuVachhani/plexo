@@ -1,4 +1,4 @@
-import { createWriteStream } from 'node:fs'
+import { createWriteStream, type WriteStream } from 'node:fs'
 import { request as httpRequest, type ClientRequest, type IncomingMessage } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { URL } from 'node:url'
@@ -27,7 +27,32 @@ const STALL_TIMEOUT_MS = 20_000
 // able to follow it too instead of failing outright.
 const MAX_REDIRECTS = 5
 
-/** Downloads a single byte range of a URL, bound to one network interface, into a part file. */
+interface ServedRange {
+  start: number
+  end: number
+}
+
+/** Parses `Content-Range: bytes <start>-<end>/<total>`. Returns null if it isn't in that form. */
+function parseContentRange(value: string | string[] | undefined): ServedRange | null {
+  const raw = Array.isArray(value) ? value[0] : value
+  if (!raw) return null
+  const match = /^\s*bytes\s+(\d+)-(\d+)\/(?:\d+|\*)\s*$/i.exec(raw)
+  if (!match) return null
+  const start = Number(match[1])
+  const end = Number(match[2])
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null
+  return { start, end }
+}
+
+/**
+ * Downloads a single byte range of a URL, bound to one network interface, into a part file.
+ *
+ * Resolving means the *entire* requested range was written, and nothing else was:
+ * a chunk's bytes land at a fixed offset in the reassembled file, so a response
+ * that is short, starts somewhere else, or overruns the range would corrupt the
+ * output rather than just this chunk. Every one of those is a rejection, which
+ * puts the block back on the queue for a retry instead of marking it done.
+ */
 export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
   const { url, rangeStart, rangeEnd, localAddress, destinationPath, append, onProgress, signal } =
     options
@@ -37,6 +62,8 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
       reject(new DOMException('Aborted', 'AbortError'))
       return
     }
+
+    const expectedBytes = rangeEnd === null ? null : rangeEnd - rangeStart + 1
 
     let bytesDownloaded = 0
     let settled = false
@@ -90,9 +117,11 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
             return
           }
 
-          // A 200 is only correct here if we asked for the whole file from byte
-          // 0 — otherwise the server ignored our Range and we'd silently write
-          // the wrong bytes into this chunk's slot.
+          // A 200 is only correct here if we asked from byte 0 — otherwise the
+          // server ignored our Range and we'd silently write the wrong bytes
+          // into this chunk's slot. When the range is also bounded, the
+          // length check at the end of the body is what confirms the server
+          // sent this chunk rather than the whole file.
           const isValidFullBody = status === 200 && rangeStart === 0
           if (status !== 206 && !isValidFullBody) {
             fail(new Error(`Unexpected status ${status} for range request`))
@@ -100,18 +129,79 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
             return
           }
 
-          const fileStream = createWriteStream(destinationPath, { flags: append ? 'a' : 'w' })
+          // A 206 says where in the file these bytes belong — check it lines up
+          // with what we asked for before writing any of them into the part file.
+          if (status === 206) {
+            const served = parseContentRange(res.headers['content-range'])
+            if (!served) {
+              fail(new Error('Server sent a 206 without a usable Content-Range header'))
+              res.resume()
+              return
+            }
+            if (served.start !== rangeStart) {
+              fail(
+                new Error(
+                  `Server returned the wrong range: asked for byte ${rangeStart}, got ${served.start}`
+                )
+              )
+              res.resume()
+              return
+            }
+            if (rangeEnd !== null && served.end > rangeEnd) {
+              fail(
+                new Error(
+                  `Server returned more than the requested range: through byte ${served.end}, asked through ${rangeEnd}`
+                )
+              )
+              res.resume()
+              return
+            }
+          }
 
-          res.on('data', (chunk: Buffer) => {
-            bytesDownloaded += chunk.length
-            onProgress(bytesDownloaded)
+          const fileStream: WriteStream = createWriteStream(destinationPath, {
+            flags: append ? 'a' : 'w'
           })
 
           res.on('error', fail)
           fileStream.on('error', fail)
-          fileStream.on('finish', () => finish(resolve))
 
-          res.pipe(fileStream)
+          // Written by hand rather than piped so an overlong body can be cut off
+          // at the range boundary: a part file longer than its block would push
+          // every byte after it out of place at reassembly time.
+          res.on('data', (chunk: Buffer) => {
+            if (settled) return
+
+            const remaining =
+              expectedBytes === null ? chunk.length : expectedBytes - bytesDownloaded
+            const usable =
+              chunk.length <= remaining ? chunk : chunk.subarray(0, Math.max(remaining, 0))
+
+            if (usable.length > 0) {
+              bytesDownloaded += usable.length
+              onProgress(bytesDownloaded)
+              if (!fileStream.write(usable)) {
+                res.pause()
+                fileStream.once('drain', () => res.resume())
+              }
+            }
+
+            if (usable.length < chunk.length) {
+              fail(new Error('Server sent more data than the requested range'))
+            }
+          })
+
+          res.on('end', () => {
+            if (settled) return
+            if (expectedBytes !== null && bytesDownloaded !== expectedBytes) {
+              fail(
+                new Error(
+                  `Server returned ${bytesDownloaded} bytes for a ${expectedBytes}-byte range`
+                )
+              )
+              return
+            }
+            fileStream.end(() => finish(resolve))
+          })
         }
       )
 

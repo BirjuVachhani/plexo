@@ -213,6 +213,7 @@ function appendFileToStream(sourcePath: string, output: NodeJS.WritableStream): 
 export class DownloadManager {
   private runtimes = new Map<string, DownloadRuntime>()
   private readonly initialization: Promise<void>
+  private suspending = false
 
   constructor(
     private getWindow: () => BrowserWindow | null,
@@ -245,6 +246,7 @@ export class DownloadManager {
     await Promise.all(
       entries.map(async (id) => {
         try {
+          await rm(`${this.manifestPath(id)}.tmp`, { force: true })
           const persisted = JSON.parse(
             await readFile(this.manifestPath(id), 'utf-8')
           ) as PersistedDownload
@@ -595,6 +597,7 @@ export class DownloadManager {
 
   async suspendAll(): Promise<void> {
     await this.initialization
+    this.suspending = true
     await Promise.all(
       [...this.runtimes.values()].map(async (runtime) => {
         if (runtime.state.status === 'downloading') await this.pause(runtime.state.id)
@@ -944,7 +947,7 @@ export class DownloadManager {
   }
 
   private schedulePersistence(runtime: DownloadRuntime): void {
-    if (runtime.removed || runtime.persistenceTimer) return
+    if (this.suspending || runtime.removed || runtime.persistenceTimer) return
     runtime.persistenceTimer = setTimeout(() => {
       runtime.persistenceTimer = undefined
       void this.persistNow(runtime)

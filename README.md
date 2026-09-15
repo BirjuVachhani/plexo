@@ -1,115 +1,318 @@
 # Plexo
 
-Plexo is a macOS download manager that speeds up downloads by splitting a file into chunks and pulling them in parallel across your available network interfaces — Wi-Fi, Ethernet, a USB-tethered phone, whatever you've got connected at once.
+A fast download manager for macOS that speeds up downloads by pulling chunks in parallel across **multiple network connections at the same time**.
 
-https://github.com/user-attachments/assets/d1aace52-339d-4145-b0d0-c9d65245a9d4
+For example, if your Mac has:
 
-## Why
+- Wi-Fi
+- Ethernet
+- USB-tethered phone (iPhone or Android)
 
-A single TCP connection rarely saturates your real bandwidth. And if your Mac has more than one network available — Wi-Fi and a phone tethered over USB, say — most download tools will happily use one and leave the other sitting idle.
+Plexo can utilize all of them simultaneously to download the **same file**.
 
-Plexo uses both at once, on the same file, and the speeds add up.
+https://github.com/user-attachments/assets/e57728f4-fb63-441f-839c-174eef954b17
+
+---
+
+## ⚠️ Before you start
+
+### Using Android USB tethering?
+
+macOS does not natively provide an RNDIS driver, so Android phones with USB tethering enabled won't appear as network interfaces out of the box (this is also why legacy kernel extensions like `HoRNDIS` stopped working on Apple Silicon and modern macOS).
+
+To use your Android phone's connection over USB, install **TetherKit** — a kext-free, user-space RNDIS driver.
+
+See [Using a USB-tethered Android phone](#using-a-usb-tethered-android-phone) for setup instructions.
+
+> Plexo can only route traffic through connections that macOS recognizes as network interfaces.
+
+---
+
+## Why Plexo?
+
+A single TCP connection rarely saturates your actual bandwidth. Even when your Mac has multiple active networks — such as Wi-Fi and a tethered mobile phone — the operating system routes all traffic through a single default gateway, leaving the other interfaces completely idle.
+
+Plexo changes that: it splits the file into independent byte ranges and downloads them simultaneously through distinct physical network interfaces.
+
+```text
+                    ┌── Wi-Fi (IP: 192.168.1.40) ────┐
+                    │                                │
+File ──→ Split ─────┼── Ethernet (IP: 10.0.0.12) ────┼──→ Assembled File
+                    │                                │
+                    └── USB Tether (IP: 172.20.10.3) ┘
+```
+
+**Multiple networks → concurrent HTTP range requests → aggregated bandwidth**
+
+---
 
 ## Features
 
-- **Multi-connection, multi-interface downloads** — splits the file into fixed 8 MB chunks and fans them out across worker connections bound to the network interfaces you pick, with up to 8 parallel connections per interface
-- **Real interface detection** — reads actual macOS hardware ports (`networksetup`) so a tethered iPhone or Thunderbolt Bridge shows up labeled correctly, not as a bare `en0`/`en6`
-- **Dynamic work-stealing** — chunks are leased from a shared pending queue, so a faster connection just keeps pulling more chunks instead of sitting idle while a slower one catches up
-- **Resumable** — pausing aborts in-flight connections without losing progress; resuming re-verifies the remote file's ETag/Last-Modified first and refuses to resume (rather than silently corrupt the file) if the server-side content changed
-- **Resilient** — per-chunk retry with exponential backoff, stall detection on dead-but-open connections, mid-download redirect following, and an upfront disk-space check before writing anything
-- **Per-network customization** — rename and recolor each physical network, with preferences persisted across runs
-- **Live per-connection stats** — throughput, ETA, and a grid of the whole file, colored by which network fetched each part
-- **Dark mode**
+- 🚀 **Multi-interface, multi-connection downloads** — splits files into fixed 8 MB chunks and fans them out across worker connections bound to specific network interfaces (up to 8 parallel connections per interface, 32 total).
+- 🔌 **Hardware interface detection** — queries macOS hardware ports via `networksetup` so Wi-Fi, Ethernet, tethered iPhones, and Thunderbolt bridges are labeled by real device names instead of bare BSD names (`en0`, `en6`).
+- ⚖️ **Dynamic work-stealing queue** — chunks are leased from a shared pending queue; faster networks pull more chunks instead of waiting for slower connections to finish.
+- ⏸️ **Resumable downloads** — pausing cleanly aborts in-flight socket connections while preserving downloaded `part-N` chunk files on disk.
+- 🛡️ **Safe, integrity-checked resume** — re-verifies remote `ETag` and `Last-Modified` validators before resuming, refusing to resume (rather than corrupting the file) if the server-side file has changed.
+- 🔁 **Automatic retry with backoff** — failed chunks are automatically returned to the queue and retried with exponential backoff (up to 5 retries, 1s–15s backoff).
+- 💤 **Stall detection** — automatically drops and re-queues connections that remain open but silent (>20s without incoming data).
+- 💾 **Upfront disk-space verification** — verifies free disk space before writing any temporary part files.
+- 🔀 **Mid-download redirect handling** — transparently follows 3xx HTTP redirects (up to 5 hops) during probing and individual chunk downloads.
+- 📊 **Real-time telemetry** — live throughput graphs, rolling-window ETA calculation, and per-connection transfer stats.
+- 🗺️ **Interactive progress grid** — visual progress map of chunks grouped into blocks, color-coded by the network interface that downloaded each part.
+- 🎨 **Network customization** — rename and recolor physical network interfaces with persistent user preferences.
+- 🌙 **Dark mode**
 
-## How it works
+---
 
-Instead of asking the server for a file, Plexo asks for _pieces_ of it — many at a time, over more than one network. Three primitives make that work.
+# How it works
 
-### 1. HTTP range requests
+Instead of downloading a file linearly over a single socket, Plexo requests arbitrary slices of the file simultaneously across multiple physical network interfaces. Three core technical primitives make this work:
 
-Most servers will hand you an arbitrary slice of a file:
+### 1. HTTP range requests (`206 Partial Content`)
+
+Most modern HTTP servers support byte-level slicing:
 
 ```http
 GET /ubuntu-26.04.1-desktop-amd64.iso HTTP/1.1
+Host: releases.ubuntu.com
 Range: bytes=8388608-16777215
 ```
 
-They advertise this with `Accept-Ranges: bytes` and reply `206 Partial Content`. Slices are independent, so you can request many at once, in any order, and stitch them together afterwards.
+Servers advertise this capability with the `Accept-Ranges: bytes` response header and reply with HTTP status `206 Partial Content`. Because byte slices are stateless and independent, Plexo can request dozens of chunks at once, in any order, and stitch them together later.
 
-Plexo probes with a GET for `bytes=0-0` — unlike `HEAD`, a `206` proves ranges actually work. The same response carries the size, filename, and `ETag`/`Last-Modified`.
+#### Probing before downloading
 
-### 2. Binding a connection to one interface
+Before starting a multi-connection download, Plexo sends a **1-byte ranged GET** (`Range: bytes=0-0`), following any redirects:
 
-Every interface has its own IP — Wi-Fi might be `192.168.1.40`, a tethered phone `172.20.10.3`. A TCP connection picks which local address it departs from, and that decides which network carries the packets:
+- Unlike a `HEAD` request (which servers and CDNs frequently misreport), receiving a `206 Partial Content` response conclusively proves that range requests are supported and functional.
+- The probe response provides the total file size (`Content-Range` / `Content-Length`), suggested filename (`Content-Disposition`), and cache validators (`ETag` and `Last-Modified`).
+- If the server answers with `200 OK` (ignoring the `Range` header), Plexo falls back to a standard single-connection stream instead of failing.
+
+### 2. Multi-interface socket binding via `localAddress`
+
+Every active network interface on your Mac has its own local IP address — Wi-Fi might be `192.168.1.40`, while a USB-tethered phone is `172.20.10.3`.
+
+A standard TCP socket leaves interface selection to the operating system's routing table. However, Node.js allows outbound HTTP/HTTPS requests to explicitly bind to a specific local IP using the `localAddress` option:
 
 ```js
-https.request({ hostname, path, localAddress: '172.20.10.3', headers: { Range } })
+https.request({
+  hostname: 'releases.ubuntu.com',
+  path: '/ubuntu-26.04.1-desktop-amd64.iso',
+  localAddress: '172.20.10.3', // Forces this connection through the USB tether
+  headers: {
+    Range: 'bytes=8388608-16777215'
+  }
+})
 ```
 
-That option is the whole multi-network mechanism — no bonding, no VPN, no kernel extension, no native dependencies.
+This single option is Plexo's entire multi-network routing engine:
 
-### 3. A shared queue of work
+- **No virtual network adapters or VPN tunnels**
+- **No packet bonding or link aggregation**
+- **No kernel extensions (`kext`) or root privileges**
+- **Zero native C/C++ dependencies**
 
-Split a 6 GB file into 8 fixed shares of 750 MB and you finish no sooner than your slowest connection. Instead, chunks go into one pending queue and each worker takes the next one as it frees up, so every network's share ends up proportional to its actual throughput.
+### 3. Dynamic work-stealing queue
 
-### Putting it together
+If you statically divide a 6 GB file into equal shares (e.g. 3 GB on Wi-Fi and 3 GB on mobile data), the total download speed is bottlenecked by the slower network.
 
-1. **Probe** — one-byte ranged GET, following redirects. No range support means a single plain connection instead.
-2. **Split** — fixed 8 MB chunks.
-3. **Fan out** — worker connections across your selected interfaces, up to 8 per interface and 32 total, each bound to its interface's IP.
-4. **Lease** — each worker takes the next pending chunk into its own `part-N` file until the queue drains. Failed chunks go back on the queue (5 retries, 1s–15s backoff); connections that go quiet are dropped after 20s.
-5. **Reassemble** — part files are streamed in order into the destination.
+Instead, Plexo uses a **dynamic work-stealing queue**:
 
-Pausing keeps the part files. Resuming re-checks `ETag`/`Last-Modified` and refuses rather than append to a file that changed on the server.
+1. The file is split into fixed **8 MB chunks**.
+2. All chunks enter a centralized pending queue.
+3. A pool of worker connections (up to 8 per interface, 32 total) continuously lease the next chunk from the queue as soon as they become free.
+4. Faster interfaces finish chunks quicker and immediately pick up new ones; slower interfaces pull fewer chunks.
 
-### Chunks vs. blocks
+```text
+Shared Pending Queue: [Chunk #4] [Chunk #5] [Chunk #6] [Chunk #7] [Chunk #8] ...
+                            ↑           ↑           ↑
+                         Worker 1    Worker 2    Worker 3
+                         (Wi-Fi)     (Ethernet)  (USB Tether)
+```
 
-- A **chunk** is the unit of work — 8 MB, one range request, one `part-N` file (`Chunk #412` in the streams table).
-- A **block** is one square in the progress grid, standing for several consecutive chunks.
+Work distribution is dynamically proportional to each interface's real-time throughput. If one network slows down or disconnects, remaining workers continue draining the queue without stalled shares.
 
-Small chunks keep the queue balanced and retries cheap, but a 6 GB file is 768 of them — too many to draw. The grid groups them into a count derived from file size alone, so the number of squares tracks how big the download is and doesn't change when you resize; resizing only rewraps them. Hover a square to see which chunks it covers.
+### 4. File reassembly & stream pipeline
 
-## Running it
+Each worker writes its assigned byte range directly to an isolated temporary file on disk (`part-0`, `part-1`, ... `part-N`).
 
-No prebuilt releases yet — clone and run it locally, or build the app yourself.
+Once the queue is drained and all chunk promises resolve:
 
-Requirements: Node.js, npm, macOS (interface detection relies on macOS's `networksetup`, so other platforms aren't supported yet).
+- Plexo streams each `part-N` file sequentially into the final destination file using Node.js streams (`createReadStream` piped into `createWriteStream` with `{ flags: 'a' }`).
+- The temporary chunk directory is cleaned up.
+- The assembled file is verified against the expected byte length.
+
+---
+
+# Downloads are resumable
+
+When you pause a download:
+
+- Plexo aborts all active HTTP socket connections via `AbortController`.
+- All completed `part-N` files remain cached on disk in a temporary directory.
+
+When you resume:
+
+1. **Validator check**: Plexo sends a probe request to compare the server's current `ETag` and `Last-Modified` headers against the values recorded when the download started.
+2. **Safe resume**: If the validators match, Plexo checks which `part-N` files are already complete on disk, skips them, and queues only the remaining chunks.
+3. **Guard against corruption**: If the file on the server has changed, Plexo refuses to resume to prevent combining incompatible slices into a corrupt file.
+
+---
+
+# What is a chunk?
+
+A **chunk** is the atomic unit of work in Plexo:
+
+- **Size**: Exactly 8 MB (with the final chunk sized to the remaining bytes).
+- **Transport**: One independent HTTP range request (`Range: bytes=START-END`).
+- **Storage**: Written directly to an isolated `part-N` file in the download's temp directory.
+- **Assignment**: Leased to an individual worker socket bound to a specific network interface.
+
+```text
+Chunk #0 → Range: bytes=0-8388607         → part-0 (Wi-Fi)
+Chunk #1 → Range: bytes=8388608-16777215  → part-1 (Ethernet)
+Chunk #2 → Range: bytes=16777216-25165823 → part-2 (USB Tether)
+```
+
+### Why 8 MB?
+
+8 MB provides the optimal balance: large enough to minimize HTTP connection overhead and TLS handshakes, yet small enough to keep the work-stealing queue fluid, ensure fine-grained load balancing across mismatched connections, and keep retries cheap (a failed or stalled connection only discards at most 8 MB).
+
+---
+
+# What is the progress grid?
+
+The progress grid provides a real-time visual map of the entire download.
+
+A 10 GB file consists of over 1,200 individual 8 MB chunks — far too many to render as individual DOM elements without UI lag.
+
+To solve this, Plexo aggregates consecutive chunks into visual **blocks**:
+
+```text
+Actual Chunks (8 MB each):
+[c0][c1][c2][c3][c4][c5][c6][c7][c8][c9]...
+
+Displayed Blocks in Grid:
+[   Block #0   ][   Block #1   ][   Block #2   ]...
+```
+
+- Each block represents a uniform range of chunks.
+- Block count is calculated deterministically from the total file size; resizing the window re-wraps the layout but does not alter block allocations.
+- Blocks are color-coded in real-time according to the network interface that downloaded the underlying chunks.
+- Hovering over any block inspects the specific chunk indices, byte ranges, and network status within that block.
+
+---
+
+# Getting started
+
+Plexo currently doesn't have pre-built releases, so you'll need to run it from source.
+
+## Requirements
+
+- **macOS**: Plexo relies on macOS networking utilities (`networksetup`) for physical network interface discovery.
+- **Node.js**: v18+ recommended.
+- **npm**: v9+ recommended.
+
+---
+
+## Run Plexo locally
+
+Clone the repository:
 
 ```bash
 git clone https://github.com/anmolkapil/plexo.git
 cd plexo
+```
+
+Install dependencies:
+
+```bash
 npm install
+```
+
+Start the application in development mode:
+
+```bash
 npm run dev
 ```
 
-### Building the app
+---
+
+# Build the macOS app
+
+To package Plexo as a standalone macOS application bundle:
 
 ```bash
 npm run build:mac
 ```
 
-This builds `dist/mac/Plexo.app` locally, unsigned (no Apple Developer certificate). Since you built it yourself, macOS won't quarantine it and Gatekeeper won't complain — Gatekeeper only checks signatures on files that were downloaded via a browser/curl/etc., which is what sets the quarantine flag in the first place. A locally built app never gets that flag.
+The compiled application will be generated at:
 
-Windows and Linux build scripts exist (`build:win`, `build:linux`) but are untested — Plexo has only been developed and verified on macOS.
+```text
+dist/mac/Plexo.app
+```
 
-### Tethering an Android phone over USB
+> **Note on Gatekeeper:** The app is unsigned because it is not distributed with a paid Apple Developer certificate. However, because you compile it locally on your machine, macOS will not apply the quarantine flag (`com.apple.quarantine`). Gatekeeper only quarantines files downloaded from the web (via browsers, curl, etc.), so your locally built `Plexo.app` will launch cleanly without quarantine warnings.
 
-macOS has no built-in RNDIS driver, so an Android phone with USB tethering enabled won't show up as a network interface out of the box (this is also why the old `HoRNDIS` kext stopped working on modern macOS/Apple Silicon). To get an Android phone recognized as an interface Plexo can use, install **[TetherKit](https://github.com/XiaoMiku01/TetherKit)** — a kext-free, user-space RNDIS driver by [@XiaoMiku01](https://github.com/XiaoMiku01):
+_(Build scripts for Windows and Linux exist in `package.json`, but multi-interface routing and hardware detection have only been verified on macOS.)_
+
+---
+
+# Using a USB-tethered Android phone
+
+Android USB tethering requires an additional setup step on macOS.
+
+macOS lacks native support for the **RNDIS (Remote Network Driver Interface Specification)** protocol. An Android phone with USB tethering enabled will charge and support MTP/ADB, but macOS will not expose it as a network interface (this is also why legacy kernel extensions like `HoRNDIS` stopped functioning on modern macOS and Apple Silicon).
+
+## Install TetherKit
+
+[TetherKit](https://github.com/XiaoMiku01/TetherKit) is an open-source, kext-free, user-space RNDIS driver that makes Android USB tethering available as a standard network interface on macOS.
+
+Install it via Homebrew:
 
 ```bash
 brew install XiaoMiku01/tap/tetherkit
 ```
 
-Once connected via TetherKit, the phone shows up as a regular interface and Plexo can route chunks through it like any other network. Thanks to XiaoMiku01 for building and open-sourcing it.
+### Steps:
 
-## Contributing
+1. Connect your Android device via USB.
+2. On your phone, navigate to **Settings → Network & Internet → Hotspot & tethering** and enable **USB tethering**.
+3. Once TetherKit is active, macOS registers the device as a network interface.
+4. Open Plexo — the new interface will be automatically detected and ready to carry download chunks.
 
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, PR expectations, and bug report format.
+Special thanks to [@XiaoMiku01](https://github.com/XiaoMiku01) for developing and open-sourcing TetherKit!
 
-## Tech stack
+---
 
-Electron, React 19, TypeScript, Zustand, built with `electron-vite`/`electron-builder`.
+# Contributing
 
-## License
+Contributions are welcome! Whether you're optimizing download concurrency, improving UI responsiveness, or testing new tethering setups:
+
+- 🐛 Fix bugs & edge cases
+- 🚀 Improve download engine & socket throughput
+- 🌐 Expand multi-interface detection to other platforms (Linux / Windows)
+- 🎨 Enhance UI/UX and dark mode styling
+- 🧪 Test diverse multi-network environments (5G tethering, Wi-Fi 6, 10GbE)
+- 📖 Improve documentation & guides
+
+For development setup, coding standards, and PR workflows, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+# Tech stack
+
+Plexo is built with:
+
+- **Electron** — desktop runtime
+- **React 19** — declarative UI
+- **TypeScript** — end-to-end type safety
+- **Zustand** — lightweight client state management
+- **electron-vite** — fast HMR and build tooling
+- **electron-builder** — macOS packaging
+
+---
+
+# License
 
 MIT — see [LICENSE](LICENSE).

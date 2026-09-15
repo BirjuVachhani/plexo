@@ -58,7 +58,7 @@ File ──→ Split ─────┼── Ethernet (IP: 10.0.0.12) ───
 - 💾 **Upfront disk-space verification** — verifies free disk space before writing any temporary part files.
 - 🔀 **Mid-download redirect handling** — transparently follows 3xx HTTP redirects (up to 5 hops) during probing and individual chunk downloads.
 - 📊 **Real-time telemetry** — live throughput graphs, rolling-window ETA calculation, and per-connection transfer stats.
-- 🗺️ **Interactive progress grid** — visual progress map of chunks grouped into blocks, color-coded by the network interface that downloaded each part.
+- 🗺️ **Interactive progress grid** — 1:1 visual map of individual 8 MB chunks, color-coded by the network interface that fetched each chunk with accurate per-network byte attribution.
 - 🎨 **Network customization** — rename and recolor physical network interfaces with persistent user preferences.
 - 🌙 **Dark mode**
 
@@ -184,22 +184,22 @@ Chunk #2 → Range: bytes=16777216-25165823 → part-2 (USB Tether)
 
 The progress grid provides a real-time visual map of the entire download.
 
-A 10 GB file consists of over 1,200 individual 8 MB chunks — far too many to render as individual DOM elements without UI lag.
-
-To solve this, Plexo aggregates consecutive chunks into visual **blocks**:
+Instead of bucketing or averaging chunks together, every 8 MB chunk maps **1:1 to its own square** in the grid. Square #N directly corresponds to the **Chunk #N** badge shown in the active streams table, allowing you to cross-reference active connections with their location in the file.
 
 ```text
-Actual Chunks (8 MB each):
-[c0][c1][c2][c3][c4][c5][c6][c7][c8][c9]...
+Active Streams:
+[Wi-Fi]      → Chunk #4
+[Ethernet]   → Chunk #5
+[USB Tether] → Chunk #6
 
-Displayed Blocks in Grid:
-[   Block #0   ][   Block #1   ][   Block #2   ]...
+Progress Grid:
+[#1][#2][#3][#4][#5][#6][#7][#8]...
 ```
 
-- Each block represents a uniform range of chunks.
-- Block count is calculated deterministically from the total file size; resizing the window re-wraps the layout but does not alter block allocations.
-- Blocks are color-coded in real-time according to the network interface that downloaded the underlying chunks.
-- Hovering over any block inspects the specific chunk indices, byte ranges, and network status within that block.
+- **1:1 chunk mapping**: No chunk bucketing or coarse grouping. Each square represents an atomic 8 MB unit of work.
+- **Accurate byte attribution**: Each square is colored by the network interface that delivered the dominant share of its bytes. If a chunk changes hands mid-flight (due to a dropped connection, retry, or pause/resume), Plexo tracks exact per-network byte tallies rather than naively recoloring the whole chunk to the last worker that touched it.
+- **Joint contributor breakdown**: Hovering over any square displays the chunk index, bytes downloaded, and an exact breakdown of contributing networks (e.g., `Wi-Fi 70% · Ethernet 30%`).
+- **Consistent square size & scrolling**: Squares maintain a fixed size across all downloads. On large files, the grid wraps with window width and scrolls past 6 rows instead of compressing or shrinking squares.
 
 ---
 

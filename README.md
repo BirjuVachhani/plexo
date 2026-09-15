@@ -53,6 +53,16 @@ This builds `dist/mac/Plexo.app` locally, unsigned (no Apple Developer certifica
 
 Windows and Linux build scripts exist (`build:win`, `build:linux`) but are untested — Plexo has only been developed and verified on macOS.
 
+### Tethering an Android phone over USB
+
+macOS has no built-in RNDIS driver, so an Android phone with USB tethering enabled won't show up as a network interface out of the box (this is also why the old `HoRNDIS` kext stopped working on modern macOS/Apple Silicon). To get an Android phone recognized as an interface Plexo can use, install **[TetherKit](https://github.com/XiaoMiku01/TetherKit)** — a kext-free, user-space RNDIS driver by [@XiaoMiku01](https://github.com/XiaoMiku01):
+
+```bash
+brew install XiaoMiku01/tap/tetherkit
+```
+
+Once connected via TetherKit, the phone shows up as a regular interface and Plexo can route chunks through it like any other network. Thanks to XiaoMiku01 for building and open-sourcing it.
+
 ## Contributing
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup, PR expectations, and bug report format.

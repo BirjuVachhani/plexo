@@ -47,6 +47,9 @@ const plexoApi = {
   startDownload: (request: StartDownloadRequest): Promise<string> =>
     ipcRenderer.invoke(IpcChannels.startDownload, request),
 
+  getCurrentDownload: (): Promise<DownloadState | null> =>
+    ipcRenderer.invoke(IpcChannels.getCurrentDownload),
+
   pauseDownload: (downloadId: string): Promise<void> =>
     ipcRenderer.invoke(IpcChannels.pauseDownload, downloadId),
 

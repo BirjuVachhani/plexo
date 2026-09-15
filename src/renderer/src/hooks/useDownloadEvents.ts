@@ -6,6 +6,19 @@ export function useDownloadEvents(): void {
   const setCurrentDownload = useAppStore((store) => store.setCurrentDownload)
 
   useEffect(() => {
-    return window.plexo.onDownloadUpdated(setCurrentDownload)
+    let disposed = false
+    const unsubscribe = window.plexo.onDownloadUpdated(setCurrentDownload)
+
+    void window.plexo
+      .getCurrentDownload()
+      .then((download) => {
+        if (!disposed && download) setCurrentDownload(download)
+      })
+      .catch(() => {})
+
+    return () => {
+      disposed = true
+      unsubscribe()
+    }
   }, [setCurrentDownload])
 }

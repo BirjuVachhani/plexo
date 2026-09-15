@@ -17,14 +17,18 @@ const NETWORK_SETTINGS_URL = 'x-apple.systempreferences:com.apple.preference.net
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): DownloadManager {
   let cachedInterfaces: NetworkInterfaceInfo[] = []
 
-  const manager = new DownloadManager(getWindow, (id) =>
-    cachedInterfaces.find((iface) => iface.id === id)
-  )
-
-  ipcMain.handle(IpcChannels.listInterfaces, async () => {
+  const refreshInterfaces = async (): Promise<NetworkInterfaceInfo[]> => {
     cachedInterfaces = await listActiveInterfaces()
     return cachedInterfaces
-  })
+  }
+
+  const manager = new DownloadManager(
+    getWindow,
+    (id) => cachedInterfaces.find((iface) => iface.id === id),
+    refreshInterfaces
+  )
+
+  ipcMain.handle(IpcChannels.listInterfaces, refreshInterfaces)
 
   ipcMain.handle(IpcChannels.pingInterfaces, async () => measureLatencies(cachedInterfaces))
 
@@ -67,8 +71,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
     manager.start(request)
   )
 
+  ipcMain.handle(IpcChannels.getCurrentDownload, async () => manager.getCurrentDownload())
+
   ipcMain.handle(IpcChannels.pauseDownload, async (_event, id: string) => {
-    manager.pause(id)
+    await manager.pause(id)
   })
 
   ipcMain.handle(IpcChannels.resumeDownload, async (_event, id: string) => {

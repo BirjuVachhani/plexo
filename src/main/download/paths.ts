@@ -14,6 +14,16 @@ export function getHomeDir(): string {
 // (or if something outside the app is creating them as fast as we try).
 const MAX_NAME_ATTEMPTS = 10_000
 
+function sanitizeFileName(fileName: string): string {
+  // A server-provided name is one component, never a path or NTFS data stream.
+  let safe = fileName.replace(/[\\/]/g, '_').replace(/\p{Cc}/gu, '_')
+  if (process.platform === 'win32') {
+    safe = safe.replace(/[<>:"|?*]/g, '_').replace(/[ .]+$/, '')
+    if (/^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(safe)) safe = `_${safe}`
+  }
+  return !safe || /^\.+$/.test(safe) ? 'download' : safe
+}
+
 /**
  * Claims <directory>/<fileName>, or <directory>/<fileName> (1), (2), ... if it
  * already exists, by creating an empty file at that path.
@@ -29,6 +39,7 @@ const MAX_NAME_ATTEMPTS = 10_000
  * download doesn't end up producing a file.
  */
 export async function reserveDestinationPath(directory: string, fileName: string): Promise<string> {
+  fileName = sanitizeFileName(fileName)
   const ext = extname(fileName)
   const base = basename(fileName, ext)
 

@@ -1,8 +1,8 @@
 # Plexo
 
-A fast download manager for macOS that speeds up downloads by pulling chunks in parallel across **multiple network connections at the same time**.
+A fast download manager for Windows and macOS that speeds up downloads by pulling chunks in parallel across **multiple network connections at the same time**.
 
-For example, if your Mac has:
+For example, if your computer has:
 
 - Wi-Fi
 - Ethernet
@@ -16,7 +16,7 @@ https://github.com/user-attachments/assets/e57728f4-fb63-441f-839c-174eef954b17
 
 ## ⚠️ Before you start
 
-### Using Android USB tethering?
+### Using Android USB tethering on macOS?
 
 macOS does not natively provide an RNDIS driver, so Android phones with USB tethering enabled won't appear as network interfaces out of the box (this is also why legacy kernel extensions like `HoRNDIS` stopped working on Apple Silicon and modern macOS).
 
@@ -24,13 +24,13 @@ To use your Android phone's connection over USB, install **TetherKit** — a kex
 
 See [Using a USB-tethered Android phone](#using-a-usb-tethered-android-phone) for setup instructions.
 
-> Plexo can only route traffic through connections that macOS recognizes as network interfaces.
+> Plexo can only route traffic through connections that your operating system recognizes as network interfaces.
 
 ---
 
 ## Why Plexo?
 
-A single TCP connection rarely saturates your actual bandwidth. Even when your Mac has multiple active networks — such as Wi-Fi and a tethered mobile phone — the operating system routes all traffic through a single default gateway, leaving the other interfaces completely idle.
+A single TCP connection rarely saturates your actual bandwidth. Even when your computer has multiple active networks — such as Wi-Fi and a tethered mobile phone — the operating system routes all traffic through a single default gateway, leaving the other interfaces completely idle.
 
 Plexo changes that: it splits the file into independent byte ranges and downloads them simultaneously through distinct physical network interfaces.
 
@@ -49,7 +49,7 @@ File ──→ Split ─────┼── Ethernet (IP: 10.0.0.12) ───
 ## Features
 
 - 🚀 **Multi-interface, multi-connection downloads** — splits files into fixed 8 MB chunks and fans them out across worker connections bound to specific network interfaces (up to 8 parallel connections per interface, 32 total).
-- 🔌 **Hardware interface detection** — queries macOS hardware ports via `networksetup` so Wi-Fi, Ethernet, tethered iPhones, and Thunderbolt bridges are labeled by real device names instead of bare BSD names (`en0`, `en6`).
+- 🔌 **Hardware interface detection** — queries Windows adapters via PowerShell `Get-NetAdapter` and macOS hardware ports via `networksetup` so Wi-Fi, Ethernet, tethered iPhones, and Thunderbolt bridges are labeled by real device names instead of bare BSD names (`en0`, `en6`).
 - ⚖️ **Dynamic work-stealing queue** — chunks are leased from a shared pending queue; faster networks pull more chunks instead of waiting for slower connections to finish.
 - ⏸️ **Resumable downloads** — pausing cleanly aborts in-flight socket connections while preserving downloaded `part-N` chunk files on disk.
 - 💾 **Relaunch recovery** — interrupted downloads are restored as paused after Plexo restarts, with progress and part files preserved in application data.
@@ -91,7 +91,7 @@ Before starting a multi-connection download, Plexo sends a **1-byte ranged GET**
 
 ### 2. Multi-interface socket binding via `localAddress`
 
-Every active network interface on your Mac has its own local IP address — Wi-Fi might be `192.168.1.40`, while a USB-tethered phone is `172.20.10.3`.
+Every active network interface on your computer has its own local IP address — Wi-Fi might be `192.168.1.40`, while a USB-tethered phone is `172.20.10.3`.
 
 A standard TCP socket leaves interface selection to the operating system's routing table. However, Node.js allows outbound HTTP/HTTPS requests to explicitly bind to a specific local IP using the `localAddress` option:
 
@@ -214,8 +214,8 @@ Plexo currently doesn't have pre-built releases, so you'll need to run it from s
 
 ## Requirements
 
-- **macOS**: Plexo relies on macOS networking utilities (`networksetup`) for physical network interface discovery.
-- **Node.js**: v18+ recommended.
+- **Windows 10/11 or macOS**: Windows uses its built-in Windows PowerShell for adapter metadata; macOS uses `networksetup`. If metadata is unavailable, Plexo falls back to interface names.
+- **Node.js**: 22.12+ (Node 22 LTS recommended).
 - **npm**: v9+ recommended.
 
 ---
@@ -259,7 +259,34 @@ dist/mac/Plexo.app
 
 > **Note on Gatekeeper:** The app is unsigned because it is not distributed with a paid Apple Developer certificate. However, because you compile it locally on your machine, macOS will not apply the quarantine flag (`com.apple.quarantine`). Gatekeeper only quarantines files downloaded from the web (via browsers, curl, etc.), so your locally built `Plexo.app` will launch cleanly without quarantine warnings.
 
-_(Build scripts for Windows and Linux exist in `package.json`, but multi-interface routing and hardware detection have only been verified on macOS.)_
+## Build the Windows app
+
+Run these commands from PowerShell in the project directory:
+
+```powershell
+npm install
+npm run build:win
+```
+
+The installer is generated at `dist/plexo-1.0.0-setup.exe`. For an unpacked app, run
+`npm run build:unpack` and launch `dist/win-unpacked/plexo.exe`.
+Local builds are unsigned.
+
+Windows uses native window controls, Ctrl+V hints, File Explorer integration, and Windows
+Network Settings. Download filenames are normalized to Windows filename rules.
+
+### USB tethering on Windows
+
+Enable USB tethering on your phone and check that its adapter appears in Windows Network
+Settings. Install the phone manufacturer's Windows driver if Windows does not recognize it.
+TetherKit is only needed for the macOS setup below.
+
+Each selected network needs a working IPv4 connection and a route to the download server.
+Adapter detection does not guarantee Internet access: VPN, virtual, and isolated adapters may
+also appear. Check per-network latency and transfer stats. Combined throughput depends on the
+networks, Windows routing, and the server; it needs testing with your particular connections.
+
+Linux packaging remains available but has not been validated.
 
 ---
 
@@ -296,7 +323,7 @@ Contributions are welcome! Whether you're optimizing download concurrency, impro
 
 - 🐛 Fix bugs & edge cases
 - 🚀 Improve download engine & socket throughput
-- 🌐 Expand multi-interface detection to other platforms (Linux / Windows)
+- 🌐 Expand multi-interface detection to other platforms (Linux)
 - 🎨 Enhance UI/UX and dark mode styling
 - 🧪 Test diverse multi-network environments (5G tethering, Wi-Fi 6, 10GbE)
 - 📖 Improve documentation & guides

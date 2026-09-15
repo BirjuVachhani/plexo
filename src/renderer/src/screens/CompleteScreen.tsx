@@ -301,7 +301,7 @@ export function CompleteScreen({
           New Download
         </button>
         <button type="button" onClick={handleReveal} style={primaryButtonStyle}>
-          Reveal in Finder
+          {window.plexo.platform === 'darwin' ? 'Reveal in Finder' : 'Show in folder'}
         </button>
       </div>
     </div>

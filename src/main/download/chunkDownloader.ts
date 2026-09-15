@@ -88,8 +88,13 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
         // resume has already reconciled that file's length. Discarding those
         // writes is safe: what survives on disk is what the next attempt
         // resumes from.
-        currentFileStream?.destroy()
-        reject(error)
+        const stream = currentFileStream
+        if (stream && !stream.closed) {
+          stream.once('close', () => reject(error))
+          stream.destroy()
+        } else {
+          reject(error)
+        }
       })
 
     const onAbort = (): void => fail(new DOMException('Aborted', 'AbortError'))
@@ -211,7 +216,9 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
               )
               return
             }
-            fileStream.end(() => finish(resolve))
+            // Windows cannot reliably reopen/remove a file until its handle closes.
+            fileStream.once('close', () => finish(resolve))
+            fileStream.end()
           })
         }
       )

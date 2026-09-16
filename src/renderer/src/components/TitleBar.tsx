@@ -4,6 +4,7 @@ import { ThemeToggle } from './ThemeToggle'
 export type TitleBarStatus =
   | { kind: 'none' }
   | { kind: 'merged'; networkCount: number }
+  | { kind: 'merging' }
   | { kind: 'paused'; networkCount: number }
   | { kind: 'offline' }
 
@@ -51,6 +52,20 @@ export function TitleBar({ status }: { status: TitleBarStatus }): React.JSX.Elem
             }}
           />
           {status.networkCount} {status.networkCount === 1 ? 'network' : 'networks'} merged
+        </div>
+      )}
+      {status.kind === 'merging' && (
+        <div style={pillStyle('merging')}>
+          <div
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: 'var(--color-ethernet)',
+              animation: 'plexo-glow 1s ease-in-out infinite'
+            }}
+          />
+          Merging chunks…
         </div>
       )}
       {status.kind === 'paused' && (

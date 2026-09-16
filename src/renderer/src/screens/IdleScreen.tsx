@@ -37,7 +37,6 @@ export function IdleScreen(): React.JSX.Element {
   const homeDir = useAppStore((store) => store.homeDir)
   const downloadsDir = useAppStore((store) => store.downloadsDir)
   const latencies = useAppStore((store) => store.latencies)
-  const loadInitialPaths = useAppStore((store) => store.loadInitialPaths)
   const url = useAppStore((store) => store.draftUrl)
   const setUrl = useAppStore((store) => store.setDraftUrl)
   const destinationDir = useAppStore((store) => store.draftDestinationDir)
@@ -51,10 +50,6 @@ export function IdleScreen(): React.JSX.Element {
   const [fileNameOverride, setFileNameOverride] = useState<string | null>(null)
 
   const probeRequestId = useRef(0)
-
-  useEffect(() => {
-    loadInitialPaths()
-  }, [loadInitialPaths])
 
   useEffect(() => {
     if (!destinationDir && downloadsDir) setDestinationDir(downloadsDir)

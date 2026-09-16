@@ -52,7 +52,9 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   const peakSpeedBytesPerSec = useAppStore((store) => store.peakSpeedBytesPerSec)
   const networkPreferences = useAppStore((store) => store.networkPreferences)
   const isPaused = download.status === 'paused'
+  const isMerging = download.status === 'merging'
   const percent = formatPercent(download.bytesDownloaded, download.totalBytes)
+  const mergePercent = formatPercent(download.mergedBytes ?? 0, download.totalBytes)
   const knownSize = download.totalBytes > 0
   const [now, setNow] = useState(() => Date.now())
 
@@ -63,7 +65,9 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   }, [isPaused])
 
   useEffect(() => {
-    if (isPaused) {
+    if (isMerging) {
+      document.title = `Plexo — Merging (${mergePercent}%)`
+    } else if (isPaused) {
       document.title = knownSize ? `Plexo — Paused (${percent}%)` : 'Plexo — Paused'
     } else {
       document.title = knownSize ? `Plexo — ${percent}%` : 'Plexo — downloading'
@@ -71,7 +75,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
     return () => {
       document.title = 'Plexo'
     }
-  }, [percent, knownSize, isPaused])
+  }, [percent, mergePercent, knownSize, isPaused, isMerging])
 
   const totalPausedMs =
     (download.totalPausedMs || 0) +
@@ -174,9 +178,10 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             networks={groups.map((group, index) => ({
               solid: visuals[index].solid,
               label: visuals[index].name,
-              speedBytesPerSec: isPaused ? 0 : group.speedBytesPerSec
+              speedBytesPerSec: isPaused || isMerging ? 0 : group.speedBytesPerSec
             }))}
             paused={isPaused}
+            merging={isMerging}
           />
 
           <div
@@ -188,109 +193,149 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
               flexShrink: 0
             }}
           >
-            <div
-              style={{
-                font: `500 10px/1 ${FONT_MONO}`,
-                letterSpacing: '0.2em',
-                color: 'var(--text-tertiary)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6
-              }}
-            >
-              <span>TOTAL SPEED</span>
-              {isPaused && (
-                <span
+            {isMerging ? (
+              <>
+                <div
                   style={{
-                    font: `600 9px/1 ${FONT_MONO}`,
-                    letterSpacing: '0.08em',
-                    color: 'var(--color-usb)',
-                    background: 'var(--color-usb-bg)',
-                    border: '0.5px solid var(--color-usb-border)',
-                    padding: '2px 5px',
-                    borderRadius: 3
+                    font: `500 10px/1 ${FONT_MONO}`,
+                    letterSpacing: '0.2em',
+                    color: 'var(--text-tertiary)'
                   }}
                 >
-                  PAUSED
-                </span>
-              )}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
-              <div
-                style={{
-                  font: `600 38px/0.88 ${FONT_MONO}`,
-                  letterSpacing: '-0.03em',
-                  color: isPaused ? 'var(--text-tertiary)' : 'var(--text)',
-                  fontVariantNumeric: 'tabular-nums'
-                }}
-              >
-                {isPaused ? '—' : speed.value}
-              </div>
-              {!isPaused && (
-                <div style={{ font: `500 12px/1 ${FONT_MONO}`, color: 'var(--text-tertiary)' }}>
-                  {speed.unit}/s
+                  MERGING
                 </div>
-              )}
-            </div>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                font: `500 10px/1 ${FONT_MONO}`,
-                color: 'var(--text-tertiary)',
-                fontVariantNumeric: 'tabular-nums'
-              }}
-            >
-              <span>
-                AVG{' '}
-                <span style={{ color: 'var(--text)', fontWeight: 600 }}>
-                  {formatSpeed(avgSpeedBytesPerSec)}
-                </span>
-              </span>
-              <span style={{ opacity: 0.35 }}>·</span>
-              <span>
-                PEAK{' '}
-                <span style={{ color: 'var(--text)', fontWeight: 600 }}>
-                  {formatSpeed(peakSpeedBytesPerSec)}
-                </span>
-              </span>
-            </div>
-            {isPaused ? (
-              <div
-                style={{
-                  font: `500 11px/1.2 ${FONT_UI}`,
-                  color: 'var(--text-tertiary)',
-                  marginTop: 2
-                }}
-              >
-                Download paused
-              </div>
-            ) : (
-              activeChipOption && (
-                <button
-                  type="button"
-                  onClick={() => setChipModeIndex((i) => (i + 1) % chipOptions.length)}
-                  title={`${activeChipOption.tooltip}${chipOptions.length > 1 ? ' (click to toggle)' : ''}`}
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
+                  <div
+                    style={{
+                      font: `600 38px/0.88 ${FONT_MONO}`,
+                      letterSpacing: '-0.03em',
+                      color: 'var(--color-ethernet)',
+                      fontVariantNumeric: 'tabular-nums'
+                    }}
+                  >
+                    {mergePercent}
+                  </div>
+                  <div style={{ font: `500 12px/1 ${FONT_MONO}`, color: 'var(--text-tertiary)' }}>
+                    %
+                  </div>
+                </div>
+                <div
                   style={{
-                    ...accentChipStyle,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 5,
-                    cursor: chipOptions.length > 1 ? 'pointer' : 'default',
-                    userSelect: 'none',
-                    border: `0.5px solid ${activeChipOption.border}`,
-                    background: activeChipOption.bg,
-                    color: activeChipOption.color,
-                    width: 'fit-content'
+                    font: `500 11px/1.2 ${FONT_UI}`,
+                    color: 'var(--text-tertiary)',
+                    marginTop: 2
                   }}
                 >
-                  <span>{activeChipOption.label}</span>
-                  {chipOptions.length > 1 && (
-                    <span style={{ opacity: 0.55, fontSize: 8.5 }}>⇄</span>
+                  Writing chunks to disk — almost done
+                </div>
+              </>
+            ) : (
+              <>
+                <div
+                  style={{
+                    font: `500 10px/1 ${FONT_MONO}`,
+                    letterSpacing: '0.2em',
+                    color: 'var(--text-tertiary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}
+                >
+                  <span>TOTAL SPEED</span>
+                  {isPaused && (
+                    <span
+                      style={{
+                        font: `600 9px/1 ${FONT_MONO}`,
+                        letterSpacing: '0.08em',
+                        color: 'var(--color-usb)',
+                        background: 'var(--color-usb-bg)',
+                        border: '0.5px solid var(--color-usb-border)',
+                        padding: '2px 5px',
+                        borderRadius: 3
+                      }}
+                    >
+                      PAUSED
+                    </span>
                   )}
-                </button>
-              )
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
+                  <div
+                    style={{
+                      font: `600 38px/0.88 ${FONT_MONO}`,
+                      letterSpacing: '-0.03em',
+                      color: isPaused ? 'var(--text-tertiary)' : 'var(--text)',
+                      fontVariantNumeric: 'tabular-nums'
+                    }}
+                  >
+                    {isPaused ? '—' : speed.value}
+                  </div>
+                  {!isPaused && (
+                    <div style={{ font: `500 12px/1 ${FONT_MONO}`, color: 'var(--text-tertiary)' }}>
+                      {speed.unit}/s
+                    </div>
+                  )}
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    font: `500 10px/1 ${FONT_MONO}`,
+                    color: 'var(--text-tertiary)',
+                    fontVariantNumeric: 'tabular-nums'
+                  }}
+                >
+                  <span>
+                    AVG{' '}
+                    <span style={{ color: 'var(--text)', fontWeight: 600 }}>
+                      {formatSpeed(avgSpeedBytesPerSec)}
+                    </span>
+                  </span>
+                  <span style={{ opacity: 0.35 }}>·</span>
+                  <span>
+                    PEAK{' '}
+                    <span style={{ color: 'var(--text)', fontWeight: 600 }}>
+                      {formatSpeed(peakSpeedBytesPerSec)}
+                    </span>
+                  </span>
+                </div>
+                {isPaused ? (
+                  <div
+                    style={{
+                      font: `500 11px/1.2 ${FONT_UI}`,
+                      color: 'var(--text-tertiary)',
+                      marginTop: 2
+                    }}
+                  >
+                    Download paused
+                  </div>
+                ) : (
+                  activeChipOption && (
+                    <button
+                      type="button"
+                      onClick={() => setChipModeIndex((i) => (i + 1) % chipOptions.length)}
+                      title={`${activeChipOption.tooltip}${chipOptions.length > 1 ? ' (click to toggle)' : ''}`}
+                      style={{
+                        ...accentChipStyle,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        cursor: chipOptions.length > 1 ? 'pointer' : 'default',
+                        userSelect: 'none',
+                        border: `0.5px solid ${activeChipOption.border}`,
+                        background: activeChipOption.bg,
+                        color: activeChipOption.color,
+                        width: 'fit-content'
+                      }}
+                    >
+                      <span>{activeChipOption.label}</span>
+                      {chipOptions.length > 1 && (
+                        <span style={{ opacity: 0.55, fontSize: 8.5 }}>⇄</span>
+                      )}
+                    </button>
+                  )
+                )}
+              </>
             )}
           </div>
 
@@ -298,7 +343,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             style={{
               flex: 1,
               minWidth: 0,
-              opacity: isPaused ? 0.45 : 1,
+              opacity: isPaused || isMerging ? 0.45 : 1,
               transition: 'opacity 0.2s'
             }}
           >
@@ -309,7 +354,8 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                 color: 'var(--text-tertiary)'
               }}
             >
-              THROUGHPUT · {isPaused ? 'PAUSED' : `LAST ${speedHistory.length}S`}
+              THROUGHPUT ·{' '}
+              {isMerging ? 'MERGING' : isPaused ? 'PAUSED' : `LAST ${speedHistory.length}S`}
             </div>
             <ThroughputChart
               order={groups.map((g, i) => ({
@@ -384,7 +430,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                   <span style={{ color: 'var(--text)', fontWeight: 600 }}>{percent}%</span>
                 </>
               )}
-              {!isPaused && knownSize && effectiveSpeed > 0 && (
+              {!isPaused && !isMerging && knownSize && effectiveSpeed > 0 && (
                 <>
                   <span style={{ opacity: 0.35 }}>·</span>
                   <span style={{ color: 'var(--text-secondary)' }}>
@@ -407,6 +453,21 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                   PAUSED
                 </span>
               )}
+              {isMerging && (
+                <span
+                  style={{
+                    font: `600 9.5px/1 ${FONT_MONO}`,
+                    letterSpacing: '0.08em',
+                    color: 'var(--color-ethernet-text)',
+                    background: 'var(--color-ethernet-bg)',
+                    border: '0.5px solid var(--color-ethernet-border)',
+                    padding: '2px 7px',
+                    borderRadius: 3.5
+                  }}
+                >
+                  MERGING
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -418,6 +479,8 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
           knownSize={knownSize}
           remainingBytes={remainingBytes}
           isPaused={isPaused}
+          merging={isMerging}
+          mergedBytes={download.mergedBytes ?? 0}
         />
       </div>
 
@@ -433,7 +496,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
           <div style={sectionHeaderLabelStyle}>Networks</div>
           <div style={sectionHeaderMetaStyle}>
             {groups.length} merged · {download.chunks.length} streams ·{' '}
-            {isPaused ? 'paused' : `${activeGroups.length} active`}
+            {isMerging ? 'writing to disk' : isPaused ? 'paused' : `${activeGroups.length} active`}
           </div>
         </div>
         <div style={networkTableHeaderStyle}>
@@ -494,11 +557,23 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         <button
           type="button"
           onClick={handlePauseResume}
-          style={isPaused ? primaryButtonStyle : secondaryButtonStyle}
+          disabled={isMerging}
+          style={{
+            ...(isPaused ? primaryButtonStyle : secondaryButtonStyle),
+            ...(isMerging && { opacity: 0.5, cursor: 'not-allowed' })
+          }}
         >
           {isPaused ? 'Resume' : 'Pause'}
         </button>
-        <button type="button" onClick={handleCancel} style={dangerButtonStyle}>
+        <button
+          type="button"
+          onClick={handleCancel}
+          disabled={isMerging}
+          style={{
+            ...dangerButtonStyle,
+            ...(isMerging && { opacity: 0.5, cursor: 'not-allowed' })
+          }}
+        >
           Cancel
         </button>
       </div>

@@ -21,11 +21,16 @@ export interface MergeDiagramNetwork {
 export function MergeDiagram({
   networks,
   muted = false,
-  paused = false
+  paused = false,
+  merging = false
 }: {
   networks: MergeDiagramNetwork[]
   muted?: boolean
   paused?: boolean
+  /** The part files are all complete and being stitched into the destination — the individual
+   * network feeds have nothing left to send, so their dashed lines stop while the merged stream
+   * pulses to show the reassembly step is still actively running rather than stalled. */
+  merging?: boolean
 }): React.JSX.Element {
   const height = Math.max(78, networks.length * ROW_HEIGHT + 10)
   const midY = height / 2
@@ -45,9 +50,12 @@ export function MergeDiagram({
               d={`M${CURVE_START_X},${y.toFixed(1)} C${CURVE_START_X + 36},${y.toFixed(1)} ${MERGE_X - 26},${midY.toFixed(1)} ${MERGE_X},${midY.toFixed(1)}`}
               stroke={color}
               strokeDasharray="6 8"
-              opacity={paused ? 0.55 : 1}
+              // Merging means the network feeds themselves are done — nothing left in flight on
+              // these lines — so they go still like a paused download rather than pretending to
+              // still be streaming.
+              opacity={paused || merging ? 0.55 : 1}
               style={
-                muted || paused
+                muted || paused || merging
                   ? undefined
                   : { animation: `plexo-dash ${1.1 + index * 0.2}s linear infinite` }
               }
@@ -61,6 +69,7 @@ export function MergeDiagram({
           }
           strokeWidth={6.5}
           opacity={paused ? 0.6 : 1}
+          style={merging ? { animation: 'plexo-glow 1s ease-in-out infinite' } : undefined}
         />
       </g>
       <polygon
@@ -132,13 +141,15 @@ export function MergeDiagram({
           x={STREAM_END_X + 2}
           y={midY - 11}
           textAnchor="end"
-          fill={paused ? 'var(--color-usb)' : 'var(--text-tertiary)'}
+          fill={
+            paused ? 'var(--color-usb)' : merging ? 'var(--color-ethernet)' : 'var(--text-tertiary)'
+          }
           style={{
-            font: `${paused ? '600' : '500'} 8.5px ${FONT_MONO}`,
+            font: `${paused || merging ? '600' : '500'} 8.5px ${FONT_MONO}`,
             letterSpacing: '0.12em'
           }}
         >
-          {paused ? 'PAUSED' : 'MERGED'}
+          {paused ? 'PAUSED' : merging ? 'WRITING…' : 'MERGED'}
         </text>
       )}
     </svg>

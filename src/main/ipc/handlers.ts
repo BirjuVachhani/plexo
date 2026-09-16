@@ -1,9 +1,11 @@
+import { is } from '@electron-toolkit/utils'
 import { clipboard, dialog, ipcMain, nativeTheme, shell, type BrowserWindow } from 'electron'
 import { IpcChannels } from '../../shared/ipc-channels'
 import type {
   NetworkInterfaceInfo,
   NetworkPreference,
   StartDownloadRequest,
+  StartSimulatedDownloadRequest,
   ThemeSource
 } from '../../shared/types'
 import { DownloadManager } from '../download/downloadManager'
@@ -60,7 +62,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
 
   ipcMain.handle(IpcChannels.getInitialPaths, async () => ({
     homeDir: getHomeDir(),
-    downloadsDir: getDefaultDownloadsDir()
+    downloadsDir: getDefaultDownloadsDir(),
+    isDev: is.dev
   }))
 
   ipcMain.handle(IpcChannels.chooseDestinationFolder, async (_event, defaultPath: string) => {
@@ -74,6 +77,14 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
     return result.filePaths[0]
   })
 
+  ipcMain.handle(IpcChannels.chooseSourceFile, async () => {
+    const window = getWindow()
+    if (!window) return null
+    const result = await dialog.showOpenDialog(window, { properties: ['openFile'] })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
+  })
+
   ipcMain.handle(IpcChannels.readClipboardText, async () => clipboard.readText())
 
   ipcMain.handle(IpcChannels.revealInFolder, async (_event, filePath: string) => {
@@ -82,6 +93,11 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
 
   ipcMain.handle(IpcChannels.startDownload, async (_event, request: StartDownloadRequest) =>
     manager.start(request)
+  )
+
+  ipcMain.handle(
+    IpcChannels.startSimulatedDownload,
+    async (_event, request: StartSimulatedDownloadRequest) => manager.startSimulated(request)
   )
 
   ipcMain.handle(IpcChannels.getCurrentDownload, async () => manager.getCurrentDownload())

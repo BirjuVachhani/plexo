@@ -35,6 +35,12 @@ const GRID_INSET_PX = 3
 const UNATTRIBUTED_SOLID = 'var(--text-tertiary)'
 const UNATTRIBUTED_BG = 'var(--track-bg)'
 
+// Merged bytes are deliberately not painted in any network's color: once a chunk is stitched
+// onto disk it isn't "that network's work" anymore so much as "already part of the file", and a
+// dedicated neutral tone is what makes the sweep across the grid read as progress rather than as
+// chunks quietly losing their color for no reason.
+const MERGED_SOLID = 'var(--text)'
+
 /** One network's share of a cell's downloaded bytes. */
 interface CellSegment {
   interfaceId: string
@@ -144,6 +150,14 @@ interface BlockGridProps {
   knownSize: boolean
   remainingBytes: number
   isPaused?: boolean
+  /** All blocks are 'completed' by the time this is true — the grid switches from showing which
+   * network fetched each chunk to showing reassembly progress instead: a wipe, in the same
+   * part-file order `reassemble()` actually writes in, that fades a square once its bytes are
+   * safely on disk and pulses whichever one is being appended right now. Without this the grid
+   * would freeze solid the moment the last byte downloads, and a merge on a large file can take
+   * long enough that a frozen grid reads as hung rather than finishing up. */
+  merging?: boolean
+  mergedBytes?: number
 }
 
 export function BlockGrid({
@@ -152,7 +166,9 @@ export function BlockGrid({
   visuals,
   knownSize,
   remainingBytes,
-  isPaused = false
+  isPaused = false,
+  merging = false,
+  mergedBytes = 0
 }: BlockGridProps): React.JSX.Element {
   const [gridWidth, setGridWidth] = useState(0)
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
@@ -198,7 +214,10 @@ export function BlockGrid({
     // appears on an active block — and a tooltip advertises nothing to hover in the first place.
     const hoveredCell = hoveredIndex !== null ? cells[hoveredIndex] : undefined
     let readout: string
-    if (hoveredCell) {
+    if (merging) {
+      const totalBytes = cells.reduce((sum, cell) => sum + cell.totalBytes, 0)
+      readout = `Merging into file · ${formatBytes(mergedBytes)} / ${formatBytes(totalBytes)}`
+    } else if (hoveredCell) {
       const where =
         describeContributors(hoveredCell, visualByInterfaceId) ??
         (hoveredCell.status === 'pending' ? 'queued' : '—')
@@ -207,6 +226,18 @@ export function BlockGrid({
       const scrollHint = rows > MAX_VISIBLE_ROWS ? ' · scroll' : ''
       readout = `${blocks.length} chunks · ${formatBytes(chunkBytes)} each${scrollHint}`
     }
+
+    // Cumulative byte offset per cell, in the exact order reassemble() appends part files —
+    // computed once here rather than per-cell so each square's merge state is a simple
+    // range comparison against `mergedBytes` below.
+    const mergeOffsets = cells.reduce<{ offsets: number[]; total: number }>(
+      (acc, cell) => {
+        acc.offsets.push(acc.total)
+        acc.total += cell.totalBytes
+        return acc
+      },
+      { offsets: [], total: 0 }
+    ).offsets
 
     return (
       <div
@@ -254,6 +285,28 @@ export function BlockGrid({
               </div>
             )
           })}
+          {merging && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5.5,
+                font: `500 10.5px/1 ${FONT_MONO}`,
+                color: 'var(--text-secondary)'
+              }}
+            >
+              <span
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: '50%',
+                  background: MERGED_SOLID,
+                  flexShrink: 0
+                }}
+              />
+              <span style={{ color: 'var(--text)', fontWeight: 600 }}>Merged</span>
+            </div>
+          )}
           {cells.length > 0 && chunkBytes > 0 && (
             <div
               style={{
@@ -321,12 +374,49 @@ export function BlockGrid({
                 opacity = 0.92
               }
 
+              let animation: string | undefined
+              if (merging) {
+                const start = mergeOffsets[index]
+                const end = start + cell.totalBytes
+                if (end <= mergedBytes) {
+                  // Already appended to the destination file — turns neutral rather than just
+                  // fading, so "merged" is a distinct state you can read at a glance, not a
+                  // guess at how dim is dim enough.
+                  fillColor = MERGED_SOLID
+                  border = 'none'
+                  boxShadow = 'none'
+                  opacity = 0.85
+                } else if (start < mergedBytes) {
+                  // The one part file being streamed onto disk right now — turning neutral too,
+                  // with a pulse so the "write head" position is obvious.
+                  fillColor = MERGED_SOLID
+                  border = `1px solid ${MERGED_SOLID}`
+                  boxShadow = `0 0 7px ${MERGED_SOLID}`
+                  opacity = 1
+                  animation = 'plexo-glow 0.9s ease-in-out infinite'
+                } else {
+                  // Completed but not yet its turn to be appended — stays in its network's color
+                  // a little dimmed, to signal "waiting its turn" rather than "already merged".
+                  border = 'none'
+                  boxShadow = 'none'
+                  opacity = 0.75
+                }
+              }
+
               const networkName =
                 describeContributors(cell, visualByInterfaceId) ||
                 (cell.interfaceId ? 'Assigned' : 'Pending')
               // Numbered to match the "Chunk #N" badges the streams table shows for each active
               // connection, so a hovered square maps onto a specific stream's work.
-              const title = `Chunk #${cell.chunkNumber} · ${formatBytes(cell.bytesDownloaded)} / ${formatBytes(cell.totalBytes)} · ${networkName} · ${cell.status}`
+              const title = merging
+                ? `Chunk #${cell.chunkNumber} · ${
+                    mergeOffsets[index] + cell.totalBytes <= mergedBytes
+                      ? 'written to file'
+                      : mergeOffsets[index] < mergedBytes
+                        ? 'writing to file…'
+                        : 'queued to write'
+                  }`
+                : `Chunk #${cell.chunkNumber} · ${formatBytes(cell.bytesDownloaded)} / ${formatBytes(cell.totalBytes)} · ${networkName} · ${cell.status}`
               const rawFillPercent = Math.min(1, Math.max(0, cell.fillRatio)) * 100
               // A square is only ~12px wide, so the first bytes of a chunk round to nothing —
               // floor a started chunk to a visible sliver rather than 0 width.
@@ -345,10 +435,11 @@ export function BlockGrid({
                     border,
                     boxShadow,
                     opacity,
+                    animation,
                     outline: hoveredIndex === index ? '1.5px solid var(--text-secondary)' : 'none',
                     outlineOffset: 1,
                     overflow: 'hidden',
-                    transition: 'opacity 0.15s, box-shadow 0.15s'
+                    transition: 'opacity 0.3s, box-shadow 0.15s'
                   }}
                 >
                   {/* One square, one color: the network that actually delivered most of this

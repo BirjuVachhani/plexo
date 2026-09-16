@@ -22,11 +22,19 @@ import type {
   DownloadState,
   DownloadStatus,
   NetworkInterfaceInfo,
-  StartDownloadRequest
+  StartDownloadRequest,
+  StartSimulatedDownloadRequest
 } from '../../shared/types'
 import { downloadChunk } from './chunkDownloader'
 import { reserveDestinationPath } from './paths'
 import { isResourceUnchanged } from './probe'
+import {
+  createSimSession,
+  downloadChunkSimulated,
+  getSimMergeSpeed,
+  isSimulatedUrl,
+  unregisterSimSession
+} from './simDownload'
 
 interface ChunkRuntime {
   controller: AbortController
@@ -155,6 +163,12 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
+/** Plain, unabortable wait — used only to throttle a simulated download's merge step to a
+ * configured speed (see reassemble()). Merging isn't cancellable, so there's nothing to race. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 // A part file's on-disk size is the only thing we can actually trust across
 // a retry or resume — appending opens the file with flag 'a', which always
 // writes at the real end-of-file regardless of what byte count we think
@@ -257,9 +271,14 @@ export class DownloadManager {
           const state = persisted.state
           const blocks = state.blocks
           if (!blocks) return
-          if (state.status === 'downloading') {
+          // 'merging' means every block was already 'completed' and only the reassembly step
+          // was interrupted — resuming re-enters runChunksToCompletion with nothing left to
+          // download, so it goes straight back into reassemble() rather than needing its own
+          // restart path.
+          if (state.status === 'downloading' || state.status === 'merging') {
             state.status = 'paused'
             state.pausedAt = persisted.savedAt || Date.now()
+            state.mergedBytes = 0
           }
           state.speedBytesPerSec = 0
           for (const chunk of state.chunks) {
@@ -316,6 +335,49 @@ export class DownloadManager {
       throw new Error('Select at least one network interface')
     }
 
+    return this.startWithInterfaces(requestPayload, interfaces)
+  }
+
+  /**
+   * Dev-tool entry point: "downloads" a file that's already on disk through the exact same
+   * pipeline a real download uses — chunking, the block grid, pause/resume, retries, the
+   * merging phase, reassembly — so every feature can be exercised on demand instead of needing
+   * a real multi-network setup and a slow, flaky remote server to provoke retries and errors.
+   * Only `chunkDownloader`'s HTTP transfer is swapped out (see simDownload.ts); everything else
+   * in DownloadManager is unaware this isn't a real network transfer.
+   */
+  async startSimulated(payload: StartSimulatedDownloadRequest): Promise<string> {
+    await this.initialization
+    if (payload.networks.length === 0) {
+      throw new Error('Select at least one simulated network')
+    }
+
+    const { url, interfaces, totalBytes } = await createSimSession(
+      payload.sourceFilePath,
+      payload.networks,
+      payload.mergeSpeedBytesPerSec || null
+    )
+
+    const requestPayload: StartDownloadRequest = {
+      url,
+      destinationDir: payload.destinationDir,
+      suggestedFileName: basename(payload.sourceFilePath),
+      totalBytes,
+      supportsRanges: true,
+      interfaceIds: interfaces.map((iface) => iface.id),
+      chunkCount: payload.chunkCount,
+      connectionsPerNetwork: payload.connectionsPerNetwork,
+      etag: null,
+      lastModified: null
+    }
+
+    return this.startWithInterfaces(requestPayload, interfaces)
+  }
+
+  private async startWithInterfaces(
+    requestPayload: StartDownloadRequest,
+    interfaces: NetworkInterfaceInfo[]
+  ): Promise<string> {
     await ensureDiskSpace(requestPayload.destinationDir, requestPayload.totalBytes)
 
     const id = randomUUID()
@@ -499,7 +561,9 @@ export class DownloadManager {
   // output (the user can always start the download over from scratch).
   private async resumeAfterVerifying(runtime: DownloadRuntime): Promise<void> {
     const { url, etag, lastModified } = runtime.requestPayload
-    const unchanged = await isResourceUnchanged(url, etag, lastModified)
+    // A simulated download has no server to re-probe — the source file sitting on disk is
+    // exactly what it was when the sim session was created, so there's nothing to verify.
+    const unchanged = isSimulatedUrl(url) || (await isResourceUnchanged(url, etag, lastModified))
 
     if (runtime.state.status !== 'paused') return // cancelled while we were checking
 
@@ -635,6 +699,11 @@ export class DownloadManager {
       return
     }
 
+    runtime.state.status = 'merging'
+    runtime.state.mergedBytes = 0
+    runtime.state.speedBytesPerSec = 0
+    this.pushUpdate(runtime)
+
     try {
       await this.reassemble(runtime)
       runtime.state.status = 'completed'
@@ -715,7 +784,10 @@ export class DownloadManager {
       let lastReportedThisRun = 0
 
       try {
-        await downloadChunk({
+        const runDownload = isSimulatedUrl(runtime.requestPayload.url)
+          ? downloadChunkSimulated
+          : downloadChunk
+        await runDownload({
           url: runtime.requestPayload.url,
           rangeStart: block.rangeStart + resumeOffset,
           rangeEnd: block.rangeEnd,
@@ -875,6 +947,11 @@ export class DownloadManager {
     const output = createWriteStream(runtime.state.destinationPath)
     let bytesWritten = 0
 
+    // Set only for a dev-tool simulated download that asked for a slowed-down merge — real
+    // downloads always reassemble at full disk speed. Throttling here (rather than faking it in
+    // the renderer) exercises the exact same mergedBytes/IPC path a real merge uses.
+    const mergeSpeedBytesPerSec = getSimMergeSpeed(runtime.requestPayload.url)
+
     // Attached before the first write, and kept for the stream's whole life:
     // destroying the output after a failed check can surface an in-flight
     // write as an 'error' event, and an unhandled 'error' on a stream takes
@@ -898,6 +975,15 @@ export class DownloadManager {
         await appendFileToStream(partPath, output)
         if (outputErrors.length > 0) throw outputErrors[0]
         bytesWritten += actualBytes
+
+        if (mergeSpeedBytesPerSec) {
+          await sleep(Math.max(1, (actualBytes / mergeSpeedBytesPerSec) * 1000))
+        }
+
+        // Reported per part rather than per underlying write so the merge visualization advances
+        // in the same units the block grid already shows — one step per chunk, not a byte stream.
+        runtime.state.mergedBytes = bytesWritten
+        this.scheduleUpdate(runtime)
       }
 
       output.end()
@@ -935,6 +1021,7 @@ export class DownloadManager {
   }
 
   private async cleanupTempDir(runtime: DownloadRuntime): Promise<void> {
+    unregisterSimSession(runtime.requestPayload.url)
     try {
       await rm(runtime.tempDir, { recursive: true, force: true })
     } catch {

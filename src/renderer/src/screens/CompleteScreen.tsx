@@ -61,6 +61,10 @@ export function CompleteScreen({
   )
   const totalWeight = groups.reduce((sum, group) => sum + group.bytesDownloaded, 0) || 1
   const totalRetries = download.chunks.reduce((sum, chunk) => sum + chunk.retryCount, 0)
+  // What actually got stitched together at reassembly time is the block count, not the number of
+  // parallel connections — "chunks" in this app's own vocabulary (see BlockGrid) means the byte
+  // range unit, so this footer's number needs to match that, not `download.chunks.length`.
+  const totalChunkCount = download.totalBlocks ?? download.blocks?.length ?? 1
 
   // "Time saved" vs. what the download would have taken over its single best-performing
   // network alone, using that network's own realized average rate as the baseline.
@@ -220,7 +224,7 @@ export function CompleteScreen({
           { label: 'Time', value: formatDuration(elapsedSeconds) },
           { label: 'Peak', value: formatSpeed(peakSpeedBytesPerSec) },
           { label: 'Networks', value: String(groups.length) },
-          { label: 'Chunks', value: String(download.chunks.length) }
+          { label: 'Streams', value: String(download.chunks.length) }
         ].map((stat, index) => (
           <div
             key={stat.label}
@@ -291,7 +295,7 @@ export function CompleteScreen({
 
       <div style={footerStyle}>
         <div style={footerTextStyle}>
-          reassembled from {download.chunks.length} chunks
+          reassembled from {totalChunkCount} chunks
           {totalRetries > 0
             ? ` · ${totalRetries} ${totalRetries === 1 ? 'retry' : 'retries'}`
             : ' · 0 retries'}

@@ -2,30 +2,35 @@ import { FONT_MONO } from '../theme'
 import { formatSpeed } from '../utils/format'
 
 const ROW_HEIGHT = 36
-const LABEL_X = 68
-const DOT_X = 76
-const CURVE_START_X = 82
-const MERGE_X = 146
-const STREAM_END_X = 188
-const WIDTH = 196
+const LABEL_X = 58
+const DOT_X = 64
+const CURVE_START_X = 70
+const COMBINE_X = 122
+const STREAM_END_X = 158
+const WIDTH = 166
 
-export interface MergeDiagramNetwork {
+export interface CombineDiagramNetwork {
   solid: string
   label: string
   speedBytesPerSec?: number
 }
 
-/** Draws the bonded-links-into-one-stream diagram: individual networks with their
- * real-time speed on the left, converging into a single merged stream pointing
+/** Draws the multiple-links-into-one-stream diagram: individual networks with their
+ * real-time speed on the left, converging into a single combined stream pointing
  * directly to the final total speed on the right. */
-export function MergeDiagram({
+export function CombineDiagram({
   networks,
   muted = false,
-  paused = false
+  paused = false,
+  assembling = false
 }: {
-  networks: MergeDiagramNetwork[]
+  networks: CombineDiagramNetwork[]
   muted?: boolean
   paused?: boolean
+  /** The part files are all complete and being stitched into the destination — the individual
+   * network feeds have nothing left to send, so their dashed lines stop while the combined
+   * stream pulses to show the reassembly step is still actively running rather than stalled. */
+  assembling?: boolean
 }): React.JSX.Element {
   const height = Math.max(78, networks.length * ROW_HEIGHT + 10)
   const midY = height / 2
@@ -42,12 +47,15 @@ export function MergeDiagram({
           return (
             <path
               key={network.label + index}
-              d={`M${CURVE_START_X},${y.toFixed(1)} C${CURVE_START_X + 36},${y.toFixed(1)} ${MERGE_X - 26},${midY.toFixed(1)} ${MERGE_X},${midY.toFixed(1)}`}
+              d={`M${CURVE_START_X},${y.toFixed(1)} C${CURVE_START_X + 36},${y.toFixed(1)} ${COMBINE_X - 26},${midY.toFixed(1)} ${COMBINE_X},${midY.toFixed(1)}`}
               stroke={color}
               strokeDasharray="6 8"
-              opacity={paused ? 0.55 : 1}
+              // Assembling means the network feeds themselves are done — nothing left in flight
+              // on these lines — so they go still like a paused download rather than pretending
+              // to still be streaming.
+              opacity={paused || assembling ? 0.55 : 1}
               style={
-                muted || paused
+                muted || paused || assembling
                   ? undefined
                   : { animation: `plexo-dash ${1.1 + index * 0.2}s linear infinite` }
               }
@@ -55,12 +63,13 @@ export function MergeDiagram({
           )
         })}
         <path
-          d={`M${MERGE_X},${midY} L${STREAM_END_X},${midY}`}
+          d={`M${COMBINE_X},${midY} L${STREAM_END_X},${midY}`}
           stroke={
             muted ? 'var(--icon-muted)' : paused ? 'var(--text-secondary)' : 'var(--node-accent)'
           }
           strokeWidth={6.5}
           opacity={paused ? 0.6 : 1}
+          style={assembling ? { animation: 'plexo-glow 1s ease-in-out infinite' } : undefined}
         />
       </g>
       <polygon
@@ -69,7 +78,7 @@ export function MergeDiagram({
         opacity={paused ? 0.6 : 1}
       />
       <circle
-        cx={MERGE_X}
+        cx={COMBINE_X}
         cy={midY}
         r={9.5}
         fill="none"
@@ -79,7 +88,7 @@ export function MergeDiagram({
         strokeDasharray={muted ? '3 4' : undefined}
       />
       <circle
-        cx={MERGE_X}
+        cx={COMBINE_X}
         cy={midY}
         r={3.5}
         fill={muted ? 'var(--icon-muted)' : 'var(--node-accent)'}
@@ -127,7 +136,7 @@ export function MergeDiagram({
           </g>
         )
       })}
-      {!muted && (
+      {!muted && !assembling && (
         <text
           x={STREAM_END_X + 2}
           y={midY - 11}
@@ -138,7 +147,7 @@ export function MergeDiagram({
             letterSpacing: '0.12em'
           }}
         >
-          {paused ? 'PAUSED' : 'MERGED'}
+          {paused ? 'PAUSED' : 'COMBINED'}
         </text>
       )}
     </svg>

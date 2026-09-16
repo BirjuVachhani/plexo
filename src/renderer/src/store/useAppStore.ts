@@ -31,6 +31,8 @@ interface AppStore {
   homeDir: string
   downloadsDir: string
   pathsStatus: LoadStatus
+  /** True in electron-vite's dev server, false in a packaged build — gates the dev tools panel. */
+  isDev: boolean
 
   /** Plexo focuses on one download at a time — this is it. */
   currentDownload: DownloadState | null
@@ -70,6 +72,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   homeDir: '',
   downloadsDir: '',
   pathsStatus: 'idle',
+  isDev: false,
 
   currentDownload: null,
   speedHistory: [],
@@ -104,8 +107,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   loadInitialPaths: async () => {
     set({ pathsStatus: 'loading' })
     try {
-      const { homeDir, downloadsDir } = await window.plexo.getInitialPaths()
-      set({ homeDir, downloadsDir, pathsStatus: 'ready' })
+      const { homeDir, downloadsDir, isDev } = await window.plexo.getInitialPaths()
+      set({ homeDir, downloadsDir, isDev, pathsStatus: 'ready' })
     } catch {
       set({ pathsStatus: 'error' })
     }

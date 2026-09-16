@@ -54,7 +54,7 @@ export const accentChipStyle: React.CSSProperties = {
 }
 
 const PILL_TOKENS: Record<
-  'positive' | 'negative' | 'paused',
+  'positive' | 'negative' | 'paused' | 'assembling',
   { bg: string; border: string; text: string }
 > = {
   positive: {
@@ -71,10 +71,17 @@ const PILL_TOKENS: Record<
     bg: 'var(--color-usb-bg)',
     border: 'var(--color-usb-border)',
     text: 'var(--color-usb-text)'
+  },
+  assembling: {
+    bg: 'var(--color-ethernet-bg)',
+    border: 'var(--color-ethernet-border)',
+    text: 'var(--color-ethernet-text)'
   }
 }
 
-export function pillStyle(kind: 'positive' | 'negative' | 'paused'): React.CSSProperties {
+export function pillStyle(
+  kind: 'positive' | 'negative' | 'paused' | 'assembling'
+): React.CSSProperties {
   const tokens = PILL_TOKENS[kind]
   return {
     display: 'flex',
@@ -192,13 +199,44 @@ export const statValueStyle: React.CSSProperties = {
   fontVariantNumeric: 'tabular-nums'
 }
 
-export const NETWORK_ROW_GRID_COLUMNS = '10px 175px 1fr 48px 82px 125px'
+// Network is a fixed width, sized to what its content (name + streams pill + "⋯" button) needs
+// and nothing more — giving it a share of `fr` growth (an earlier version of this did, in a 1:2
+// ratio with Progress) just accumulated dead trailing space inside it on a wide window, since
+// nothing in that cell actually gets wider. Progress is the one column that should visually
+// scale with the window (the bar already fills 100% of its track), so it alone takes the rest
+// of the space; that also keeps the gap after the bar, into Share, the same fixed 12px as every
+// other column boundary — instead of Network's gap growing while Progress's stays put.
+export const NETWORK_ROW_GRID_COLUMNS = '10px 220px 1fr 48px 78px 90px'
+
+// The header and every NetworkRow used to each be their own independent CSS grid with this same
+// column template — which happened to compute matching track widths most of the time, but wasn't
+// actually *guaranteed* to, since each grid resolves its own tracks independently. The real fix
+// is structural: one grid (this style, wrapping the header and every row) owns the column tracks,
+// and the header/rows below opt into those exact tracks via `gridTemplateColumns: 'subgrid'`
+// rather than each declaring the column list a second time — so "the columns line up" stops being
+// a coincidence of matching inputs and becomes a property the browser enforces.
+export const networkTableGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: NETWORK_ROW_GRID_COLUMNS,
+  // A subgridded axis takes its gutters from whichever grid actually defines the tracks — this
+  // one — not from the `gap` set on each subgrid item (the header row, each NetworkRow). Without
+  // this, every column boundary on the subgridded axis collapses to 0, which is invisible on the
+  // wider columns (their fixed/flexible track width still leaves visible space) but reads as the
+  // status dot touching the network name, since that track has no slack to fall back on.
+  columnGap: 12,
+  // The horizontal inset lives here rather than as padding on the header/row subgrids: Chromium
+  // clips a subgridded axis's outer tracks by the subgrid item's OWN horizontal padding (the
+  // status dot's 10px column was measuring 0px wide with `padding: '11px 20px'` on the row),
+  // so only this — the grid that actually owns the tracks — may carry left/right padding.
+  padding: '0 20px'
+}
 
 export const networkTableHeaderStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: NETWORK_ROW_GRID_COLUMNS,
+  gridTemplateColumns: 'subgrid',
+  gridColumn: '1 / -1',
   gap: 12,
-  padding: '10px 20px 7px',
+  padding: '10px 0 7px',
   font: `400 9.5px/1 ${FONT_MONO}`,
   letterSpacing: '0.12em',
   textTransform: 'uppercase',

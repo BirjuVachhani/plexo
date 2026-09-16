@@ -9,7 +9,7 @@ import {
   primaryButtonStyle,
   secondaryButtonStyle
 } from '../theme'
-import { fileExtensionBadge, formatBytes } from '../utils/format'
+import { describeError, fileExtensionBadge, formatBytes } from '../utils/format'
 
 export function ErrorScreen({
   download,
@@ -126,7 +126,9 @@ export function ErrorScreen({
             <div style={{ font: `12px/1.4 ${FONT_UI}`, color: 'var(--text-secondary)' }}>
               {cancelled
                 ? 'The download was stopped before finishing.'
-                : download.error || 'An error occurred during transfer.'}
+                : download.error
+                  ? describeError(download.error)
+                  : 'An error occurred during transfer.'}
             </div>
           </div>
 

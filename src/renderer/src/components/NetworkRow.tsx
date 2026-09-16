@@ -68,6 +68,11 @@ export function NetworkRow({
         <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
           <span
             style={{
+              // A fixed basis rather than letting the name take its natural width — otherwise
+              // the streams pill and "⋯" button (and everything after them, all the way out to
+              // the Progress column) shift left or right by however long each network's name
+              // happens to be, so the gap before the progress bar looks different on every row.
+              flex: '0 0 100px',
               font: `600 12.5px/1.2 ${FONT_UI}`,
               whiteSpace: 'nowrap',
               overflow: 'hidden',

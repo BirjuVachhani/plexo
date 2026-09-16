@@ -48,6 +48,7 @@ export function IdleScreen(): React.JSX.Element {
   const [chunksPerNetwork, setChunksPerNetwork] = useState(2)
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
+  const [fileNameOverride, setFileNameOverride] = useState<string | null>(null)
 
   const probeRequestId = useRef(0)
 
@@ -65,11 +66,13 @@ export function IdleScreen(): React.JSX.Element {
       // Resetting derived probe state when its trigger (the URL) is cleared.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setProbe({ status: 'idle' })
+      setFileNameOverride(null)
       return
     }
 
     const requestId = ++probeRequestId.current
     setProbe({ status: 'probing' })
+    setFileNameOverride(null)
     const timer = setTimeout(async () => {
       try {
         const result = await window.plexo.probeUrl(trimmed)
@@ -131,7 +134,7 @@ export function IdleScreen(): React.JSX.Element {
       await window.plexo.startDownload({
         url: probe.result.finalUrl,
         destinationDir,
-        suggestedFileName: probe.result.suggestedFileName,
+        suggestedFileName: fileNameOverride?.trim() || probe.result.suggestedFileName,
         totalBytes: probe.result.totalBytes ?? 0,
         supportsRanges: probe.multiChunkAllowed,
         interfaceIds: selectedInterfaceIds,
@@ -171,7 +174,10 @@ export function IdleScreen(): React.JSX.Element {
               padding: '9px 12px',
               borderRadius: 9,
               background: 'var(--input-bg)',
-              border: '0.5px solid var(--border-strong)'
+              border:
+                probe.status === 'error'
+                  ? `0.5px solid ${DANGER}`
+                  : '0.5px solid var(--border-strong)'
             }}
           >
             <div style={fieldLabelStyle}>LINK</div>
@@ -212,56 +218,119 @@ export function IdleScreen(): React.JSX.Element {
             type="button"
             onClick={handleStart}
             disabled={!canStart}
-            style={canStart ? primaryButtonStyle : disabledPrimaryButtonStyle}
+            style={{
+              ...(canStart ? primaryButtonStyle : disabledPrimaryButtonStyle),
+              boxSizing: 'border-box',
+              width: 112,
+              padding: '8px 14px',
+              textAlign: 'center'
+            }}
           >
             {starting ? 'Starting…' : probe.status === 'probing' ? 'Checking…' : 'Start'}
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
+        {probe.status === 'error' && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 7,
+              font: `12px/1.4 ${FONT_UI}`,
+              color: DANGER
+            }}
+          >
+            <span style={{ flexShrink: 0 }}>⚠</span>
+            {probe.message}
+          </div>
+        )}
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 9,
+            padding: '7px 12px',
+            borderRadius: 9,
+            background: 'var(--bg-secondary)',
+            border:
+              probe.status === 'ready' ? '0.5px solid var(--border)' : '0.5px dashed var(--border)',
+            opacity: probe.status === 'ready' ? 1 : 0.5
+          }}
+        >
+          <div style={fieldLabelStyle}>SAVE AS</div>
+          <input
+            type="text"
+            value={
+              probe.status === 'ready' ? (fileNameOverride ?? probe.result.suggestedFileName) : ''
+            }
+            onChange={(event) => setFileNameOverride(event.target.value)}
+            disabled={probe.status !== 'ready'}
+            placeholder="—"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              border: 'none',
+              outline: 'none',
+              background: 'transparent',
+              font: `12.5px/1.3 ${FONT_MONO}`,
+              color: 'var(--text)'
+            }}
+          />
+          {probe.status === 'ready' && probe.result.totalBytes !== null && (
+            <div
+              style={{
+                font: `500 11px/1 ${FONT_MONO}`,
+                color: 'var(--text-tertiary)',
+                whiteSpace: 'nowrap',
+                flexShrink: 0
+              }}
+            >
+              {formatBytes(probe.result.totalBytes)} (est.)
+            </div>
+          )}
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 9,
+            padding: '7px 12px',
+            borderRadius: 9,
+            background: 'var(--bg-secondary)',
+            border: '0.5px solid var(--border)'
+          }}
+        >
+          <div style={fieldLabelStyle}>TO</div>
           <div
             style={{
               flex: 1,
               minWidth: 0,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 9,
-              padding: '7px 12px',
-              borderRadius: 9,
-              background: 'var(--bg-secondary)',
-              border: '0.5px solid var(--border)'
+              font: `12.5px/1.3 ${FONT_MONO}`,
+              color: 'var(--text-secondary)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis'
             }}
           >
-            <div style={fieldLabelStyle}>SAVE TO</div>
-            <div
-              style={{
-                flex: 1,
-                minWidth: 0,
-                font: `12.5px/1.3 ${FONT_MONO}`,
-                color: 'var(--text-secondary)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
-              }}
-            >
-              {toDisplayPath(destinationDir || downloadsDir, homeDir)}
-            </div>
-            <button
-              type="button"
-              onClick={handleBrowse}
-              style={{
-                border: 'none',
-                background: 'none',
-                font: `500 11px/1 ${FONT_MONO}`,
-                color: 'var(--color-accent)',
-                whiteSpace: 'nowrap',
-                cursor: 'pointer',
-                flexShrink: 0
-              }}
-            >
-              Browse…
-            </button>
+            {toDisplayPath(destinationDir || downloadsDir, homeDir)}
           </div>
+          <button
+            type="button"
+            onClick={handleBrowse}
+            style={{
+              border: 'none',
+              background: 'none',
+              font: `500 11px/1 ${FONT_MONO}`,
+              color: 'var(--color-accent)',
+              whiteSpace: 'nowrap',
+              cursor: 'pointer',
+              flexShrink: 0
+            }}
+          >
+            Browse…
+          </button>
         </div>
 
         <div
@@ -334,9 +403,6 @@ export function IdleScreen(): React.JSX.Element {
           </div>
         </div>
 
-        {probe.status === 'error' && (
-          <div style={{ font: `12px/1.4 ${FONT_UI}`, color: DANGER }}>{probe.message}</div>
-        )}
         {isSingleRangeServer && (
           <div style={{ font: `11.5px/1.4 ${FONT_UI}`, color: 'var(--text-tertiary)' }}>
             This server doesn&apos;t support multi-chunk downloads for this file — using a single
@@ -344,7 +410,18 @@ export function IdleScreen(): React.JSX.Element {
           </div>
         )}
         {startError && (
-          <div style={{ font: `11.5px/1.4 ${FONT_UI}`, color: DANGER }}>{startError}</div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 7,
+              font: `11.5px/1.4 ${FONT_UI}`,
+              color: DANGER
+            }}
+          >
+            <span style={{ flexShrink: 0 }}>⚠</span>
+            {startError}
+          </div>
         )}
       </div>
 
@@ -358,7 +435,7 @@ export function IdleScreen(): React.JSX.Element {
             borderBottom: '0.5px solid var(--border)'
           }}
         >
-          <div style={sectionHeaderLabelStyle}>Networks</div>
+          <div style={sectionHeaderLabelStyle}>Connected Networks</div>
           <div style={sectionHeaderMetaStyle}>
             {interfaces.length} detected · {selectedInterfaceIds.length} selected
           </div>

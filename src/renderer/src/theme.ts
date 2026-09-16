@@ -199,11 +199,14 @@ export const statValueStyle: React.CSSProperties = {
   fontVariantNumeric: 'tabular-nums'
 }
 
-// Network and Progress both grow with the window (in a 1:2 ratio) instead of Progress alone
-// soaking up every extra pixel — on a wide window that left the name column pinned at a fixed
-// width while an already-finished progress bar grew into mostly empty track. The minmax floors
-// keep both usable at the narrowest supported width.
-export const NETWORK_ROW_GRID_COLUMNS = '10px minmax(190px, 1fr) minmax(160px, 2fr) 48px 78px 90px'
+// Network is a fixed width, sized to what its content (name + streams pill + "⋯" button) needs
+// and nothing more — giving it a share of `fr` growth (an earlier version of this did, in a 1:2
+// ratio with Progress) just accumulated dead trailing space inside it on a wide window, since
+// nothing in that cell actually gets wider. Progress is the one column that should visually
+// scale with the window (the bar already fills 100% of its track), so it alone takes the rest
+// of the space; that also keeps the gap after the bar, into Share, the same fixed 12px as every
+// other column boundary — instead of Network's gap growing while Progress's stays put.
+export const NETWORK_ROW_GRID_COLUMNS = '10px 220px 1fr 48px 78px 90px'
 
 // The header and every NetworkRow used to each be their own independent CSS grid with this same
 // column template — which happened to compute matching track widths most of the time, but wasn't

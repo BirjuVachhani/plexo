@@ -217,7 +217,13 @@ export const NETWORK_ROW_GRID_COLUMNS = '10px 220px 1fr 48px 78px 90px'
 // a coincidence of matching inputs and becomes a property the browser enforces.
 export const networkTableGridStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: NETWORK_ROW_GRID_COLUMNS
+  gridTemplateColumns: NETWORK_ROW_GRID_COLUMNS,
+  // A subgridded axis takes its gutters from whichever grid actually defines the tracks — this
+  // one — not from the `gap` set on each subgrid item (the header row, each NetworkRow). Without
+  // this, every column boundary on the subgridded axis collapses to 0, which is invisible on the
+  // wider columns (their fixed/flexible track width still leaves visible space) but reads as the
+  // status dot touching the network name, since that track has no slack to fall back on.
+  columnGap: 12
 }
 
 export const networkTableHeaderStyle: React.CSSProperties = {

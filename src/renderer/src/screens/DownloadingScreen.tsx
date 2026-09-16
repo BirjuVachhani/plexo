@@ -219,15 +219,6 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                     %
                   </div>
                 </div>
-                <div
-                  style={{
-                    font: `500 11px/1.2 ${FONT_UI}`,
-                    color: 'var(--text-tertiary)',
-                    marginTop: 2
-                  }}
-                >
-                  Assembling the final file — almost done
-                </div>
               </>
             ) : (
               <>

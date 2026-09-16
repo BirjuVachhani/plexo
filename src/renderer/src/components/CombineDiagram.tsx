@@ -136,24 +136,18 @@ export function CombineDiagram({
           </g>
         )
       })}
-      {!muted && (
+      {!muted && !assembling && (
         <text
           x={STREAM_END_X + 2}
           y={midY - 11}
           textAnchor="end"
-          fill={
-            paused
-              ? 'var(--color-usb)'
-              : assembling
-                ? 'var(--color-ethernet)'
-                : 'var(--text-tertiary)'
-          }
+          fill={paused ? 'var(--color-usb)' : 'var(--text-tertiary)'}
           style={{
-            font: `${paused || assembling ? '600' : '500'} 8.5px ${FONT_MONO}`,
+            font: `${paused ? '600' : '500'} 8.5px ${FONT_MONO}`,
             letterSpacing: '0.12em'
           }}
         >
-          {paused ? 'PAUSED' : assembling ? 'ASSEMBLING…' : 'COMBINED'}
+          {paused ? 'PAUSED' : 'COMBINED'}
         </text>
       )}
     </svg>

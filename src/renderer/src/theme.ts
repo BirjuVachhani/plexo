@@ -199,7 +199,11 @@ export const statValueStyle: React.CSSProperties = {
   fontVariantNumeric: 'tabular-nums'
 }
 
-export const NETWORK_ROW_GRID_COLUMNS = '10px 230px 1fr 48px 78px 90px'
+// Network and Progress both grow with the window (in a 1:2 ratio) instead of Progress alone
+// soaking up every extra pixel — on a wide window that left the name column pinned at a fixed
+// width while an already-finished progress bar grew into mostly empty track. The minmax floors
+// keep both usable at the narrowest supported width.
+export const NETWORK_ROW_GRID_COLUMNS = '10px minmax(190px, 1fr) minmax(160px, 2fr) 48px 78px 90px'
 
 export const networkTableHeaderStyle: React.CSSProperties = {
   display: 'grid',

@@ -421,13 +421,17 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
               }}
             >
               <span>
-                {formatBytes(download.bytesDownloaded)}
+                {formatBytes(
+                  isAssembling ? (download.assembledBytes ?? 0) : download.bytesDownloaded
+                )}
                 {knownSize ? ` of ${formatBytes(download.totalBytes)}` : ''}
               </span>
               {knownSize && (
                 <>
                   <span style={{ opacity: 0.35 }}>·</span>
-                  <span style={{ color: 'var(--text)', fontWeight: 600 }}>{percent}%</span>
+                  <span style={{ color: 'var(--text)', fontWeight: 600 }}>
+                    {isAssembling ? assemblePercent : percent}%
+                  </span>
                 </>
               )}
               {!isPaused && !isAssembling && knownSize && effectiveSpeed > 0 && (

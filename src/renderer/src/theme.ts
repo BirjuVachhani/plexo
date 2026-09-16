@@ -223,7 +223,12 @@ export const networkTableGridStyle: React.CSSProperties = {
   // this, every column boundary on the subgridded axis collapses to 0, which is invisible on the
   // wider columns (their fixed/flexible track width still leaves visible space) but reads as the
   // status dot touching the network name, since that track has no slack to fall back on.
-  columnGap: 12
+  columnGap: 12,
+  // The horizontal inset lives here rather than as padding on the header/row subgrids: Chromium
+  // clips a subgridded axis's outer tracks by the subgrid item's OWN horizontal padding (the
+  // status dot's 10px column was measuring 0px wide with `padding: '11px 20px'` on the row),
+  // so only this — the grid that actually owns the tracks — may carry left/right padding.
+  padding: '0 20px'
 }
 
 export const networkTableHeaderStyle: React.CSSProperties = {
@@ -231,7 +236,7 @@ export const networkTableHeaderStyle: React.CSSProperties = {
   gridTemplateColumns: 'subgrid',
   gridColumn: '1 / -1',
   gap: 12,
-  padding: '10px 20px 7px',
+  padding: '10px 0 7px',
   font: `400 9.5px/1 ${FONT_MONO}`,
   letterSpacing: '0.12em',
   textTransform: 'uppercase',

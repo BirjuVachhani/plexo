@@ -62,6 +62,11 @@ export function NetworkRow({
         style={{
           width: 8,
           height: 8,
+          // A hard margin rather than relying solely on the grid's column-gap: this track has no
+          // spare width of its own to fall back on if a gap ever fails to apply (a stale subgrid
+          // gutter resolution, a browser quirk), so it's the one place that needs a guaranteed
+          // offset regardless of what the surrounding grid computes.
+          marginRight: 8,
           borderRadius: '50%',
           background: hasError ? DANGER : visual.solid,
           animation: isActive ? 'plexo-glow 1.8s infinite' : undefined,

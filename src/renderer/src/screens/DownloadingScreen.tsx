@@ -13,6 +13,7 @@ import {
   dangerButtonStyle,
   footerStyle,
   footerTextStyle,
+  networkTableGridStyle,
   networkTableHeaderStyle,
   primaryButtonStyle,
   resolveNetworkVisual,
@@ -494,30 +495,32 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             {isAssembling ? 'assembling' : isPaused ? 'paused' : `${activeGroups.length} active`}
           </div>
         </div>
-        <div style={networkTableHeaderStyle}>
-          <div />
-          <div>Network</div>
-          <div>Progress</div>
-          <div style={{ textAlign: 'right' }}>Share</div>
-          <div style={{ textAlign: 'right' }}>Speed</div>
-          <div style={{ textAlign: 'right' }}>Downloaded</div>
+        <div style={networkTableGridStyle}>
+          <div style={networkTableHeaderStyle}>
+            <div />
+            <div>Network</div>
+            <div>Progress</div>
+            <div style={{ textAlign: 'right' }}>Share</div>
+            <div style={{ textAlign: 'right' }}>Speed</div>
+            <div style={{ textAlign: 'right' }}>Downloaded</div>
+          </div>
+          {groups.map((group) => {
+            const sharePercent =
+              totalDownloadedByNetworks > 0
+                ? (group.bytesDownloaded / totalDownloadedByNetworks) * 100
+                : 0
+            return (
+              <NetworkRow
+                key={group.interfaceId}
+                group={group}
+                sharePercent={sharePercent}
+                totalBytes={download.totalBytes}
+                totalDownloaded={totalDownloadedByNetworks}
+                blocks={download.blocks}
+              />
+            )
+          })}
         </div>
-        {groups.map((group) => {
-          const sharePercent =
-            totalDownloadedByNetworks > 0
-              ? (group.bytesDownloaded / totalDownloadedByNetworks) * 100
-              : 0
-          return (
-            <NetworkRow
-              key={group.interfaceId}
-              group={group}
-              sharePercent={sharePercent}
-              totalBytes={download.totalBytes}
-              totalDownloaded={totalDownloadedByNetworks}
-              blocks={download.blocks}
-            />
-          )
-        })}
       </div>
 
       <div style={footerStyle}>

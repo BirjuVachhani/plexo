@@ -205,9 +205,22 @@ export const statValueStyle: React.CSSProperties = {
 // keep both usable at the narrowest supported width.
 export const NETWORK_ROW_GRID_COLUMNS = '10px minmax(190px, 1fr) minmax(160px, 2fr) 48px 78px 90px'
 
+// The header and every NetworkRow used to each be their own independent CSS grid with this same
+// column template — which happened to compute matching track widths most of the time, but wasn't
+// actually *guaranteed* to, since each grid resolves its own tracks independently. The real fix
+// is structural: one grid (this style, wrapping the header and every row) owns the column tracks,
+// and the header/rows below opt into those exact tracks via `gridTemplateColumns: 'subgrid'`
+// rather than each declaring the column list a second time — so "the columns line up" stops being
+// a coincidence of matching inputs and becomes a property the browser enforces.
+export const networkTableGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: NETWORK_ROW_GRID_COLUMNS
+}
+
 export const networkTableHeaderStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: NETWORK_ROW_GRID_COLUMNS,
+  gridTemplateColumns: 'subgrid',
+  gridColumn: '1 / -1',
   gap: 12,
   padding: '10px 20px 7px',
   font: `400 9.5px/1 ${FONT_MONO}`,

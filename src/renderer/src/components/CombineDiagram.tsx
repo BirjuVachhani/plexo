@@ -2,12 +2,12 @@ import { FONT_MONO } from '../theme'
 import { formatSpeed } from '../utils/format'
 
 const ROW_HEIGHT = 36
-const LABEL_X = 68
-const DOT_X = 76
-const CURVE_START_X = 82
-const COMBINE_X = 146
-const STREAM_END_X = 188
-const WIDTH = 196
+const LABEL_X = 58
+const DOT_X = 64
+const CURVE_START_X = 70
+const COMBINE_X = 122
+const STREAM_END_X = 158
+const WIDTH = 166
 
 export interface CombineDiagramNetwork {
   solid: string

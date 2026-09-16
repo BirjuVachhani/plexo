@@ -50,7 +50,7 @@ function App(): React.JSX.Element {
     if (currentDownload.status === 'downloading') {
       screen = <DownloadingScreen download={currentDownload} />
       titleBarStatus = {
-        kind: 'merged',
+        kind: 'combined',
         networkCount: groupChunksByInterface(currentDownload.chunks).length
       }
     } else if (currentDownload.status === 'paused') {
@@ -59,9 +59,9 @@ function App(): React.JSX.Element {
         kind: 'paused',
         networkCount: groupChunksByInterface(currentDownload.chunks).length
       }
-    } else if (currentDownload.status === 'merging') {
+    } else if (currentDownload.status === 'assembling') {
       screen = <DownloadingScreen download={currentDownload} />
-      titleBarStatus = { kind: 'merging' }
+      titleBarStatus = { kind: 'assembling' }
     } else if (currentDownload.status === 'completed') {
       screen = <CompleteScreen download={currentDownload} onNewDownload={handleNewDownload} />
     } else {

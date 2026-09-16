@@ -18,22 +18,22 @@ interface SimSession {
   sourcePath: string
   /** Keyed by the synthetic NetworkInterfaceInfo.id assigned to each simulated network. */
   networks: Map<string, SimulatedNetworkConfig>
-  /** bytes/sec to throttle reassembly to, or null to merge at full disk speed. */
-  mergeSpeedBytesPerSec: number | null
+  /** bytes/sec to throttle reassembly to, or null to assemble at full disk speed. */
+  assembleSpeedBytesPerSec: number | null
 }
 
 const sessions = new Map<string, SimSession>()
 
 /** Registers one dev-tool "virtual download" run and returns the `plexo-sim://<token>` url to
  * use as its `StartDownloadRequest.url` — everything downstream (blocks, chunks, persistence,
- * the merging phase) is unaware this isn't a real network transfer. */
+ * the assembling phase) is unaware this isn't a real network transfer. */
 function registerSimSession(
   sourcePath: string,
   networks: Map<string, SimulatedNetworkConfig>,
-  mergeSpeedBytesPerSec: number | null
+  assembleSpeedBytesPerSec: number | null
 ): string {
   const token = randomUUID()
-  sessions.set(token, { sourcePath, networks, mergeSpeedBytesPerSec })
+  sessions.set(token, { sourcePath, networks, assembleSpeedBytesPerSec })
   return token
 }
 
@@ -43,11 +43,11 @@ export function unregisterSimSession(url: string): void {
 }
 
 /** How slowly `DownloadManager.reassemble()` should stitch this simulated download's part
- * files together, or null when it isn't simulated (or wasn't given a merge speed) and should
- * run at full disk speed as usual. */
-export function getSimMergeSpeed(url: string): number | null {
+ * files together, or null when it isn't simulated (or wasn't given an assemble speed) and
+ * should run at full disk speed as usual. */
+export function getSimAssembleSpeed(url: string): number | null {
   if (!isSimulatedUrl(url)) return null
-  return sessions.get(url.slice(SIM_URL_PREFIX.length))?.mergeSpeedBytesPerSec ?? null
+  return sessions.get(url.slice(SIM_URL_PREFIX.length))?.assembleSpeedBytesPerSec ?? null
 }
 
 /** Builds the synthetic interfaces + registers the sim session a `StartDownloadRequest` needs
@@ -55,7 +55,7 @@ export function getSimMergeSpeed(url: string): number | null {
 export async function createSimSession(
   sourceFilePath: string,
   networkConfigs: SimulatedNetworkConfig[],
-  mergeSpeedBytesPerSec: number | null
+  assembleSpeedBytesPerSec: number | null
 ): Promise<{ url: string; interfaces: NetworkInterfaceInfo[]; totalBytes: number }> {
   const fileStat = await stat(sourceFilePath)
   const networks = new Map<string, SimulatedNetworkConfig>()
@@ -71,7 +71,7 @@ export async function createSimSession(
     }
   })
 
-  const token = registerSimSession(sourceFilePath, networks, mergeSpeedBytesPerSec)
+  const token = registerSimSession(sourceFilePath, networks, assembleSpeedBytesPerSec)
   return { url: `${SIM_URL_PREFIX}${token}`, interfaces, totalBytes: fileStat.size }
 }
 

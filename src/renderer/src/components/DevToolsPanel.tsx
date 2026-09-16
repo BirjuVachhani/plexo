@@ -17,7 +17,7 @@ const PRESET_CONNECTIONS = [1, 2, 4, 8] as const
 const MAX_SIM_NETWORKS = 4
 const MBPS_TO_BYTES_PER_SEC = (1024 * 1024) / 8
 const MB_TO_BYTES_PER_SEC = 1024 * 1024
-const DEFAULT_MERGE_SPEED_MBPS = 6
+const DEFAULT_ASSEMBLE_SPEED_MBPS = 6
 
 interface SimNetworkDraft {
   key: number
@@ -54,7 +54,7 @@ const rowInputStyle: React.CSSProperties = {
 
 /**
  * Dev-only panel that exercises the whole download pipeline against a file already on disk —
- * chunking across fake networks, the block grid, retries/errors, pause/resume, merging,
+ * chunking across fake networks, the block grid, retries/errors, pause/resume, assembling,
  * completion — without needing a real multi-network setup or a slow, flaky server to provoke
  * the states that are otherwise hard to reproduce on demand. Only rendered when
  * `useAppStore.isDev` is true (see App.tsx), so it never reaches a packaged build's UI.
@@ -69,8 +69,8 @@ export function DevToolsPanel(): React.JSX.Element | null {
   const [destinationDir, setDestinationDir] = useState('')
   const [networks, setNetworks] = useState<SimNetworkDraft[]>(DEFAULT_NETWORKS)
   const [connectionsPerNetwork, setConnectionsPerNetwork] = useState(2)
-  const [slowMerge, setSlowMerge] = useState(true)
-  const [mergeSpeedMBps, setMergeSpeedMBps] = useState(DEFAULT_MERGE_SPEED_MBPS)
+  const [slowAssemble, setSlowAssemble] = useState(true)
+  const [assembleSpeedMBps, setAssembleSpeedMBps] = useState(DEFAULT_ASSEMBLE_SPEED_MBPS)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -123,8 +123,8 @@ export function DevToolsPanel(): React.JSX.Element | null {
         networks: simulatedNetworks,
         chunkCount: networks.length * connectionsPerNetwork,
         connectionsPerNetwork,
-        mergeSpeedBytesPerSec: slowMerge
-          ? Math.max(1, Math.round(mergeSpeedMBps * MB_TO_BYTES_PER_SEC))
+        assembleSpeedBytesPerSec: slowAssemble
+          ? Math.max(1, Math.round(assembleSpeedMBps * MB_TO_BYTES_PER_SEC))
           : undefined
       })
       setOpen(false)
@@ -217,8 +217,8 @@ export function DevToolsPanel(): React.JSX.Element | null {
             </div>
             <div style={{ font: `11.5px/1.4 ${FONT_UI}`, color: 'var(--text-tertiary)' }}>
               Pick a file already on disk to &quot;download&quot; it through the real pipeline —
-              chunking, the block grid, pause/resume, retries, merging — against fake networks you
-              control.
+              chunking, the block grid, pause/resume, retries, assembling — against fake networks
+              you control.
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -457,17 +457,17 @@ export function DevToolsPanel(): React.JSX.Element | null {
               >
                 <input
                   type="checkbox"
-                  checked={slowMerge}
-                  onChange={(event) => setSlowMerge(event.target.checked)}
+                  checked={slowAssemble}
+                  onChange={(event) => setSlowAssemble(event.target.checked)}
                 />
-                Simulate the merging step
+                Simulate the assembling step
               </label>
               <div style={{ font: `10.5px/1.4 ${FONT_UI}`, color: 'var(--text-tertiary)' }}>
                 Reassembly normally finishes in a blink — this throttles it so the
-                &quot;merging&quot; screen (the block grid sweep, the pulsing merge line) stays on
-                screen long enough to actually watch.
+                &quot;assembling&quot; screen (the block grid sweep, the pulsing combine line) stays
+                on screen long enough to actually watch.
               </div>
-              {slowMerge && (
+              {slowAssemble && (
                 <label
                   style={{
                     display: 'flex',
@@ -477,13 +477,13 @@ export function DevToolsPanel(): React.JSX.Element | null {
                     color: 'var(--text-tertiary)'
                   }}
                 >
-                  Merge speed
+                  Assemble speed
                   <input
                     type="number"
                     min={1}
                     max={500}
-                    value={mergeSpeedMBps}
-                    onChange={(event) => setMergeSpeedMBps(Number(event.target.value) || 1)}
+                    value={assembleSpeedMBps}
+                    onChange={(event) => setAssembleSpeedMBps(Number(event.target.value) || 1)}
                     style={{ ...rowInputStyle, width: 56 }}
                   />
                   MB/s

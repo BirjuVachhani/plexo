@@ -1,7 +1,7 @@
 import type { DownloadState } from '@shared/types'
 import { useEffect, useState } from 'react'
 import { BlockGrid } from '../components/BlockGrid'
-import { MergeDiagram } from '../components/MergeDiagram'
+import { CombineDiagram } from '../components/CombineDiagram'
 import { NetworkRow } from '../components/NetworkRow'
 import { ThroughputChart } from '../components/ThroughputChart'
 import { useNetworkPolling } from '../hooks/useNetworkPolling'
@@ -34,7 +34,7 @@ import {
 
 // The hero band is always this exact dark panel from the design, regardless of the app's own
 // light/dark theme — scoping the theme variables it reads (--text, --border, ...) to these
-// literal values keeps its own children (labels, the merge diagram, the chart) legible no
+// literal values keeps its own children (labels, the combine diagram, the chart) legible no
 // matter which OS appearance the rest of the window is following.
 const heroScopeStyle: React.CSSProperties = {
   padding: '18px 20px',
@@ -52,9 +52,9 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   const peakSpeedBytesPerSec = useAppStore((store) => store.peakSpeedBytesPerSec)
   const networkPreferences = useAppStore((store) => store.networkPreferences)
   const isPaused = download.status === 'paused'
-  const isMerging = download.status === 'merging'
+  const isAssembling = download.status === 'assembling'
   const percent = formatPercent(download.bytesDownloaded, download.totalBytes)
-  const mergePercent = formatPercent(download.mergedBytes ?? 0, download.totalBytes)
+  const assemblePercent = formatPercent(download.assembledBytes ?? 0, download.totalBytes)
   const knownSize = download.totalBytes > 0
   const [now, setNow] = useState(() => Date.now())
 
@@ -65,8 +65,8 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   }, [isPaused])
 
   useEffect(() => {
-    if (isMerging) {
-      document.title = `Plexo — Merging (${mergePercent}%)`
+    if (isAssembling) {
+      document.title = `Plexo — Assembling (${assemblePercent}%)`
     } else if (isPaused) {
       document.title = knownSize ? `Plexo — Paused (${percent}%)` : 'Plexo — Paused'
     } else {
@@ -75,7 +75,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
     return () => {
       document.title = 'Plexo'
     }
-  }, [percent, mergePercent, knownSize, isPaused, isMerging])
+  }, [percent, assemblePercent, knownSize, isPaused, isAssembling])
 
   const totalPausedMs =
     (download.totalPausedMs || 0) +
@@ -174,14 +174,14 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
     >
       <div style={heroScopeStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <MergeDiagram
+          <CombineDiagram
             networks={groups.map((group, index) => ({
               solid: visuals[index].solid,
               label: visuals[index].name,
-              speedBytesPerSec: isPaused || isMerging ? 0 : group.speedBytesPerSec
+              speedBytesPerSec: isPaused || isAssembling ? 0 : group.speedBytesPerSec
             }))}
             paused={isPaused}
-            merging={isMerging}
+            assembling={isAssembling}
           />
 
           <div
@@ -193,7 +193,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
               flexShrink: 0
             }}
           >
-            {isMerging ? (
+            {isAssembling ? (
               <>
                 <div
                   style={{
@@ -202,7 +202,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                     color: 'var(--text-tertiary)'
                   }}
                 >
-                  MERGING
+                  ASSEMBLING
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
                   <div
@@ -213,7 +213,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                       fontVariantNumeric: 'tabular-nums'
                     }}
                   >
-                    {mergePercent}
+                    {assemblePercent}
                   </div>
                   <div style={{ font: `500 12px/1 ${FONT_MONO}`, color: 'var(--text-tertiary)' }}>
                     %
@@ -226,7 +226,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                     marginTop: 2
                   }}
                 >
-                  Writing chunks to disk — almost done
+                  Assembling the final file — almost done
                 </div>
               </>
             ) : (
@@ -343,7 +343,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             style={{
               flex: 1,
               minWidth: 0,
-              opacity: isPaused || isMerging ? 0.45 : 1,
+              opacity: isPaused || isAssembling ? 0.45 : 1,
               transition: 'opacity 0.2s'
             }}
           >
@@ -355,7 +355,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
               }}
             >
               THROUGHPUT ·{' '}
-              {isMerging ? 'MERGING' : isPaused ? 'PAUSED' : `LAST ${speedHistory.length}S`}
+              {isAssembling ? 'ASSEMBLING' : isPaused ? 'PAUSED' : `LAST ${speedHistory.length}S`}
             </div>
             <ThroughputChart
               order={groups.map((g, i) => ({
@@ -430,7 +430,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                   <span style={{ color: 'var(--text)', fontWeight: 600 }}>{percent}%</span>
                 </>
               )}
-              {!isPaused && !isMerging && knownSize && effectiveSpeed > 0 && (
+              {!isPaused && !isAssembling && knownSize && effectiveSpeed > 0 && (
                 <>
                   <span style={{ opacity: 0.35 }}>·</span>
                   <span style={{ color: 'var(--text-secondary)' }}>
@@ -453,7 +453,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                   PAUSED
                 </span>
               )}
-              {isMerging && (
+              {isAssembling && (
                 <span
                   style={{
                     font: `600 9.5px/1 ${FONT_MONO}`,
@@ -465,7 +465,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                     borderRadius: 3.5
                   }}
                 >
-                  MERGING
+                  ASSEMBLING
                 </span>
               )}
             </div>
@@ -479,8 +479,8 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
           knownSize={knownSize}
           remainingBytes={remainingBytes}
           isPaused={isPaused}
-          merging={isMerging}
-          mergedBytes={download.mergedBytes ?? 0}
+          assembling={isAssembling}
+          assembledBytes={download.assembledBytes ?? 0}
         />
       </div>
 
@@ -495,8 +495,8 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         >
           <div style={sectionHeaderLabelStyle}>Networks</div>
           <div style={sectionHeaderMetaStyle}>
-            {groups.length} merged · {download.chunks.length} streams ·{' '}
-            {isMerging ? 'writing to disk' : isPaused ? 'paused' : `${activeGroups.length} active`}
+            {groups.length} combined · {download.chunks.length} streams ·{' '}
+            {isAssembling ? 'assembling' : isPaused ? 'paused' : `${activeGroups.length} active`}
           </div>
         </div>
         <div style={networkTableHeaderStyle}>
@@ -557,10 +557,11 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         <button
           type="button"
           onClick={handlePauseResume}
-          disabled={isMerging}
+          disabled={isAssembling}
+          title={isAssembling ? "Can't pause while assembling the file" : undefined}
           style={{
             ...(isPaused ? primaryButtonStyle : secondaryButtonStyle),
-            ...(isMerging && { opacity: 0.5, cursor: 'not-allowed' })
+            ...(isAssembling && { opacity: 0.5, cursor: 'not-allowed' })
           }}
         >
           {isPaused ? 'Resume' : 'Pause'}
@@ -568,10 +569,11 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         <button
           type="button"
           onClick={handleCancel}
-          disabled={isMerging}
+          disabled={isAssembling}
+          title={isAssembling ? "Can't cancel while assembling the file" : undefined}
           style={{
             ...dangerButtonStyle,
-            ...(isMerging && { opacity: 0.5, cursor: 'not-allowed' })
+            ...(isAssembling && { opacity: 0.5, cursor: 'not-allowed' })
           }}
         >
           Cancel

@@ -35,11 +35,11 @@ const GRID_INSET_PX = 3
 const UNATTRIBUTED_SOLID = 'var(--text-tertiary)'
 const UNATTRIBUTED_BG = 'var(--track-bg)'
 
-// Merged bytes are deliberately not painted in any network's color: once a chunk is stitched
+// Assembled bytes are deliberately not painted in any network's color: once a chunk is stitched
 // onto disk it isn't "that network's work" anymore so much as "already part of the file", and a
 // dedicated neutral tone is what makes the sweep across the grid read as progress rather than as
 // chunks quietly losing their color for no reason.
-const MERGED_SOLID = 'var(--text)'
+const ASSEMBLED_SOLID = 'var(--text)'
 
 /** One network's share of a cell's downloaded bytes. */
 interface CellSegment {
@@ -154,10 +154,10 @@ interface BlockGridProps {
    * network fetched each chunk to showing reassembly progress instead: a wipe, in the same
    * part-file order `reassemble()` actually writes in, that fades a square once its bytes are
    * safely on disk and pulses whichever one is being appended right now. Without this the grid
-   * would freeze solid the moment the last byte downloads, and a merge on a large file can take
+   * would freeze solid the moment the last byte downloads, and assembling a large file can take
    * long enough that a frozen grid reads as hung rather than finishing up. */
-  merging?: boolean
-  mergedBytes?: number
+  assembling?: boolean
+  assembledBytes?: number
 }
 
 export function BlockGrid({
@@ -167,8 +167,8 @@ export function BlockGrid({
   knownSize,
   remainingBytes,
   isPaused = false,
-  merging = false,
-  mergedBytes = 0
+  assembling = false,
+  assembledBytes = 0
 }: BlockGridProps): React.JSX.Element {
   const [gridWidth, setGridWidth] = useState(0)
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
@@ -214,9 +214,9 @@ export function BlockGrid({
     // appears on an active block — and a tooltip advertises nothing to hover in the first place.
     const hoveredCell = hoveredIndex !== null ? cells[hoveredIndex] : undefined
     let readout: string
-    if (merging) {
+    if (assembling) {
       const totalBytes = cells.reduce((sum, cell) => sum + cell.totalBytes, 0)
-      readout = `Merging into file · ${formatBytes(mergedBytes)} / ${formatBytes(totalBytes)}`
+      readout = `Assembling into file · ${formatBytes(assembledBytes)} / ${formatBytes(totalBytes)}`
     } else if (hoveredCell) {
       const where =
         describeContributors(hoveredCell, visualByInterfaceId) ??
@@ -228,9 +228,9 @@ export function BlockGrid({
     }
 
     // Cumulative byte offset per cell, in the exact order reassemble() appends part files —
-    // computed once here rather than per-cell so each square's merge state is a simple
-    // range comparison against `mergedBytes` below.
-    const mergeOffsets = cells.reduce<{ offsets: number[]; total: number }>(
+    // computed once here rather than per-cell so each square's assembly state is a simple
+    // range comparison against `assembledBytes` below.
+    const assembleOffsets = cells.reduce<{ offsets: number[]; total: number }>(
       (acc, cell) => {
         acc.offsets.push(acc.total)
         acc.total += cell.totalBytes
@@ -285,7 +285,7 @@ export function BlockGrid({
               </div>
             )
           })}
-          {merging && (
+          {assembling && (
             <div
               style={{
                 display: 'flex',
@@ -300,11 +300,11 @@ export function BlockGrid({
                   width: 7,
                   height: 7,
                   borderRadius: '50%',
-                  background: MERGED_SOLID,
+                  background: ASSEMBLED_SOLID,
                   flexShrink: 0
                 }}
               />
-              <span style={{ color: 'var(--text)', fontWeight: 600 }}>Merged</span>
+              <span style={{ color: 'var(--text)', fontWeight: 600 }}>Assembled</span>
             </div>
           )}
           {cells.length > 0 && chunkBytes > 0 && (
@@ -375,28 +375,28 @@ export function BlockGrid({
               }
 
               let animation: string | undefined
-              if (merging) {
-                const start = mergeOffsets[index]
+              if (assembling) {
+                const start = assembleOffsets[index]
                 const end = start + cell.totalBytes
-                if (end <= mergedBytes) {
+                if (end <= assembledBytes) {
                   // Already appended to the destination file — turns neutral rather than just
-                  // fading, so "merged" is a distinct state you can read at a glance, not a
+                  // fading, so "assembled" is a distinct state you can read at a glance, not a
                   // guess at how dim is dim enough.
-                  fillColor = MERGED_SOLID
+                  fillColor = ASSEMBLED_SOLID
                   border = 'none'
                   boxShadow = 'none'
                   opacity = 0.85
-                } else if (start < mergedBytes) {
+                } else if (start < assembledBytes) {
                   // The one part file being streamed onto disk right now — turning neutral too,
                   // with a pulse so the "write head" position is obvious.
-                  fillColor = MERGED_SOLID
-                  border = `1px solid ${MERGED_SOLID}`
-                  boxShadow = `0 0 7px ${MERGED_SOLID}`
+                  fillColor = ASSEMBLED_SOLID
+                  border = `1px solid ${ASSEMBLED_SOLID}`
+                  boxShadow = `0 0 7px ${ASSEMBLED_SOLID}`
                   opacity = 1
                   animation = 'plexo-glow 0.9s ease-in-out infinite'
                 } else {
                   // Completed but not yet its turn to be appended — stays in its network's color
-                  // a little dimmed, to signal "waiting its turn" rather than "already merged".
+                  // a little dimmed, to signal "waiting its turn" rather than "already assembled".
                   border = 'none'
                   boxShadow = 'none'
                   opacity = 0.75
@@ -408,11 +408,11 @@ export function BlockGrid({
                 (cell.interfaceId ? 'Assigned' : 'Pending')
               // Numbered to match the "Chunk #N" badges the streams table shows for each active
               // connection, so a hovered square maps onto a specific stream's work.
-              const title = merging
+              const title = assembling
                 ? `Chunk #${cell.chunkNumber} · ${
-                    mergeOffsets[index] + cell.totalBytes <= mergedBytes
+                    assembleOffsets[index] + cell.totalBytes <= assembledBytes
                       ? 'written to file'
-                      : mergeOffsets[index] < mergedBytes
+                      : assembleOffsets[index] < assembledBytes
                         ? 'writing to file…'
                         : 'queued to write'
                   }`

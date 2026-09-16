@@ -31,7 +31,7 @@ import { isResourceUnchanged } from './probe'
 import {
   createSimSession,
   downloadChunkSimulated,
-  getSimMergeSpeed,
+  getSimAssembleSpeed,
   isSimulatedUrl,
   unregisterSimSession
 } from './simDownload'
@@ -163,8 +163,8 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-/** Plain, unabortable wait — used only to throttle a simulated download's merge step to a
- * configured speed (see reassemble()). Merging isn't cancellable, so there's nothing to race. */
+/** Plain, unabortable wait — used only to throttle a simulated download's assemble step to a
+ * configured speed (see reassemble()). Assembling isn't cancellable, so there's nothing to race. */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -271,14 +271,14 @@ export class DownloadManager {
           const state = persisted.state
           const blocks = state.blocks
           if (!blocks) return
-          // 'merging' means every block was already 'completed' and only the reassembly step
+          // 'assembling' means every block was already 'completed' and only the reassembly step
           // was interrupted — resuming re-enters runChunksToCompletion with nothing left to
           // download, so it goes straight back into reassemble() rather than needing its own
           // restart path.
-          if (state.status === 'downloading' || state.status === 'merging') {
+          if (state.status === 'downloading' || state.status === 'assembling') {
             state.status = 'paused'
             state.pausedAt = persisted.savedAt || Date.now()
-            state.mergedBytes = 0
+            state.assembledBytes = 0
           }
           state.speedBytesPerSec = 0
           for (const chunk of state.chunks) {
@@ -341,7 +341,7 @@ export class DownloadManager {
   /**
    * Dev-tool entry point: "downloads" a file that's already on disk through the exact same
    * pipeline a real download uses — chunking, the block grid, pause/resume, retries, the
-   * merging phase, reassembly — so every feature can be exercised on demand instead of needing
+   * assembling phase, reassembly — so every feature can be exercised on demand instead of needing
    * a real multi-network setup and a slow, flaky remote server to provoke retries and errors.
    * Only `chunkDownloader`'s HTTP transfer is swapped out (see simDownload.ts); everything else
    * in DownloadManager is unaware this isn't a real network transfer.
@@ -355,7 +355,7 @@ export class DownloadManager {
     const { url, interfaces, totalBytes } = await createSimSession(
       payload.sourceFilePath,
       payload.networks,
-      payload.mergeSpeedBytesPerSec || null
+      payload.assembleSpeedBytesPerSec || null
     )
 
     const requestPayload: StartDownloadRequest = {
@@ -699,8 +699,8 @@ export class DownloadManager {
       return
     }
 
-    runtime.state.status = 'merging'
-    runtime.state.mergedBytes = 0
+    runtime.state.status = 'assembling'
+    runtime.state.assembledBytes = 0
     runtime.state.speedBytesPerSec = 0
     this.pushUpdate(runtime)
 
@@ -947,10 +947,10 @@ export class DownloadManager {
     const output = createWriteStream(runtime.state.destinationPath)
     let bytesWritten = 0
 
-    // Set only for a dev-tool simulated download that asked for a slowed-down merge — real
+    // Set only for a dev-tool simulated download that asked for a slowed-down assemble — real
     // downloads always reassemble at full disk speed. Throttling here (rather than faking it in
-    // the renderer) exercises the exact same mergedBytes/IPC path a real merge uses.
-    const mergeSpeedBytesPerSec = getSimMergeSpeed(runtime.requestPayload.url)
+    // the renderer) exercises the exact same assembledBytes/IPC path a real assemble uses.
+    const assembleSpeedBytesPerSec = getSimAssembleSpeed(runtime.requestPayload.url)
 
     // Attached before the first write, and kept for the stream's whole life:
     // destroying the output after a failed check can surface an in-flight
@@ -976,13 +976,14 @@ export class DownloadManager {
         if (outputErrors.length > 0) throw outputErrors[0]
         bytesWritten += actualBytes
 
-        if (mergeSpeedBytesPerSec) {
-          await sleep(Math.max(1, (actualBytes / mergeSpeedBytesPerSec) * 1000))
+        if (assembleSpeedBytesPerSec) {
+          await sleep(Math.max(1, (actualBytes / assembleSpeedBytesPerSec) * 1000))
         }
 
-        // Reported per part rather than per underlying write so the merge visualization advances
-        // in the same units the block grid already shows — one step per chunk, not a byte stream.
-        runtime.state.mergedBytes = bytesWritten
+        // Reported per part rather than per underlying write so the assembling visualization
+        // advances in the same units the block grid already shows — one step per chunk, not a
+        // byte stream.
+        runtime.state.assembledBytes = bytesWritten
         this.scheduleUpdate(runtime)
       }
 

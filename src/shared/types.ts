@@ -28,7 +28,7 @@ export interface ProbeResult {
 }
 
 export type DownloadStatus =
-  'downloading' | 'merging' | 'paused' | 'completed' | 'error' | 'cancelled'
+  'downloading' | 'assembling' | 'paused' | 'completed' | 'error' | 'cancelled'
 
 export type ChunkStatus =
   'pending' | 'downloading' | 'retrying' | 'paused' | 'completed' | 'error' | 'cancelled'
@@ -89,10 +89,10 @@ export interface DownloadState {
   pausedAt?: number
   totalPausedMs?: number
   completedAt?: number
-  /** Bytes written to the destination file so far while `status` is 'merging' — the part files
-   * are already all complete at that point, so this tracks the sequential reassembly step
+  /** Bytes written to the destination file so far while `status` is 'assembling' — the part
+   * files are already all complete at that point, so this tracks the sequential reassembly step
    * rather than the network transfer. */
-  mergedBytes?: number
+  assembledBytes?: number
 }
 
 /** User customization for one physical network, keyed by NetworkInterfaceInfo.id — lets a
@@ -109,7 +109,7 @@ export type NetworkPreferences = Record<string, NetworkPreference>
 
 /** One fake network in a dev-tool "virtual download" — see SimulatedNetworkConfig callers in
  * main/download/simDownload.ts. Lets a developer exercise the multi-network UI (the block grid,
- * per-network speed/throughput, retries, errors, merging) against a file already on disk,
+ * per-network speed/throughput, retries, errors, assembling) against a file already on disk,
  * without needing a real flaky connection or a slow remote server to test against. */
 export interface SimulatedNetworkConfig {
   kind: NetworkInterfaceKind
@@ -128,11 +128,11 @@ export interface StartSimulatedDownloadRequest {
   networks: SimulatedNetworkConfig[]
   chunkCount: number
   connectionsPerNetwork?: number
-  /** Throttles the reassembly step to this many bytes/sec, so the 'merging' phase's UI (the
-   * block grid sweep, the merge diagram) stays visible long enough to watch even on a small
-   * file that would otherwise reassemble in a single tick. Omitted or 0 merges at full disk
+  /** Throttles the reassembly step to this many bytes/sec, so the 'assembling' phase's UI (the
+   * block grid sweep, the combine diagram) stays visible long enough to watch even on a small
+   * file that would otherwise reassemble in a single tick. Omitted or 0 assembles at full disk
    * speed, same as a real download. */
-  mergeSpeedBytesPerSec?: number
+  assembleSpeedBytesPerSec?: number
 }
 
 export interface StartDownloadRequest {

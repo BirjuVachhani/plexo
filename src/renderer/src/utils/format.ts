@@ -123,13 +123,49 @@ const NESTED_ERROR_PREFIX = /^Error:\s*/
 
 const NETWORK_ERROR_HINTS: Array<{ pattern: RegExp; message: string }> = [
   {
-    pattern: /ENOTFOUND/,
+    pattern: /ENOTFOUND|EAI_AGAIN/,
     message: 'Could not resolve that host — check the URL and your connection.'
   },
-  { pattern: /ECONNREFUSED/, message: 'The server refused the connection.' },
-  { pattern: /ECONNRESET/, message: 'The connection was reset by the server.' },
-  { pattern: /ETIMEDOUT/, message: 'The connection timed out.' },
-  { pattern: /CERT|SSL|TLS/i, message: "The server's security certificate could not be verified." }
+  {
+    pattern: /ECONNREFUSED/,
+    message: 'The server refused the connection — it may be down or blocking requests.'
+  },
+  {
+    pattern: /ECONNRESET|socket hang up/,
+    message: 'The connection was reset by the server — try again in a moment.'
+  },
+  {
+    pattern: /ETIMEDOUT|ESOCKETTIMEDOUT/,
+    message: 'The connection timed out — check your network and try again.'
+  },
+  {
+    pattern: /CERT|SSL|TLS/i,
+    message: "The server's security certificate could not be verified."
+  },
+  {
+    pattern: /Invalid URL|ERR_INVALID_URL/,
+    message: 'That doesn’t look like a valid URL.'
+  },
+  {
+    pattern: /Server responded with status 401/,
+    message: 'This link requires you to sign in — Plexo can’t download it.'
+  },
+  {
+    pattern: /Server responded with status 403/,
+    message: 'Access to this file was denied by the server.'
+  },
+  {
+    pattern: /Server responded with status 404/,
+    message: 'That file could not be found — check the link and try again.'
+  },
+  {
+    pattern: /Server responded with status 4\d\d/,
+    message: 'The server rejected this request — check the link and try again.'
+  },
+  {
+    pattern: /Server responded with status 5\d\d/,
+    message: 'The server is having trouble right now — try again later.'
+  }
 ]
 
 /** Electron wraps a rejected IPC call as "Error invoking remote method 'x': Error: <message>" —

@@ -121,7 +121,22 @@ export function toDisplayPath(path: string, homeDir: string): string {
 const IPC_INVOKE_PREFIX = /^Error invoking remote method '[^']*':\s*/
 const NESTED_ERROR_PREFIX = /^Error:\s*/
 
-const NETWORK_ERROR_HINTS: Array<{ pattern: RegExp; message: string }> = [
+const ERROR_HINTS: Array<{ pattern: RegExp; message: string }> = [
+  {
+    pattern: /parts never finished/,
+    message:
+      'The download never fully finished, so Plexo couldn’t assemble it. Try downloading again.'
+  },
+  {
+    pattern: /refusing to write a corrupt file/,
+    message:
+      'One of the downloaded pieces didn’t match its expected size, so Plexo stopped rather than save a corrupted file. Try downloading again.'
+  },
+  {
+    pattern: /refusing to keep a corrupt file/,
+    message:
+      'The assembled file didn’t match its expected size, so Plexo removed it rather than keep a corrupted file. Try downloading again.'
+  },
   {
     pattern: /ENOTFOUND|EAI_AGAIN/,
     message: 'Could not resolve that host — check the URL and your connection.'
@@ -169,12 +184,15 @@ const NETWORK_ERROR_HINTS: Array<{ pattern: RegExp; message: string }> = [
 ]
 
 /** Electron wraps a rejected IPC call as "Error invoking remote method 'x': Error: <message>" —
- * strip that framework noise and translate common network error codes into plain English. */
+ * strip that framework noise and translate common network errors and internal consistency-check
+ * failures into plain English. Used for both the pre-download probe and a download's own
+ * `error` field, so a failure partway through a transfer reads exactly as friendly as one caught
+ * before it started. */
 export function describeError(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error)
   const stripped = raw.replace(IPC_INVOKE_PREFIX, '').replace(NESTED_ERROR_PREFIX, '')
 
-  for (const { pattern, message } of NETWORK_ERROR_HINTS) {
+  for (const { pattern, message } of ERROR_HINTS) {
     if (pattern.test(stripped)) return message
   }
 

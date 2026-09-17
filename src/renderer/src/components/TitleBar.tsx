@@ -3,7 +3,8 @@ import { ThemeToggle } from './ThemeToggle'
 
 export type TitleBarStatus =
   | { kind: 'none' }
-  | { kind: 'merged'; networkCount: number }
+  | { kind: 'combined'; networkCount: number }
+  | { kind: 'assembling' }
   | { kind: 'paused'; networkCount: number }
   | { kind: 'offline' }
 
@@ -39,7 +40,7 @@ export function TitleBar({ status }: { status: TitleBarStatus }): React.JSX.Elem
         Plexo
       </div>
       <div style={{ flex: 1 }} />
-      {status.kind === 'merged' && (
+      {status.kind === 'combined' && (
         <div style={pillStyle('positive')}>
           <div
             style={{
@@ -50,7 +51,21 @@ export function TitleBar({ status }: { status: TitleBarStatus }): React.JSX.Elem
               animation: 'plexo-glow 2s ease-in-out infinite'
             }}
           />
-          {status.networkCount} {status.networkCount === 1 ? 'network' : 'networks'} merged
+          {status.networkCount} {status.networkCount === 1 ? 'network' : 'networks'} combined
+        </div>
+      )}
+      {status.kind === 'assembling' && (
+        <div style={pillStyle('assembling')}>
+          <div
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: 'var(--color-ethernet)',
+              animation: 'plexo-glow 1s ease-in-out infinite'
+            }}
+          />
+          Assembling file…
         </div>
       )}
       {status.kind === 'paused' && (

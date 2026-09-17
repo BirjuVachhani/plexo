@@ -1,4 +1,4 @@
-import { MergeDiagram } from '../components/MergeDiagram'
+import { CombineDiagram } from '../components/CombineDiagram'
 import { useNetworkPolling } from '../hooks/useNetworkPolling'
 import { useAppStore } from '../store/useAppStore'
 import { FONT_MONO, FONT_UI, disabledPrimaryButtonStyle, secondaryButtonStyle } from '../theme'
@@ -31,9 +31,9 @@ export function NoConnectionsScreen(): React.JSX.Element {
           gap: 16
         }}
       >
-        <MergeDiagram networks={PLACEHOLDER_NETWORKS} muted />
+        <CombineDiagram networks={PLACEHOLDER_NETWORKS} muted />
         <div style={{ font: `700 16px/1.2 ${FONT_UI}`, color: 'var(--text)' }}>
-          No networks to merge
+          No networks to combine
         </div>
         <div
           style={{

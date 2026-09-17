@@ -8,12 +8,15 @@ import type {
   NetworkPreferences,
   ProbeResult,
   StartDownloadRequest,
+  StartSimulatedDownloadRequest,
   ThemeSource
 } from '../shared/types'
 
 export interface InitialPaths {
   homeDir: string
   downloadsDir: string
+  /** True in electron-vite's dev server, false in a packaged build — gates the dev tools panel. */
+  isDev: boolean
 }
 
 const plexoApi = {
@@ -45,6 +48,8 @@ const plexoApi = {
   chooseDestinationFolder: (defaultPath: string): Promise<string | null> =>
     ipcRenderer.invoke(IpcChannels.chooseDestinationFolder, defaultPath),
 
+  chooseSourceFile: (): Promise<string | null> => ipcRenderer.invoke(IpcChannels.chooseSourceFile),
+
   readClipboardText: (): Promise<string> => ipcRenderer.invoke(IpcChannels.readClipboardText),
 
   revealInFolder: (filePath: string): Promise<void> =>
@@ -52,6 +57,9 @@ const plexoApi = {
 
   startDownload: (request: StartDownloadRequest): Promise<string> =>
     ipcRenderer.invoke(IpcChannels.startDownload, request),
+
+  startSimulatedDownload: (request: StartSimulatedDownloadRequest): Promise<string> =>
+    ipcRenderer.invoke(IpcChannels.startSimulatedDownload, request),
 
   getCurrentDownload: (): Promise<DownloadState | null> =>
     ipcRenderer.invoke(IpcChannels.getCurrentDownload),
@@ -72,6 +80,12 @@ const plexoApi = {
     const listener = (_event: IpcRendererEvent, state: DownloadState): void => callback(state)
     ipcRenderer.on(IpcChannels.downloadUpdated, listener)
     return () => ipcRenderer.removeListener(IpcChannels.downloadUpdated, listener)
+  },
+
+  onToggleDevToolsPanel: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on(IpcChannels.toggleDevToolsPanel, listener)
+    return () => ipcRenderer.removeListener(IpcChannels.toggleDevToolsPanel, listener)
   }
 }
 

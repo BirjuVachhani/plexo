@@ -201,11 +201,6 @@ Progress Grid:
 [#1][#2][#3][#4][#5][#6][#7][#8]...
 ```
 
-- **1:1 chunk mapping**: Every square represents an atomic 8 MB chunk of the file.
-- **Accurate per-network attribution**: Each square is colored by the network interface that delivered the dominant share of its bytes. If a chunk changes hands mid-flight (due to a dropped connection, retry, or pause/resume), Plexo tracks per-network byte tallies so each interface's contribution is accurately credited.
-- **Joint contributor breakdown**: Hovering over any square displays the chunk index, bytes downloaded, and an exact breakdown of contributing networks (e.g., `Wi-Fi 70% · Ethernet 30%`).
-- **Responsive & scrollable**: Squares maintain a fixed, readable size across all downloads. The grid wraps to fit the window width and smoothly scrolls past 6 rows on large files.
-
 ---
 
 # Getting started

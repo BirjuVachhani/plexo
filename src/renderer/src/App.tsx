@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { DevToolsPanel } from './components/DevToolsPanel'
 import { TitleBar, type TitleBarStatus } from './components/TitleBar'
 import { useDownloadEvents } from './hooks/useDownloadEvents'
 import { CompleteScreen } from './screens/CompleteScreen'
@@ -18,11 +19,13 @@ function App(): React.JSX.Element {
   const clearCurrentDownload = useAppStore((store) => store.clearCurrentDownload)
   const loadNetworkPreferences = useAppStore((store) => store.loadNetworkPreferences)
   const loadThemeSource = useAppStore((store) => store.loadThemeSource)
+  const loadInitialPaths = useAppStore((store) => store.loadInitialPaths)
 
   useEffect(() => {
     loadNetworkPreferences()
     loadThemeSource()
-  }, [loadNetworkPreferences, loadThemeSource])
+    loadInitialPaths()
+  }, [loadNetworkPreferences, loadThemeSource, loadInitialPaths])
 
   const handleNewDownload = (): void => {
     if (currentDownload) void window.plexo.removeDownload(currentDownload.id)
@@ -47,7 +50,7 @@ function App(): React.JSX.Element {
     if (currentDownload.status === 'downloading') {
       screen = <DownloadingScreen download={currentDownload} />
       titleBarStatus = {
-        kind: 'merged',
+        kind: 'combined',
         networkCount: groupChunksByInterface(currentDownload.chunks).length
       }
     } else if (currentDownload.status === 'paused') {
@@ -56,6 +59,9 @@ function App(): React.JSX.Element {
         kind: 'paused',
         networkCount: groupChunksByInterface(currentDownload.chunks).length
       }
+    } else if (currentDownload.status === 'assembling') {
+      screen = <DownloadingScreen download={currentDownload} />
+      titleBarStatus = { kind: 'assembling' }
     } else if (currentDownload.status === 'completed') {
       screen = <CompleteScreen download={currentDownload} onNewDownload={handleNewDownload} />
     } else {
@@ -78,6 +84,7 @@ function App(): React.JSX.Element {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <TitleBar status={titleBarStatus} />
       <div style={{ flex: 1, minHeight: 0 }}>{screen}</div>
+      <DevToolsPanel />
     </div>
   )
 }

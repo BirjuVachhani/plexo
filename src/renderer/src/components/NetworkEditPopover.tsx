@@ -106,22 +106,27 @@ export function NetworkEditPopover({
             {NETWORK_COLOR_SWATCHES.map((swatch) => {
               const isSelected = draftColorId === swatch.id
               return (
-                <button
-                  key={swatch.id}
-                  type="button"
-                  onClick={() => setDraftColorId(swatch.id)}
-                  title={swatch.label}
-                  aria-label={swatch.label}
-                  aria-pressed={isSelected}
-                  className="size-5 shrink-0 rounded-full border-none p-0"
-                  style={{
-                    background: swatch.solid,
-                    // Popover-colored gap, then a ring in the swatch's own hue — reads in both themes.
-                    boxShadow: isSelected
-                      ? `0 0 0 2px var(--color-popover), 0 0 0 4px ${swatch.solid}`
-                      : undefined
-                  }}
-                />
+                <Tooltip key={swatch.id}>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        onClick={() => setDraftColorId(swatch.id)}
+                        aria-label={swatch.label}
+                        aria-pressed={isSelected}
+                        className="size-5 shrink-0 rounded-full border-none p-0"
+                        style={{
+                          background: swatch.solid,
+                          // Popover-colored gap, then a ring in the swatch's own hue — reads in both themes.
+                          boxShadow: isSelected
+                            ? `0 0 0 2px var(--color-popover), 0 0 0 4px ${swatch.solid}`
+                            : undefined
+                        }}
+                      />
+                    }
+                  />
+                  <TooltipContent>{swatch.label}</TooltipContent>
+                </Tooltip>
               )
             })}
           </div>

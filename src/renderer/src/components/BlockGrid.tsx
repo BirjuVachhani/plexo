@@ -2,6 +2,7 @@ import type { BlockState, BlockStatus } from '@shared/types'
 import { useCallback, useRef, useState } from 'react'
 import type { NetworkVisual } from '../theme'
 import { formatBytes, type NetworkGroup } from '../utils/format'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 // The grid is a byte-space map of the file: one square per chunk, running left-to-right,
 // top-to-bottom. Each square is drawn in exactly one network's color — a square reads as one
@@ -264,14 +265,20 @@ export function BlockGrid({
             </div>
           )}
           {cells.length > 0 && chunkBytes > 0 && (
-            <div
-              className="ml-auto font-mono text-[10px] leading-none font-medium tabular-nums text-muted-foreground"
-              title={`This file downloads as ${blocks.length} chunks of ${formatBytes(chunkBytes)}, one per square.${
-                rows > MAX_VISIBLE_ROWS ? ' Scroll the grid to see the rest.' : ''
-              }`}
-            >
-              {readout}
-            </div>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <div className="ml-auto font-mono text-[10px] leading-none font-medium tabular-nums text-muted-foreground">
+                    {readout}
+                  </div>
+                }
+              />
+              <TooltipContent>
+                This file downloads as {blocks.length} chunks of {formatBytes(chunkBytes)}, one per
+                square.
+                {rows > MAX_VISIBLE_ROWS ? ' Scroll the grid to see the rest.' : ''}
+              </TooltipContent>
+            </Tooltip>
           )}
         </div>
 
@@ -354,20 +361,6 @@ export function BlockGrid({
                 }
               }
 
-              const networkName =
-                describeContributors(cell, visualByInterfaceId) ||
-                (cell.interfaceId ? 'Assigned' : 'Pending')
-              // Numbered to match the "Chunk #N" badges the streams table shows for each active
-              // connection, so a hovered square maps onto a specific stream's work.
-              const title = assembling
-                ? `Chunk #${cell.chunkNumber} · ${
-                    assembleOffsets[index] + cell.totalBytes <= assembledBytes
-                      ? 'written to file'
-                      : assembleOffsets[index] < assembledBytes
-                        ? 'writing to file…'
-                        : 'queued to write'
-                  }`
-                : `Chunk #${cell.chunkNumber} · ${formatBytes(cell.bytesDownloaded)} / ${formatBytes(cell.totalBytes)} · ${networkName} · ${cell.status}`
               const rawFillPercent = Math.min(1, Math.max(0, cell.fillRatio)) * 100
               // A square is only ~12px wide, so the first bytes of a chunk round to nothing —
               // floor a started chunk to a visible sliver rather than 0 width.
@@ -376,7 +369,6 @@ export function BlockGrid({
               return (
                 <div
                   key={index}
-                  title={title}
                   onMouseEnter={() => setHoveredIndex(index)}
                   style={{
                     position: 'relative',

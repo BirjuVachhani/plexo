@@ -1,5 +1,6 @@
 import type { ThemeSource } from '@shared/types'
 import { useAppStore } from '../store/useAppStore'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 const OPTIONS: { id: ThemeSource; label: string; icon: React.JSX.Element }[] = [
   {
@@ -69,14 +70,20 @@ export function ThemeToggle(): React.JSX.Element {
   }
 
   return (
-    <button
-      type="button"
-      title={`${current.label} — click to change`}
-      aria-label={`${current.label} — click to change`}
-      onClick={cycle}
-      className="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-[6px] border-[0.5px] border-border bg-secondary text-[var(--text-secondary)] [-webkit-app-region:no-drag]"
-    >
-      {current.icon}
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={`${current.label} — click to change`}
+            onClick={cycle}
+            className="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-[6px] border-[0.5px] border-border bg-secondary text-[var(--text-secondary)] [-webkit-app-region:no-drag]"
+          >
+            {current.icon}
+          </button>
+        }
+      />
+      <TooltipContent>{current.label} — click to change</TooltipContent>
+    </Tooltip>
   )
 }

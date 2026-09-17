@@ -4,6 +4,7 @@ import { useAppStore } from '../store/useAppStore'
 import { describeError, toDisplayPath } from '../utils/format'
 import { Button } from './ui/button'
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 const KIND_OPTIONS: NetworkInterfaceKind[] = ['wifi', 'usb', 'ethernet', 'bridge', 'other']
 const PRESET_CONNECTIONS = [1, 2, 4, 8] as const
@@ -206,14 +207,20 @@ export function DevToolsPanel(): React.JSX.Element | null {
             <div className="flex flex-col gap-[5px]">
               <div className={fieldLabelClass}>SOURCE FILE</div>
               <div className="flex gap-1.5">
-                <div
-                  className={`${rowInputClass} min-w-0 flex-1 truncate ${
-                    sourceFilePath ? 'text-foreground' : 'text-muted-foreground'
-                  }`}
-                  title={sourceFilePath ?? undefined}
-                >
-                  {sourceFilePath ? toDisplayPath(sourceFilePath, homeDir) : 'No file chosen'}
-                </div>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <div
+                        className={`${rowInputClass} min-w-0 flex-1 truncate ${
+                          sourceFilePath ? 'text-foreground' : 'text-muted-foreground'
+                        }`}
+                      >
+                        {sourceFilePath ? toDisplayPath(sourceFilePath, homeDir) : 'No file chosen'}
+                      </div>
+                    }
+                  />
+                  <TooltipContent>{sourceFilePath ?? 'No file chosen'}</TooltipContent>
+                </Tooltip>
                 <Button type="button" variant="secondary" onClick={handleChooseFile}>
                   Choose…
                 </Button>
@@ -223,12 +230,16 @@ export function DevToolsPanel(): React.JSX.Element | null {
             <div className="flex flex-col gap-[5px]">
               <div className={fieldLabelClass}>DESTINATION</div>
               <div className="flex gap-1.5">
-                <div
-                  className={`${rowInputClass} min-w-0 flex-1 truncate`}
-                  title={effectiveDestinationDir}
-                >
-                  {toDisplayPath(effectiveDestinationDir, homeDir)}
-                </div>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <div className={`${rowInputClass} min-w-0 flex-1 truncate`}>
+                        {toDisplayPath(effectiveDestinationDir, homeDir)}
+                      </div>
+                    }
+                  />
+                  <TooltipContent>{effectiveDestinationDir}</TooltipContent>
+                </Tooltip>
                 <Button type="button" variant="secondary" onClick={handleChooseDestination}>
                   Browse…
                 </Button>
@@ -277,18 +288,24 @@ export function DevToolsPanel(): React.JSX.Element | null {
                       aria-label="Network name"
                       className={`${rowInputClass} min-w-0 flex-1`}
                     />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => removeNetwork(network.key)}
-                      disabled={networks.length <= 1}
-                      title="Remove network"
-                      aria-label="Remove network"
-                      className="text-destructive hover:text-destructive"
-                    >
-                      ×
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={() => removeNetwork(network.key)}
+                            disabled={networks.length <= 1}
+                            aria-label="Remove network"
+                            className="text-destructive hover:text-destructive"
+                          >
+                            ×
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>Remove network</TooltipContent>
+                    </Tooltip>
                   </div>
                   <div className="flex gap-2.5">
                     <label className="flex flex-1 items-center gap-[5px] font-mono text-[10.5px] leading-none text-muted-foreground">
@@ -307,25 +324,32 @@ export function DevToolsPanel(): React.JSX.Element | null {
                       />
                       Mbps
                     </label>
-                    <label
-                      className="flex flex-1 items-center gap-[5px] font-mono text-[10.5px] leading-none text-muted-foreground"
-                      title="Chance a chunk attempt on this network fails outright, to exercise retry/error handling"
-                    >
-                      Faults
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={network.faultRatePercent}
-                        onChange={(event) =>
-                          updateNetwork(network.key, {
-                            faultRatePercent: Number(event.target.value) || 0
-                          })
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <label className="flex flex-1 items-center gap-[5px] font-mono text-[10.5px] leading-none text-muted-foreground">
+                            Faults
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              value={network.faultRatePercent}
+                              onChange={(event) =>
+                                updateNetwork(network.key, {
+                                  faultRatePercent: Number(event.target.value) || 0
+                                })
+                              }
+                              className={`${rowInputClass} w-12`}
+                            />
+                            %
+                          </label>
                         }
-                        className={`${rowInputClass} w-12`}
                       />
-                      %
-                    </label>
+                      <TooltipContent>
+                        Chance a chunk attempt on this network fails outright, to exercise
+                        retry/error handling
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
               ))}

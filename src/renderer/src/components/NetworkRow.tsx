@@ -6,6 +6,7 @@ import type { NetworkGroup } from '../utils/format'
 import { formatBytes, formatSpeed } from '../utils/format'
 import { ColorBadge } from './ColorBadge'
 import { NetworkEditPopover } from './NetworkEditPopover'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 interface NetworkRowProps {
   group: NetworkGroup
@@ -47,12 +48,16 @@ export function NetworkRow({
         }}
       />
       <div className="flex min-w-0 items-center gap-[6px]">
-        <span
-          className="truncate font-sans text-[12.5px] leading-[1.2] font-semibold text-foreground"
-          title={visual.name}
-        >
-          {visual.name}
-        </span>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span className="truncate font-sans text-[12.5px] leading-[1.2] font-semibold text-foreground">
+                {visual.name}
+              </span>
+            }
+          />
+          <TooltipContent>{visual.name}</TooltipContent>
+        </Tooltip>
         <NetworkEditPopover
           interfaceId={group.interfaceId}
           interfaceKind={group.interfaceKind}
@@ -61,7 +66,6 @@ export function NetworkRow({
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          title={expanded ? 'Collapse streams' : 'Expand streams'}
           aria-expanded={expanded}
           className={`inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-[4px] border-[0.5px] border-border px-[7px] py-[3px] font-mono text-[10.5px] leading-none font-medium select-none ${
             expanded ? 'bg-secondary text-foreground' : 'bg-card text-[var(--text-secondary)]'
@@ -167,12 +171,18 @@ export function NetworkRow({
                     Stream #{index + 1}
                   </span>
                   {currentBlock && (
-                    <span
-                      className="rounded-[3px] border-[0.5px] border-border bg-secondary px-[4.5px] py-[1.5px] font-mono text-[9px] leading-none whitespace-nowrap text-muted-foreground"
-                      title={`Range: ${currentBlock.rangeStart} – ${currentBlock.rangeEnd ?? 'end'}`}
-                    >
-                      Chunk #{currentBlock.index + 1}
-                    </span>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <span className="rounded-[3px] border-[0.5px] border-border bg-secondary px-[4.5px] py-[1.5px] font-mono text-[9px] leading-none whitespace-nowrap text-muted-foreground">
+                            Chunk #{currentBlock.index + 1}
+                          </span>
+                        }
+                      />
+                      <TooltipContent>
+                        Range: {currentBlock.rangeStart} – {currentBlock.rangeEnd ?? 'end'}
+                      </TooltipContent>
+                    </Tooltip>
                   )}
                   {isChunkActive ? (
                     <ColorBadge
@@ -195,14 +205,7 @@ export function NetworkRow({
                 </div>
 
                 <div className="flex min-w-0 items-center">
-                  <div
-                    className="h-[5px] flex-1 overflow-hidden rounded-full border-[0.5px] border-[var(--border-strong)] bg-[var(--track-bg)]"
-                    title={
-                      chunkSize > 0
-                        ? `Chunk progress: ${formatBytes(chunkBytesDownloaded)} of ${formatBytes(chunkSize)} (${Math.round(chunkPercent)}%)`
-                        : undefined
-                    }
-                  >
+                  <div className="h-[5px] flex-1 overflow-hidden rounded-full border-[0.5px] border-[var(--border-strong)] bg-[var(--track-bg)]">
                     <div
                       className="h-full rounded-full transition-[width] duration-200 ease-out"
                       style={{
@@ -233,14 +236,7 @@ export function NetworkRow({
                   {isChunkActive ? formatSpeed(chunk.speedBytesPerSec) : '—'}
                 </div>
 
-                <div
-                  className="text-right font-mono text-[11px] leading-none whitespace-nowrap text-[var(--text-secondary)] tabular-nums"
-                  title={
-                    chunkSize > 0
-                      ? `${formatBytes(chunkBytesDownloaded)} of ${formatBytes(chunkSize)}`
-                      : formatBytes(chunkBytesDownloaded)
-                  }
-                >
+                <div className="text-right font-mono text-[11px] leading-none whitespace-nowrap text-[var(--text-secondary)] tabular-nums">
                   {chunkSize > 0
                     ? `${formatBytes(chunkBytesDownloaded)} / ${formatBytes(chunkSize)}`
                     : formatBytes(chunkBytesDownloaded)}

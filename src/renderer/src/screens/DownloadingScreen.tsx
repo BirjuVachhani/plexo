@@ -7,6 +7,7 @@ import { CyclableChip } from '../components/CyclableChip'
 import { NetworkRow } from '../components/NetworkRow'
 import { ThroughputChart } from '../components/ThroughputChart'
 import { Button } from '../components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
 import { useNetworkPolling } from '../hooks/useNetworkPolling'
 import { useNetworkVisuals } from '../hooks/useNetworkVisuals'
 import { useAppStore } from '../store/useAppStore'
@@ -252,25 +253,23 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                   <Dot />
                   <InlineStat label="PEAK" value={formatSpeed(peakSpeedBytesPerSec)} />
                 </div>
-                {isPaused ? (
-                  download.error && (
-                    <div className="mt-0.5 font-sans text-[11px] leading-[1.2] font-medium text-destructive">
-                      {download.error}
-                    </div>
-                  )
-                ) : (
-                  activeChipOption && (
-                    <CyclableChip
-                      label={activeChipOption.label}
-                      tooltip={`${activeChipOption.tooltip}${chipOptions.length > 1 ? ' (click to toggle)' : ''}`}
-                      bg={activeChipOption.bg}
-                      border={activeChipOption.border}
-                      color={activeChipOption.color}
-                      cyclable={chipOptions.length > 1}
-                      onClick={() => setChipModeIndex((i) => (i + 1) % chipOptions.length)}
-                    />
-                  )
-                )}
+                {isPaused
+                  ? download.error && (
+                      <div className="mt-0.5 font-sans text-[11px] leading-[1.2] font-medium text-destructive">
+                        {download.error}
+                      </div>
+                    )
+                  : activeChipOption && (
+                      <CyclableChip
+                        label={activeChipOption.label}
+                        tooltip={`${activeChipOption.tooltip}${chipOptions.length > 1 ? ' (click to toggle)' : ''}`}
+                        bg={activeChipOption.bg}
+                        border={activeChipOption.border}
+                        color={activeChipOption.color}
+                        cyclable={chipOptions.length > 1}
+                        onClick={() => setChipModeIndex((i) => (i + 1) % chipOptions.length)}
+                      />
+                    )}
               </>
             )}
           </div>
@@ -300,12 +299,16 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             {fileExtensionBadge(download.fileName)}
           </div>
           <div className="min-w-0 flex-1">
-            <div
-              className="truncate font-sans text-[15px] leading-[1.3] font-semibold tracking-[-0.01em] text-foreground"
-              title={download.fileName}
-            >
-              {download.fileName}
-            </div>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <div className="truncate font-sans text-[15px] leading-[1.3] font-semibold tracking-[-0.01em] text-foreground">
+                    {download.fileName}
+                  </div>
+                }
+              />
+              <TooltipContent>{download.fileName}</TooltipContent>
+            </Tooltip>
             <div className="mt-1 flex items-center gap-[7px] font-mono text-[12.5px] leading-[1.2] tabular-nums text-[var(--text-secondary)]">
               <span>
                 {formatBytes(isAssembling ? assembledBytes : download.bytesDownloaded)}
@@ -404,9 +407,16 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
 
       <div className="flex items-center gap-3 border-t-[0.5px] border-t-[var(--footer-border)] bg-secondary px-5 py-[11px]">
         <div className="flex min-w-0 flex-1 items-center gap-[7px] overflow-hidden font-mono text-[11px] leading-[1.4] text-muted-foreground">
-          <span className="truncate" title={`Saving to: ${download.destinationPath}`}>
-            Saving to {toDisplayPath(dirnameOf(download.destinationPath), homeDir)}
-          </span>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span className="truncate">
+                  Saving to {toDisplayPath(dirnameOf(download.destinationPath), homeDir)}
+                </span>
+              }
+            />
+            <TooltipContent>Saving to: {download.destinationPath}</TooltipContent>
+          </Tooltip>
           <Dot shrink />
           <span className="shrink-0">Resumable</span>
           {totalRetries > 0 && (
@@ -418,24 +428,36 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             </>
           )}
         </div>
-        <Button
-          type="button"
-          variant={isPaused ? 'default' : 'secondary'}
-          onClick={handlePauseResume}
-          disabled={isAssembling || resuming}
-          title={isAssembling ? "Can't pause while assembling the file" : undefined}
-        >
-          {pauseResumeLabel}
-        </Button>
-        <Button
-          type="button"
-          variant="destructive"
-          onClick={handleCancel}
-          disabled={isAssembling}
-          title={isAssembling ? "Can't cancel while assembling the file" : undefined}
-        >
-          Cancel
-        </Button>
+        <Tooltip open={isAssembling ? undefined : false}>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant={isPaused ? 'default' : 'secondary'}
+                onClick={handlePauseResume}
+                disabled={isAssembling || resuming}
+              >
+                {pauseResumeLabel}
+              </Button>
+            }
+          />
+          <TooltipContent>Can&apos;t pause while assembling the file</TooltipContent>
+        </Tooltip>
+        <Tooltip open={isAssembling ? undefined : false}>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleCancel}
+                disabled={isAssembling}
+              >
+                Cancel
+              </Button>
+            }
+          />
+          <TooltipContent>Can&apos;t cancel while assembling the file</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   )

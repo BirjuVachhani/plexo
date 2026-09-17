@@ -193,12 +193,12 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   const throughputStatusLabel = isAssembling
     ? 'ASSEMBLING'
     : isPaused
-      ? 'PAUSED'
+      ? null
       : `LAST ${speedHistory.length}S`
   const networksStatusLabel = isAssembling
     ? 'assembling'
     : isPaused
-      ? 'paused'
+      ? null
       : `${activeGroups.length} active`
   const pauseResumeLabel = resuming ? 'Resuming…' : isPaused ? 'Resume' : 'Pause'
 
@@ -235,16 +235,6 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
               <>
                 <div className="flex items-center gap-1.5 font-mono text-[10px] leading-none font-medium tracking-[0.2em] text-muted-foreground">
                   <span>TOTAL SPEED</span>
-                  {isPaused && (
-                    <ColorBadge
-                      bg="var(--color-usb-bg)"
-                      border="var(--color-usb-border)"
-                      text="var(--color-usb)"
-                      className="h-auto rounded-[3px] px-[5px] py-0.5 text-[9px] font-semibold tracking-[0.08em]"
-                    >
-                      PAUSED
-                    </ColorBadge>
-                  )}
                 </div>
                 <div className="flex items-baseline gap-[7px]">
                   <div
@@ -266,13 +256,11 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                   <InlineStat label="PEAK" value={formatSpeed(peakSpeedBytesPerSec)} />
                 </div>
                 {isPaused ? (
-                  <div
-                    className={`mt-0.5 font-sans text-[11px] leading-[1.2] font-medium ${
-                      download.error ? 'text-destructive' : 'text-muted-foreground'
-                    }`}
-                  >
-                    {download.error ?? 'Download paused'}
-                  </div>
+                  download.error && (
+                    <div className="mt-0.5 font-sans text-[11px] leading-[1.2] font-medium text-destructive">
+                      {download.error}
+                    </div>
+                  )
                 ) : (
                   activeChipOption && (
                     <CyclableChip
@@ -296,7 +284,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             }`}
           >
             <div className="font-mono text-[9.5px] leading-none font-medium tracking-[0.12em] text-muted-foreground">
-              THROUGHPUT · {throughputStatusLabel}
+              THROUGHPUT{throughputStatusLabel ? ` · ${throughputStatusLabel}` : ''}
             </div>
             <ThroughputChart
               order={groups.map((g, i) => ({
@@ -382,7 +370,8 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         <div className="flex items-baseline justify-between p-[0_20px_8px]">
           <div className={sectionHeaderClass}>Networks</div>
           <div className="shrink-0 font-mono text-[10.5px] leading-none text-muted-foreground">
-            {groups.length} combined · {download.chunks.length} streams · {networksStatusLabel}
+            {groups.length} combined · {download.chunks.length} streams
+            {networksStatusLabel ? ` · ${networksStatusLabel}` : ''}
           </div>
         </div>
         <div

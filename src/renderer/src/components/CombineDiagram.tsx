@@ -156,15 +156,15 @@ export function CombineDiagram({
           </g>
         )
       })}
-      {!muted && !assembling && (
+      {!muted && !assembling && !paused && (
         <text
           x={STREAM_END_X + 2}
           y={midY - 11}
           textAnchor="end"
-          fill={paused ? 'var(--color-usb)' : 'var(--text-tertiary)'}
-          className={`font-mono text-[8.5px] tracking-[0.12em] ${paused ? 'font-semibold' : 'font-medium'}`}
+          fill="var(--text-tertiary)"
+          className="font-mono text-[8.5px] tracking-[0.12em] font-medium"
         >
-          {paused ? 'PAUSED' : 'COMBINED'}
+          COMBINED
         </text>
       )}
     </svg>

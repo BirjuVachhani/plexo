@@ -35,15 +35,26 @@ export const KIND_PALETTE: Record<NetworkInterfaceKind, KindPalette> = {
 // The brand amber doubles as the USB network color, exactly as in the design.
 export const DANGER = 'var(--color-danger)'
 
+// The table's 20px side gutters live inside the first and last tracks (30px = 20 + the status
+// dot's 10, 160px = 140 + 20) rather than as padding on the grid itself. A subgrid row can only
+// paint inside its parent's content box, so with the padding on the grid every row divider and
+// every expanded row's fill stopped 20px short of the window and had to be faked by an
+// absolutely-positioned bleed layer behind each row. With the gutters as tracks, a row box
+// already spans window edge to window edge and a plain border/background does the job.
+//
 // Network sizes to its content (name + streams pill + "⋯" button) instead of a guessed fixed
-// px — `minmax(0, max-content)` grows it to fit whatever's actually in that cell (no dead
-// trailing space before Progress) and, just as importantly, lets it shrink below that on a
-// narrow window instead of holding a fixed width the row can't fit in. Progress is the one
-// column that should visually scale with the window (the bar already fills 100% of its track),
-// so it alone takes the leftover space; that also keeps the gap after the bar, into Share, the
-// same fixed 12px as every other column boundary — instead of Network's gap growing while
-// Progress's stays put.
-export const NETWORK_ROW_GRID_COLUMNS = '10px minmax(0, max-content) 1fr 48px 78px 90px'
+// px — `max-content` grows it to fit whatever's actually in that cell (no dead trailing space
+// before Progress) and, just as importantly, lets it shrink on a narrow window instead of
+// holding a fixed width the row can't fit in. Progress is the one column that should visually
+// scale with the window (the bar already fills 100% of its track), so it alone takes the
+// leftover space; that also keeps the gap after the bar, into Share, the same fixed 12px as
+// every other column boundary — instead of Network's gap growing while Progress's stays put.
+// The 190px floor exists because every row shares this one subgrid track, collapsed and expanded
+// alike: with a floor of 0, expanding a group mounts "Stream #N · Chunk #N · <status>" rows into
+// the same column, which is routinely wider than the collapsed row's "<name> · N streams" — so
+// the track (and everything right of it) would jump wider the instant you expand. 190px already
+// covers that expanded content, so expanding never grows the track further.
+export const NETWORK_ROW_GRID_COLUMNS = '30px minmax(190px, max-content) 1fr 48px 78px 160px'
 
 // A curated set of user-selectable network colors, distinct from (and in addition to) the
 // kind defaults above — each ships its own on-solid text color so it's legible without having

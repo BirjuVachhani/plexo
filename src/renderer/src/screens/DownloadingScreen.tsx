@@ -12,7 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/toolti
 import { useNetworkPolling } from '../hooks/useNetworkPolling'
 import { useNetworkVisuals } from '../hooks/useNetworkVisuals'
 import { useAppStore } from '../store/useAppStore'
-import { NETWORK_ROW_GRID_COLUMNS } from '../theme'
+import { KIND_PALETTE, NETWORK_ROW_GRID_COLUMNS } from '../theme'
 import {
   dirnameOf,
   fileExtensionBadge,
@@ -29,18 +29,8 @@ import {
 // light/dark theme — scoping the theme variables it reads (--text, --border, ...) to these
 // literal values keeps its own children (labels, the combine diagram, the chart) legible no
 // matter which OS appearance the rest of the window is following.
-const heroClass = 'border-b border-b-[var(--hero-border)] bg-[image:var(--hero-bg)] px-5 py-[18px]'
-const sectionHeaderClass =
-  'font-mono text-[10px] leading-none tracking-[0.16em] text-muted-foreground uppercase'
-
-// Build list of toggleable comparison metrics for active networks (only "X× [NETWORK] ALONE").
-interface SpeedChipOption {
-  label: string
-  tooltip: string
-  color: string
-  bg: string
-  border: string
-}
+const heroClass =
+  'border-b border-b-[var(--hero-border)] bg-[image:var(--hero-bg)] px-5 py-[18px] text-foreground'
 
 /** Inline "·" separator between adjacent stats. `shrink` pins it at its natural width inside a
  * flex row that might otherwise squeeze it (footer rows), matching each call site's prior style. */
@@ -53,6 +43,59 @@ function InlineStat({ label, value }: { label: string; value: string }): React.J
     <span>
       {label} <span className="font-semibold text-foreground">{value}</span>
     </span>
+  )
+}
+
+/** The hero band's headline figure: a tracked-out label over one big tabular number and its unit.
+ * Both states of the band (total speed, assembly progress) are this same shape. */
+function BigStat({
+  label,
+  value,
+  unit,
+  valueClass
+}: {
+  label: string
+  value: string | number
+  unit?: string
+  valueClass: string
+}): React.JSX.Element {
+  return (
+    <>
+      <div className="font-mono text-[10px] leading-none font-medium tracking-[0.2em] text-muted-foreground">
+        {label}
+      </div>
+      <div className="flex items-baseline gap-[7px]">
+        <div
+          className={`font-mono text-[38px] leading-[0.88] font-semibold tracking-[-0.03em] tabular-nums ${valueClass}`}
+        >
+          {value}
+        </div>
+        {unit && (
+          <div className="font-mono text-[12px] leading-none font-medium text-muted-foreground">
+            {unit}
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+/** Says why a footer action is unavailable, and only while it is — a tooltip on a button you can
+ * actually press has nothing to explain. */
+function WhileAssembling({
+  active,
+  text,
+  children
+}: {
+  active: boolean
+  text: string
+  children: React.ReactElement
+}): React.JSX.Element {
+  return (
+    <Tooltip open={active ? undefined : false}>
+      <TooltipTrigger render={children} />
+      <TooltipContent>{text}</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -128,10 +171,6 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   const visuals = groups.map((group) =>
     networkVisual(group.interfaceId, group.interfaceKind, group.interfaceLabel)
   )
-  const activeGroups = groups.filter((group) =>
-    group.chunks.some((chunk) => chunk.status === 'downloading')
-  )
-
   const [chipModeIndex, setChipModeIndex] = useState(0)
 
   const totalRetries = download.chunks.reduce((sum, chunk) => sum + chunk.retryCount, 0)
@@ -139,71 +178,49 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
 
   const avgSpeedBytesPerSec = elapsedSeconds > 0 ? download.bytesDownloaded / elapsedSeconds : 0
 
-  const chipOptions: SpeedChipOption[] = []
-  if (groups.length > 1 && !isPaused) {
-    const sortedIndices = groups
-      .map((_, i) => i)
-      .filter((i) =>
-        download.speedBytesPerSec > 0
-          ? groups[i].speedBytesPerSec > 0
-          : groups[i].bytesDownloaded > 0
-      )
-      .sort((a, b) => {
-        const valA =
-          download.speedBytesPerSec > 0 ? groups[a].speedBytesPerSec : groups[a].bytesDownloaded
-        const valB =
-          download.speedBytesPerSec > 0 ? groups[b].speedBytesPerSec : groups[b].bytesDownloaded
-        return valB - valA
-      })
-
-    for (const idx of sortedIndices) {
-      const g = groups[idx]
-      const visual = visuals[idx]
-      const name = visual.name.toUpperCase()
-      if (download.speedBytesPerSec > 0 && g.speedBytesPerSec > 0) {
-        const ratio = download.speedBytesPerSec / g.speedBytesPerSec
-        if (ratio >= 1.05) {
-          chipOptions.push({
-            label: `${ratio.toFixed(1)}× ${name} ALONE`,
-            tooltip: `Total speed is ${ratio.toFixed(1)}× faster than ${visual.name} alone`,
-            color: visual.text,
-            bg: visual.bg,
-            border: visual.border
-          })
-        }
-      } else if (download.bytesDownloaded > 0 && g.bytesDownloaded > 0) {
-        const ratio = download.bytesDownloaded / g.bytesDownloaded
-        if (ratio >= 1.05) {
-          chipOptions.push({
-            label: `${ratio.toFixed(1)}× ${name} ALONE`,
-            tooltip: `Total downloaded is ${ratio.toFixed(1)}× compared to ${visual.name} alone`,
-            color: visual.text,
-            bg: visual.bg,
-            border: visual.border
-          })
-        }
-      }
-    }
-  }
+  // "N× WIFI ALONE": the combined download measured against one network on its own, by whichever
+  // metric is live — current speed while bytes are moving, total downloaded otherwise. A network
+  // that carried the download barely faster than it would alone (< 1.05×) makes no point worth a
+  // chip. Cycling order is fastest network (smallest multiple) first, as it was.
+  const bySpeed = download.speedBytesPerSec > 0
+  const totalMetric = bySpeed ? download.speedBytesPerSec : download.bytesDownloaded
+  const chipOptions =
+    groups.length > 1 && !isPaused && totalMetric > 0
+      ? groups
+          .map((group, index) => ({
+            ratio: totalMetric / (bySpeed ? group.speedBytesPerSec : group.bytesDownloaded),
+            visual: visuals[index]
+          }))
+          .filter(({ ratio }) => Number.isFinite(ratio) && ratio >= 1.05)
+          .sort((a, b) => a.ratio - b.ratio)
+          .map(({ ratio, visual }) => ({
+            visual,
+            label: `${ratio.toFixed(1)}× ${visual.name.toUpperCase()} ALONE`,
+            tooltip: bySpeed
+              ? `Total speed is ${ratio.toFixed(1)}× faster than ${visual.name} alone`
+              : `Total downloaded is ${ratio.toFixed(1)}× compared to ${visual.name} alone`
+          }))
+      : []
 
   const activeChipOption =
     chipOptions.length > 0 ? chipOptions[chipModeIndex % chipOptions.length] : null
+
+  const statusBadge = isAssembling
+    ? { label: 'ASSEMBLING', palette: KIND_PALETTE.ethernet }
+    : isPaused
+      ? { label: 'PAUSED', palette: KIND_PALETTE.usb }
+      : null
 
   const throughputStatusLabel = isAssembling
     ? 'ASSEMBLING'
     : isPaused
       ? null
       : `LAST ${speedHistory.length}S`
-  const networksStatusLabel = isAssembling
-    ? 'assembling'
-    : isPaused
-      ? null
-      : `${activeGroups.length} active`
   const pauseResumeLabel = resuming ? 'Resuming…' : isPaused ? 'Resume' : 'Pause'
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div className={`${heroClass} text-foreground`}>
+      <div className={heroClass}>
         <div className="flex items-center gap-[14px]">
           <CombineDiagram
             networks={groups.map((group, index) => ({
@@ -217,38 +234,20 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
 
           <div className="flex min-w-[130px] shrink-0 flex-col gap-[7px]">
             {isAssembling ? (
-              <>
-                <div className="font-mono text-[10px] leading-none font-medium tracking-[0.2em] text-muted-foreground">
-                  ASSEMBLING
-                </div>
-                <div className="flex items-baseline gap-[7px]">
-                  <div className="font-mono text-[38px] leading-[0.88] font-semibold tracking-[-0.03em] tabular-nums text-[var(--color-ethernet)]">
-                    {assemblePercent}
-                  </div>
-                  <div className="font-mono text-[12px] leading-none font-medium text-muted-foreground">
-                    %
-                  </div>
-                </div>
-              </>
+              <BigStat
+                label="ASSEMBLING"
+                value={assemblePercent}
+                unit="%"
+                valueClass="text-[var(--color-ethernet)]"
+              />
             ) : (
               <>
-                <div className="flex items-center gap-1.5 font-mono text-[10px] leading-none font-medium tracking-[0.2em] text-muted-foreground">
-                  <span>TOTAL SPEED</span>
-                </div>
-                <div className="flex items-baseline gap-[7px]">
-                  <div
-                    className={`font-mono text-[38px] leading-[0.88] font-semibold tracking-[-0.03em] tabular-nums ${
-                      isPaused ? 'text-muted-foreground' : 'text-foreground'
-                    }`}
-                  >
-                    {isPaused ? '—' : speed.value}
-                  </div>
-                  {!isPaused && (
-                    <div className="font-mono text-[12px] leading-none font-medium text-muted-foreground">
-                      {speed.unit}/s
-                    </div>
-                  )}
-                </div>
+                <BigStat
+                  label="TOTAL SPEED"
+                  value={isPaused ? '—' : speed.value}
+                  unit={isPaused ? undefined : `${speed.unit}/s`}
+                  valueClass={isPaused ? 'text-muted-foreground' : 'text-foreground'}
+                />
                 <div className="flex items-center gap-2 font-mono text-[10px] leading-none font-medium tabular-nums text-muted-foreground">
                   <InlineStat label="AVG" value={formatSpeed(avgSpeedBytesPerSec)} />
                   <Dot />
@@ -256,7 +255,10 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                 </div>
                 {isPaused
                   ? download.error && (
-                      <div className="mt-0.5 font-sans text-[11px] leading-[1.2] font-medium text-destructive">
+                      <div
+                        role="alert"
+                        className="mt-0.5 font-sans text-[11px] leading-[1.2] font-medium text-destructive"
+                      >
                         {download.error}
                       </div>
                     )
@@ -264,9 +266,9 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                       <CyclableChip
                         label={activeChipOption.label}
                         tooltip={`${activeChipOption.tooltip}${chipOptions.length > 1 ? ' (click to toggle)' : ''}`}
-                        bg={activeChipOption.bg}
-                        border={activeChipOption.border}
-                        color={activeChipOption.color}
+                        bg={activeChipOption.visual.bg}
+                        border={activeChipOption.visual.border}
+                        color={activeChipOption.visual.text}
                         cyclable={chipOptions.length > 1}
                         onClick={() => setChipModeIndex((i) => (i + 1) % chipOptions.length)}
                       />
@@ -325,24 +327,14 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                   </span>
                 </>
               )}
-              {isPaused && (
+              {statusBadge && (
                 <ColorBadge
-                  bg="var(--color-usb-bg)"
-                  border="var(--color-usb-border)"
-                  text="var(--color-usb)"
+                  bg={statusBadge.palette.bg}
+                  border={statusBadge.palette.border}
+                  text={statusBadge.palette.text}
                   className="h-auto rounded-[3.5px] px-[7px] py-0.5 text-[9.5px] font-semibold tracking-[0.08em]"
                 >
-                  PAUSED
-                </ColorBadge>
-              )}
-              {isAssembling && (
-                <ColorBadge
-                  bg="var(--color-ethernet-bg)"
-                  border="var(--color-ethernet-border)"
-                  text="var(--color-ethernet-text)"
-                  className="h-auto rounded-[3.5px] px-[7px] py-0.5 text-[9.5px] font-semibold tracking-[0.08em]"
-                >
-                  ASSEMBLING
+                  {statusBadge.label}
                 </ColorBadge>
               )}
             </div>
@@ -362,41 +354,42 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
       </div>
 
       <div className="flex-1 overflow-x-hidden overflow-y-auto">
-        <div className="flex items-baseline justify-between p-[0_20px_8px]">
-          <div className={sectionHeaderClass}>Networks</div>
-          <div className="shrink-0 font-mono text-[10.5px] leading-none text-muted-foreground">
-            {groups.length} combined · {download.chunks.length} streams
-            {networksStatusLabel ? ` · ${networksStatusLabel}` : ''}
-          </div>
-        </div>
         <div
-          className="grid gap-x-3 px-5"
+          role="table"
+          aria-label="Networks"
+          className="grid gap-x-3"
           style={{ gridTemplateColumns: NETWORK_ROW_GRID_COLUMNS }}
         >
-          <div className="col-span-full grid grid-cols-subgrid gap-x-3 border-b border-border pt-2.5 pb-[7px] font-mono text-[9.5px] leading-none tracking-[0.12em] text-muted-foreground uppercase">
-            <div />
-            <div>Network</div>
-            <div>Progress</div>
-            <div className="text-right">Share</div>
-            <div className="text-right">Speed</div>
-            <div className="text-right">Downloaded</div>
+          <div
+            role="row"
+            className="col-span-full grid grid-cols-subgrid gap-x-3 border-b border-border pt-2.5 pb-[7px] font-mono text-[9.5px] leading-none tracking-[0.12em] text-muted-foreground uppercase"
+          >
+            <div role="columnheader" aria-label="Status" />
+            <div role="columnheader">Network</div>
+            <div role="columnheader">Progress</div>
+            <div role="columnheader" className="text-right">
+              Share
+            </div>
+            <div role="columnheader" className="text-right">
+              Speed
+            </div>
+            <div role="columnheader" className="pr-5 text-right">
+              Downloaded
+            </div>
           </div>
-          {groups.map((group) => {
-            const sharePercent =
-              totalDownloadedByNetworks > 0
-                ? (group.bytesDownloaded / totalDownloadedByNetworks) * 100
-                : 0
-            return (
-              <NetworkRow
-                key={group.interfaceId}
-                group={group}
-                sharePercent={sharePercent}
-                totalBytes={download.totalBytes}
-                totalDownloaded={totalDownloadedByNetworks}
-                blocks={download.blocks}
-              />
-            )
-          })}
+          {groups.map((group) => (
+            <NetworkRow
+              key={group.interfaceId}
+              group={group}
+              sharePercent={
+                totalDownloadedByNetworks > 0
+                  ? (group.bytesDownloaded / totalDownloadedByNetworks) * 100
+                  : 0
+              }
+              totalBytes={download.totalBytes}
+              blocks={download.blocks}
+            />
+          ))}
         </div>
       </div>
 
@@ -423,36 +416,26 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             </>
           )}
         </div>
-        <Tooltip open={isAssembling ? undefined : false}>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant={isPaused ? 'default' : 'secondary'}
-                onClick={handlePauseResume}
-                disabled={isAssembling || resuming}
-              >
-                {pauseResumeLabel}
-              </Button>
-            }
-          />
-          <TooltipContent>Can&apos;t pause while assembling the file</TooltipContent>
-        </Tooltip>
-        <Tooltip open={isAssembling ? undefined : false}>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={handleCancel}
-                disabled={isAssembling}
-              >
-                Cancel
-              </Button>
-            }
-          />
-          <TooltipContent>Can&apos;t cancel while assembling the file</TooltipContent>
-        </Tooltip>
+        <WhileAssembling active={isAssembling} text="Can’t pause while assembling the file">
+          <Button
+            type="button"
+            variant={isPaused ? 'default' : 'secondary'}
+            onClick={handlePauseResume}
+            disabled={isAssembling || resuming}
+          >
+            {pauseResumeLabel}
+          </Button>
+        </WhileAssembling>
+        <WhileAssembling active={isAssembling} text="Can’t cancel while assembling the file">
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={handleCancel}
+            disabled={isAssembling}
+          >
+            Cancel
+          </Button>
+        </WhileAssembling>
       </div>
     </div>
   )

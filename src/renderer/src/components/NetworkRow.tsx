@@ -171,18 +171,9 @@ export function NetworkRow({
                     Stream #{index + 1}
                   </span>
                   {currentBlock && (
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <span className="rounded-[3px] border-[0.5px] border-border bg-secondary px-[4.5px] py-[1.5px] font-mono text-[9px] leading-none whitespace-nowrap text-muted-foreground">
-                            Chunk #{currentBlock.index + 1}
-                          </span>
-                        }
-                      />
-                      <TooltipContent>
-                        Range: {currentBlock.rangeStart} – {currentBlock.rangeEnd ?? 'end'}
-                      </TooltipContent>
-                    </Tooltip>
+                    <span className="rounded-[3px] border-[0.5px] border-border bg-secondary px-[4.5px] py-[1.5px] font-mono text-[9px] leading-none whitespace-nowrap text-muted-foreground">
+                      Chunk #{currentBlock.index + 1}
+                    </span>
                   )}
                   {isChunkActive ? (
                     <ColorBadge

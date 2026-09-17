@@ -7,7 +7,18 @@ import { CyclableChip } from '../components/CyclableChip'
 import { NetworkRow } from '../components/NetworkRow'
 import { ThroughputChart } from '../components/ThroughputChart'
 import { TruncatedText } from '../components/TruncatedText'
-import { Button } from '../components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger
+} from '../components/ui/alert-dialog'
+import { Button, buttonVariants } from '../components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
 import { useNetworkPolling } from '../hooks/useNetworkPolling'
 import { useNetworkVisuals } from '../hooks/useNetworkVisuals'
@@ -158,10 +169,8 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
       void window.plexo.pauseDownload(download.id)
     }
   }
-  const handleCancel = (): void => {
-    if (window.confirm('Cancel this download? Progress will be lost.')) {
-      void window.plexo.cancelDownload(download.id)
-    }
+  const handleConfirmCancel = (): void => {
+    void window.plexo.cancelDownload(download.id)
   }
 
   const effectiveSpeed = isPaused ? 0 : download.speedBytesPerSec
@@ -430,16 +439,32 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             {pauseResumeLabel}
           </Button>
         </WhileAssembling>
-        <WhileAssembling active={isAssembling} text="Can’t cancel while assembling the file">
-          <Button
-            type="button"
-            variant="destructive"
-            onClick={handleCancel}
-            disabled={isAssembling}
-          >
-            Cancel
-          </Button>
-        </WhileAssembling>
+        <AlertDialog>
+          <WhileAssembling active={isAssembling} text="Can’t cancel while assembling the file">
+            <AlertDialogTrigger
+              render={
+                <Button type="button" variant="destructive" disabled={isAssembling}>
+                  Cancel
+                </Button>
+              }
+            />
+          </WhileAssembling>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Cancel this download?</AlertDialogTitle>
+              <AlertDialogDescription>Progress will be lost.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep downloading</AlertDialogCancel>
+              <AlertDialogAction
+                className={buttonVariants({ variant: 'destructive', size: 'sm' })}
+                onClick={handleConfirmCancel}
+              >
+                Cancel download
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   )

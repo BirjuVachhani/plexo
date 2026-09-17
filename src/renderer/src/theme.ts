@@ -1,4 +1,4 @@
-import type { NetworkInterfaceKind, NetworkPreference } from '@shared/types'
+import type { NetworkInterfaceKind, NetworkPreference, NetworkPreferences } from '@shared/types'
 
 interface KindPalette {
   solid: string
@@ -61,6 +61,13 @@ export const NETWORK_COLOR_SWATCHES = [
 
 export type NetworkColorId = (typeof NETWORK_COLOR_SWATCHES)[number]['id']
 
+/** Whether a persisted colorId still names one of the current swatches — a stale id (from a
+ * removed swatch, or corrupted storage) must fall back to the kind default rather than be
+ * trusted as-is. */
+export function isValidNetworkColorId(id: string | undefined): id is NetworkColorId {
+  return NETWORK_COLOR_SWATCHES.some((swatch) => swatch.id === id)
+}
+
 /** Derives a full surface set (bg/border/text) from a swatch's one solid color, tinted against
  * the ambient theme — same trick as the kind palette, just computed at runtime since these
  * colors are picked by the user rather than baked into the design. */
@@ -71,25 +78,70 @@ function tint(source: string, amount: number, base = 'var(--bg-secondary)'): str
 export interface NetworkVisual extends KindPalette {
   /** The network's effective display name — the user's custom name if set, else the OS one. */
   name: string
+  colorId: NetworkColorId
 }
 
-/** Resolves what a physical network should actually look like in the UI: its kind's default
- * palette, unless the user picked a custom color for this specific interface id, and its OS
- * display name, unless the user gave it a friendlier one (e.g. "feth0" -> "iPhone Hotspot"). */
+// The swatch each kind's palette is tuned from (same hex in dark mode). Bridge/other have no
+// hue of their own — neutral grey reads as "offline" in charts — so they always take a free one.
+const KIND_SWATCH: Record<NetworkInterfaceKind, NetworkColorId | undefined> = {
+  wifi: 'teal',
+  usb: 'amber',
+  ethernet: 'steel',
+  bridge: undefined,
+  other: undefined
+}
+
+/** Gives every network exactly one color, distinct from the others while swatches last: a
+ * user-picked color always wins, then each network gets its kind's hue if still free, then the
+ * first unused swatch — so two USB phones never both render amber. */
+export function assignNetworkColors(
+  networks: Map<string, NetworkInterfaceKind>,
+  preferences: NetworkPreferences
+): Map<string, NetworkColorId> {
+  // ponytail: ordered by id, so plugging in a same-kind network can shift an unpinned one's color.
+  const ids = [...networks.keys()].sort()
+  const colors = new Map<string, NetworkColorId>()
+  const used = new Set<NetworkColorId>()
+  const take = (id: string, color: NetworkColorId): void => {
+    colors.set(id, color)
+    used.add(color)
+  }
+
+  for (const id of ids) {
+    const pinned = preferences[id]?.colorId
+    if (isValidNetworkColorId(pinned)) take(id, pinned)
+  }
+  for (const id of ids) {
+    const kindColor = KIND_SWATCH[networks.get(id)!]
+    if (!colors.has(id) && kindColor && !used.has(kindColor)) take(id, kindColor)
+  }
+  for (const id of ids) {
+    if (colors.has(id)) continue
+    const free = NETWORK_COLOR_SWATCHES.find((swatch) => !used.has(swatch.id))?.id
+    take(id, free ?? KIND_SWATCH[networks.get(id)!] ?? NETWORK_COLOR_SWATCHES[0].id)
+  }
+  return colors
+}
+
+/** What a network looks like given its assigned color (see assignNetworkColors): the kind's
+ * hand-tuned light/dark palette when the color is the kind's own hue, a tint of the swatch
+ * otherwise. Name is the user's custom one, else the OS one (e.g. "feth0" -> "iPhone Hotspot"). */
 export function resolveNetworkVisual(
   kind: NetworkInterfaceKind,
   fallbackName: string,
-  preference: NetworkPreference | undefined
+  preference: NetworkPreference | undefined,
+  colorId: NetworkColorId
 ): NetworkVisual {
   const name = preference?.customName?.trim() || fallbackName
   const kindPalette = KIND_PALETTE[kind]
-  const swatch = NETWORK_COLOR_SWATCHES.find((entry) => entry.id === preference?.colorId)
+  const swatch = NETWORK_COLOR_SWATCHES.find((entry) => entry.id === colorId)!
 
-  if (!swatch) {
-    return { ...kindPalette, name }
+  if (colorId === KIND_SWATCH[kind]) {
+    return { ...kindPalette, name, colorId }
   }
 
   return {
+    colorId,
     solid: swatch.solid,
     bg: tint(swatch.solid, 16),
     border: tint(swatch.solid, 42, 'var(--border-strong)'),

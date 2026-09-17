@@ -3,8 +3,8 @@ import type { DownloadState } from '@shared/types'
 import { CyclableChip } from '../components/CyclableChip'
 import { ThroughputChart } from '../components/ThroughputChart'
 import { Button } from '../components/ui/button'
+import { useNetworkVisuals } from '../hooks/useNetworkVisuals'
 import { useAppStore } from '../store/useAppStore'
-import { resolveNetworkVisual } from '../theme'
 import {
   dirnameOf,
   formatBytes,
@@ -29,7 +29,7 @@ export function CompleteScreen({
   const homeDir = useAppStore((store) => store.homeDir)
   const peakSpeedBytesPerSec = useAppStore((store) => store.peakSpeedBytesPerSec)
   const speedHistoryByInterface = useAppStore((store) => store.speedHistoryByInterface)
-  const networkPreferences = useAppStore((store) => store.networkPreferences)
+  const networkVisual = useNetworkVisuals()
 
   const finalSize = download.totalBytes || download.bytesDownloaded
   // completedAt is always set by the time a download reaches 'completed' — the
@@ -39,11 +39,7 @@ export function CompleteScreen({
 
   const groups = groupChunksByInterface(download.chunks)
   const visuals = groups.map((group) =>
-    resolveNetworkVisual(
-      group.interfaceKind,
-      group.interfaceLabel,
-      networkPreferences[group.interfaceId]
-    )
+    networkVisual(group.interfaceId, group.interfaceKind, group.interfaceLabel)
   )
   const totalWeight = groups.reduce((sum, group) => sum + group.bytesDownloaded, 0) || 1
   const totalRetries = download.chunks.reduce((sum, chunk) => sum + chunk.retryCount, 0)

@@ -8,8 +8,9 @@ import { NetworkRow } from '../components/NetworkRow'
 import { ThroughputChart } from '../components/ThroughputChart'
 import { Button } from '../components/ui/button'
 import { useNetworkPolling } from '../hooks/useNetworkPolling'
+import { useNetworkVisuals } from '../hooks/useNetworkVisuals'
 import { useAppStore } from '../store/useAppStore'
-import { NETWORK_ROW_GRID_COLUMNS, resolveNetworkVisual } from '../theme'
+import { NETWORK_ROW_GRID_COLUMNS } from '../theme'
 import {
   dirnameOf,
   fileExtensionBadge,
@@ -60,7 +61,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   const speedHistory = useAppStore((store) => store.speedHistory)
   const speedHistoryByInterface = useAppStore((store) => store.speedHistoryByInterface)
   const peakSpeedBytesPerSec = useAppStore((store) => store.peakSpeedBytesPerSec)
-  const networkPreferences = useAppStore((store) => store.networkPreferences)
+  const networkVisual = useNetworkVisuals()
   const isPaused = download.status === 'paused'
   const isAssembling = download.status === 'assembling'
   const percent = formatPercent(download.bytesDownloaded, download.totalBytes)
@@ -123,11 +124,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   const groups = groupChunksByInterface(download.chunks)
   const totalDownloadedByNetworks = groups.reduce((sum, g) => sum + g.bytesDownloaded, 0)
   const visuals = groups.map((group) =>
-    resolveNetworkVisual(
-      group.interfaceKind,
-      group.interfaceLabel,
-      networkPreferences[group.interfaceId]
-    )
+    networkVisual(group.interfaceId, group.interfaceKind, group.interfaceLabel)
   )
   const activeGroups = groups.filter((group) =>
     group.chunks.some((chunk) => chunk.status === 'downloading')

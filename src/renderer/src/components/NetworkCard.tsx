@@ -1,13 +1,7 @@
 import type { NetworkInterfaceInfo } from '@shared/types'
-import { Pencil } from 'lucide-react'
-import { useState } from 'react'
-import { useAppStore } from '../store/useAppStore'
-import { resolveNetworkVisual, type NetworkColorId } from '../theme'
+import { useNetworkVisuals } from '../hooks/useNetworkVisuals'
 import { ColorBadge } from './ColorBadge'
-import { NetworkEditorFields } from './NetworkEditorFields'
-import { Button } from './ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
-import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
+import { NetworkEditPopover } from './NetworkEditPopover'
 
 interface NetworkCardProps {
   iface: NetworkInterfaceInfo
@@ -46,10 +40,7 @@ export function NetworkCard({
   latencyMs,
   onToggle
 }: NetworkCardProps): React.JSX.Element {
-  const [editing, setEditing] = useState(false)
-  const preference = useAppStore((store) => store.networkPreferences[iface.id])
-  const setNetworkPreference = useAppStore((store) => store.setNetworkPreference)
-  const visual = resolveNetworkVisual(iface.kind, iface.displayName, preference)
+  const visual = useNetworkVisuals()(iface.id, iface.kind, iface.displayName)
   const online = latencyMs != null
 
   return (
@@ -78,39 +69,11 @@ export function NetworkCard({
               {visual.name}
             </div>
           </button>
-          <Popover open={editing} onOpenChange={setEditing}>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <PopoverTrigger
-                    render={
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label="Rename or recolor this network"
-                        className="shrink-0 text-muted-foreground"
-                      >
-                        <Pencil className="size-3" />
-                      </Button>
-                    }
-                  />
-                }
-              />
-              <TooltipContent>Rename or recolor this network</TooltipContent>
-            </Tooltip>
-            <PopoverContent className="w-[276px]">
-              <NetworkEditorFields
-                name={preference?.customName ?? ''}
-                onNameChange={(customName) => setNetworkPreference(iface.id, { customName })}
-                namePlaceholder={iface.displayName}
-                colorId={preference?.colorId as NetworkColorId | undefined}
-                onColorSelect={(colorId) => setNetworkPreference(iface.id, { colorId })}
-                interfaceKind={iface.kind}
-                onDone={() => setEditing(false)}
-              />
-            </PopoverContent>
-          </Popover>
+          <NetworkEditPopover
+            interfaceId={iface.id}
+            interfaceKind={iface.kind}
+            osName={iface.displayName}
+          />
         </div>
         <ColorBadge
           bg={selected ? visual.bg : 'transparent'}

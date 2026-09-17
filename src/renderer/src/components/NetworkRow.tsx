@@ -1,19 +1,11 @@
 import { useState } from 'react'
-import { Pencil } from 'lucide-react'
-import { useAppStore } from '../store/useAppStore'
+import { useNetworkVisuals } from '../hooks/useNetworkVisuals'
 import type { BlockState } from '@shared/types'
-import {
-  DANGER,
-  NETWORK_ROW_GRID_COLUMNS,
-  resolveNetworkVisual,
-  type NetworkColorId
-} from '../theme'
+import { DANGER, NETWORK_ROW_GRID_COLUMNS } from '../theme'
 import type { NetworkGroup } from '../utils/format'
 import { formatBytes, formatSpeed } from '../utils/format'
 import { ColorBadge } from './ColorBadge'
-import { NetworkEditorFields } from './NetworkEditorFields'
-import { Button } from './ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
+import { NetworkEditPopover } from './NetworkEditPopover'
 
 interface NetworkRowProps {
   group: NetworkGroup
@@ -29,11 +21,8 @@ export function NetworkRow({
   totalBytes,
   blocks
 }: NetworkRowProps): React.JSX.Element {
-  const [editing, setEditing] = useState(false)
   const [expanded, setExpanded] = useState(false)
-  const preference = useAppStore((store) => store.networkPreferences[group.interfaceId])
-  const setNetworkPreference = useAppStore((store) => store.setNetworkPreference)
-  const visual = resolveNetworkVisual(group.interfaceKind, group.interfaceLabel, preference)
+  const visual = useNetworkVisuals()(group.interfaceId, group.interfaceKind, group.interfaceLabel)
   const hasError = group.chunks.some((chunk) => chunk.status === 'error')
   const isActive = group.chunks.some((chunk) => chunk.status === 'downloading')
 
@@ -64,33 +53,11 @@ export function NetworkRow({
         >
           {visual.name}
         </span>
-        <Popover open={editing} onOpenChange={setEditing}>
-          <PopoverTrigger
-            render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                title="Rename or recolor this network"
-                aria-label="Rename or recolor this network"
-                className="shrink-0 text-muted-foreground"
-              >
-                <Pencil className="size-3" />
-              </Button>
-            }
-          />
-          <PopoverContent className="w-[276px]">
-            <NetworkEditorFields
-              name={preference?.customName ?? ''}
-              onNameChange={(customName) => setNetworkPreference(group.interfaceId, { customName })}
-              namePlaceholder={group.interfaceLabel}
-              colorId={preference?.colorId as NetworkColorId | undefined}
-              onColorSelect={(colorId) => setNetworkPreference(group.interfaceId, { colorId })}
-              interfaceKind={group.interfaceKind}
-              onDone={() => setEditing(false)}
-            />
-          </PopoverContent>
-        </Popover>
+        <NetworkEditPopover
+          interfaceId={group.interfaceId}
+          interfaceKind={group.interfaceKind}
+          osName={group.interfaceLabel}
+        />
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}

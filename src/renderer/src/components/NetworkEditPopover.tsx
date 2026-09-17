@@ -17,6 +17,8 @@ interface NetworkEditPopoverProps {
 const fieldLabelClass =
   'font-mono text-[9px] leading-none font-medium tracking-[0.12em] text-muted-foreground uppercase'
 
+const MAX_NETWORK_NAME_LENGTH = 40
+
 /** Rename/recolor one network. Edits are a draft that's saved when the popover closes — Done,
  * Enter or clicking away — and thrown away on Escape, like renaming a file in Finder. */
 export function NetworkEditPopover({
@@ -33,7 +35,7 @@ export function NetworkEditPopover({
   const [draftColorId, setDraftColorId] = useState<NetworkColorId>(visual.colorId)
 
   function save(): void {
-    const trimmed = draftName.trim()
+    const trimmed = draftName.trim().slice(0, MAX_NETWORK_NAME_LENGTH)
     const customName = trimmed && trimmed !== osName ? trimmed : undefined
     // Re-picking the color it already had keeps it automatic instead of pinning it.
     const colorId = draftColorId === visual.colorId ? preference?.colorId : draftColorId
@@ -95,6 +97,7 @@ export function NetworkEditPopover({
               if (event.key === 'Enter') close()
             }}
             placeholder={osName}
+            maxLength={MAX_NETWORK_NAME_LENGTH}
             autoFocus
             className="rounded-[6px] border border-input bg-background px-[9px] py-1.5 font-sans text-[12px] leading-[1.3] font-medium text-foreground outline-none focus-visible:border-ring"
           />

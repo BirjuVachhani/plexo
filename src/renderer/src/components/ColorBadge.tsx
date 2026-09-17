@@ -30,7 +30,11 @@ export function ColorBadge({
         } as React.CSSProperties
       }
       className={cn(
-        'rounded-[4px] border-[var(--badge-border)] bg-[var(--badge-bg)] text-[var(--badge-text)]',
+        // `leading-none` because `Badge`'s base `text-xs` also sets a 1rem line-height, and a
+        // call site that shrinks the font with `text-[9px]` doesn't shrink that. On a badge left
+        // at the base `h-5` that's invisible, but on an `h-auto` one it makes the box ~20px tall
+        // next to 13px siblings — so the badge appearing (ACTIVE, PAUSED) grew its whole row.
+        'rounded-[4px] border-[var(--badge-border)] bg-[var(--badge-bg)] text-[var(--badge-text)] leading-none',
         className
       )}
       {...props}

@@ -332,7 +332,11 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                   bg={statusBadge.palette.bg}
                   border={statusBadge.palette.border}
                   text={statusBadge.palette.text}
-                  className="h-auto rounded-[3.5px] px-[7px] py-0.5 text-[9.5px] font-semibold tracking-[0.08em]"
+                  // Pinned for the same reason as the stream row's ACTIVE badge: sizing itself,
+                  // it pushed this text block past the 44px file-type icon beside it and nudged
+                  // everything below down. At h-4 the block stays under the icon, so the row
+                  // height is the icon's either way.
+                  className="h-4 rounded-[3.5px] px-[7px] py-0.5 text-[9.5px] font-semibold tracking-[0.08em]"
                 >
                   {statusBadge.label}
                 </ColorBadge>

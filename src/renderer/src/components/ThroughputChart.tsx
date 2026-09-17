@@ -13,18 +13,21 @@ interface ThroughputChartProps {
 export function ThroughputChart({
   order,
   historyByInterface
-}: ThroughputChartProps): React.JSX.Element | null {
+}: ThroughputChartProps): React.JSX.Element {
   const length = Math.max(
     0,
     ...order.map((entry) => historyByInterface[entry.interfaceId]?.length ?? 0)
   )
-  if (length < 2) return null
 
   const totals = Array.from({ length }, (_, i) =>
     order.reduce((sum, entry) => sum + (historyByInterface[entry.interfaceId]?.[i] ?? 0), 0)
   )
   const max = Math.max(1, ...totals)
-  const xStep = WIDTH / (length - 1)
+  // Fewer than two samples draws no area at all — but the empty gridlines still render, so the
+  // chart keeps its height. It's the tallest thing in the hero band, and bailing out to `null`
+  // for the first second of a download (or after a resume re-keys the history) collapsed the
+  // band and shoved the whole screen up, then back down again.
+  const xStep = length > 1 ? WIDTH / (length - 1) : WIDTH
   const toY = (value: number): number => HEIGHT - (value / max) * HEIGHT
 
   interface Layer {

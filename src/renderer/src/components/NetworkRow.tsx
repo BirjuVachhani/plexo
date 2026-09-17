@@ -230,7 +230,11 @@ export function NetworkRow({
                     bg={visual.bg}
                     border={visual.border}
                     text={visual.text}
-                    className="h-auto rounded-[3px] px-[5px] py-px text-[9px] font-semibold tracking-[0.04em]"
+                    // Height is pinned, not `h-auto`: this badge swaps in and out as a stream
+                    // goes active, and the cell is only as tall as "Stream #N" (13.2px). Left to
+                    // size itself the badge came out taller than that and grew the row on every
+                    // swap. 13px keeps it under, whatever line-height it ends up inheriting.
+                    className="h-[13px] rounded-[3px] px-[5px] py-px text-[9px] font-semibold tracking-[0.04em]"
                   >
                     ACTIVE
                   </ColorBadge>

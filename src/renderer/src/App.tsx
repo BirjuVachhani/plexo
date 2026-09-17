@@ -83,9 +83,9 @@ function App(): React.JSX.Element {
 
   return (
     <TooltipProvider>
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div className="flex h-full flex-col">
         <TitleBar status={titleBarStatus} />
-        <div style={{ flex: 1, minHeight: 0 }}>{screen}</div>
+        <div className="min-h-0 flex-1">{screen}</div>
         <DevToolsPanel />
       </div>
     </TooltipProvider>

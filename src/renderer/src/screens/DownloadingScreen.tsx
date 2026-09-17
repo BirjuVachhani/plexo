@@ -1,26 +1,15 @@
 import type { DownloadState } from '@shared/types'
 import { useEffect, useState } from 'react'
 import { BlockGrid } from '../components/BlockGrid'
+import { ColorBadge } from '../components/ColorBadge'
 import { CombineDiagram } from '../components/CombineDiagram'
+import { CyclableChip } from '../components/CyclableChip'
 import { NetworkRow } from '../components/NetworkRow'
 import { ThroughputChart } from '../components/ThroughputChart'
+import { Button } from '../components/ui/button'
 import { useNetworkPolling } from '../hooks/useNetworkPolling'
 import { useAppStore } from '../store/useAppStore'
-import {
-  FONT_MONO,
-  FONT_UI,
-  accentChipStyle,
-  dangerButtonStyle,
-  footerStyle,
-  footerTextStyle,
-  networkTableGridStyle,
-  networkTableHeaderStyle,
-  primaryButtonStyle,
-  resolveNetworkVisual,
-  secondaryButtonStyle,
-  sectionHeaderLabelStyle,
-  sectionHeaderMetaStyle
-} from '../theme'
+import { NETWORK_ROW_GRID_COLUMNS, resolveNetworkVisual } from '../theme'
 import {
   dirnameOf,
   fileExtensionBadge,
@@ -37,11 +26,9 @@ import {
 // light/dark theme — scoping the theme variables it reads (--text, --border, ...) to these
 // literal values keeps its own children (labels, the combine diagram, the chart) legible no
 // matter which OS appearance the rest of the window is following.
-const heroScopeStyle: React.CSSProperties = {
-  padding: '18px 20px',
-  background: 'var(--hero-bg)',
-  borderBottom: '1px solid var(--hero-border)'
-}
+const heroClass = 'border-b border-b-[var(--hero-border)] bg-[image:var(--hero-bg)] px-5 py-[18px]'
+const sectionHeaderClass =
+  'font-mono text-[10px] leading-none tracking-[0.16em] text-muted-foreground uppercase'
 
 // Build list of toggleable comparison metrics for active networks (only "X× [NETWORK] ALONE").
 interface SpeedChipOption {
@@ -55,43 +42,13 @@ interface SpeedChipOption {
 /** Inline "·" separator between adjacent stats. `shrink` pins it at its natural width inside a
  * flex row that might otherwise squeeze it (footer rows), matching each call site's prior style. */
 function Dot({ shrink }: { shrink?: boolean }): React.JSX.Element {
-  return <span style={{ opacity: 0.35, flexShrink: shrink ? 0 : undefined }}>·</span>
+  return <span className={`opacity-35 ${shrink ? 'shrink-0' : ''}`}>·</span>
 }
 
 function InlineStat({ label, value }: { label: string; value: string }): React.JSX.Element {
   return (
     <span>
       {label} <span className="font-semibold text-foreground">{value}</span>
-    </span>
-  )
-}
-
-/** The small "PAUSED"/"ASSEMBLING" tag next to the file name — shape is fixed, only the label
- * and its network-kind color tokens vary between the two call sites. */
-function StatusPill({
-  label,
-  color,
-  bg,
-  border
-}: {
-  label: string
-  color: string
-  bg: string
-  border: string
-}): React.JSX.Element {
-  return (
-    <span
-      style={{
-        font: `600 9.5px/1 ${FONT_MONO}`,
-        letterSpacing: '0.08em',
-        color,
-        background: bg,
-        border: `0.5px solid ${border}`,
-        padding: '2px 7px',
-        borderRadius: 3.5
-      }}
-    >
-      {label}
     </span>
   )
 }
@@ -243,8 +200,8 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div style={heroScopeStyle} className="text-foreground">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+      <div className={`${heroClass} text-foreground`}>
+        <div className="flex items-center gap-[14px]">
           <CombineDiagram
             networks={groups.map((group, index) => ({
               solid: visuals[index].solid,
@@ -255,136 +212,74 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             assembling={isAssembling}
           />
 
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 7,
-              minWidth: 130,
-              flexShrink: 0
-            }}
-          >
+          <div className="flex min-w-[130px] shrink-0 flex-col gap-[7px]">
             {isAssembling ? (
               <>
-                <div
-                  className="text-muted-foreground"
-                  style={{ font: `500 10px/1 ${FONT_MONO}`, letterSpacing: '0.2em' }}
-                >
+                <div className="font-mono text-[10px] leading-none font-medium tracking-[0.2em] text-muted-foreground">
                   ASSEMBLING
                 </div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
-                  <div
-                    style={{
-                      font: `600 38px/0.88 ${FONT_MONO}`,
-                      letterSpacing: '-0.03em',
-                      color: 'var(--color-ethernet)',
-                      fontVariantNumeric: 'tabular-nums'
-                    }}
-                  >
+                <div className="flex items-baseline gap-[7px]">
+                  <div className="font-mono text-[38px] leading-[0.88] font-semibold tracking-[-0.03em] tabular-nums text-[var(--color-ethernet)]">
                     {assemblePercent}
                   </div>
-                  <div
-                    className="text-muted-foreground"
-                    style={{ font: `500 12px/1 ${FONT_MONO}` }}
-                  >
+                  <div className="font-mono text-[12px] leading-none font-medium text-muted-foreground">
                     %
                   </div>
                 </div>
               </>
             ) : (
               <>
-                <div
-                  className="text-muted-foreground"
-                  style={{
-                    font: `500 10px/1 ${FONT_MONO}`,
-                    letterSpacing: '0.2em',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6
-                  }}
-                >
+                <div className="flex items-center gap-1.5 font-mono text-[10px] leading-none font-medium tracking-[0.2em] text-muted-foreground">
                   <span>TOTAL SPEED</span>
                   {isPaused && (
-                    <span
-                      style={{
-                        font: `600 9px/1 ${FONT_MONO}`,
-                        letterSpacing: '0.08em',
-                        color: 'var(--color-usb)',
-                        background: 'var(--color-usb-bg)',
-                        border: '0.5px solid var(--color-usb-border)',
-                        padding: '2px 5px',
-                        borderRadius: 3
-                      }}
+                    <ColorBadge
+                      bg="var(--color-usb-bg)"
+                      border="var(--color-usb-border)"
+                      text="var(--color-usb)"
+                      className="h-auto rounded-[3px] px-[5px] py-0.5 text-[9px] font-semibold tracking-[0.08em]"
                     >
                       PAUSED
-                    </span>
+                    </ColorBadge>
                   )}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
+                <div className="flex items-baseline gap-[7px]">
                   <div
-                    className={isPaused ? 'text-muted-foreground' : 'text-foreground'}
-                    style={{
-                      font: `600 38px/0.88 ${FONT_MONO}`,
-                      letterSpacing: '-0.03em',
-                      fontVariantNumeric: 'tabular-nums'
-                    }}
+                    className={`font-mono text-[38px] leading-[0.88] font-semibold tracking-[-0.03em] tabular-nums ${
+                      isPaused ? 'text-muted-foreground' : 'text-foreground'
+                    }`}
                   >
                     {isPaused ? '—' : speed.value}
                   </div>
                   {!isPaused && (
-                    <div
-                      className="text-muted-foreground"
-                      style={{ font: `500 12px/1 ${FONT_MONO}` }}
-                    >
+                    <div className="font-mono text-[12px] leading-none font-medium text-muted-foreground">
                       {speed.unit}/s
                     </div>
                   )}
                 </div>
-                <div
-                  className="text-muted-foreground"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    font: `500 10px/1 ${FONT_MONO}`,
-                    fontVariantNumeric: 'tabular-nums'
-                  }}
-                >
+                <div className="flex items-center gap-2 font-mono text-[10px] leading-none font-medium tabular-nums text-muted-foreground">
                   <InlineStat label="AVG" value={formatSpeed(avgSpeedBytesPerSec)} />
                   <Dot />
                   <InlineStat label="PEAK" value={formatSpeed(peakSpeedBytesPerSec)} />
                 </div>
                 {isPaused ? (
                   <div
-                    className={download.error ? 'text-destructive' : 'text-muted-foreground'}
-                    style={{ font: `500 11px/1.2 ${FONT_UI}`, marginTop: 2 }}
+                    className={`mt-0.5 font-sans text-[11px] leading-[1.2] font-medium ${
+                      download.error ? 'text-destructive' : 'text-muted-foreground'
+                    }`}
                   >
                     {download.error ?? 'Download paused'}
                   </div>
                 ) : (
                   activeChipOption && (
-                    <button
-                      type="button"
+                    <CyclableChip
+                      label={activeChipOption.label}
+                      tooltip={`${activeChipOption.tooltip}${chipOptions.length > 1 ? ' (click to toggle)' : ''}`}
+                      bg={activeChipOption.bg}
+                      border={activeChipOption.border}
+                      color={activeChipOption.color}
+                      cyclable={chipOptions.length > 1}
                       onClick={() => setChipModeIndex((i) => (i + 1) % chipOptions.length)}
-                      title={`${activeChipOption.tooltip}${chipOptions.length > 1 ? ' (click to toggle)' : ''}`}
-                      style={{
-                        ...accentChipStyle,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 5,
-                        cursor: chipOptions.length > 1 ? 'pointer' : 'default',
-                        userSelect: 'none',
-                        border: `0.5px solid ${activeChipOption.border}`,
-                        background: activeChipOption.bg,
-                        color: activeChipOption.color,
-                        width: 'fit-content'
-                      }}
-                    >
-                      <span>{activeChipOption.label}</span>
-                      {chipOptions.length > 1 && (
-                        <span style={{ opacity: 0.55, fontSize: 8.5 }}>⇄</span>
-                      )}
-                    </button>
+                    />
                   )
                 )}
               </>
@@ -392,17 +287,11 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
           </div>
 
           <div
-            style={{
-              flex: 1,
-              minWidth: 0,
-              opacity: isPaused || isAssembling ? 0.45 : 1,
-              transition: 'opacity 0.2s'
-            }}
+            className={`min-w-0 flex-1 transition-opacity duration-200 ${
+              isPaused || isAssembling ? 'opacity-45' : 'opacity-100'
+            }`}
           >
-            <div
-              className="text-muted-foreground"
-              style={{ font: `500 9.5px/1 ${FONT_MONO}`, letterSpacing: '0.12em' }}
-            >
+            <div className="font-mono text-[9.5px] leading-none font-medium tracking-[0.12em] text-muted-foreground">
               THROUGHPUT · {throughputStatusLabel}
             </div>
             <ThroughputChart
@@ -416,52 +305,19 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         </div>
       </div>
 
-      <div
-        style={{
-          padding: '16px 20px 18px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 12
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div
-            className="bg-card"
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: 10,
-              border: '0.5px solid var(--border-strong)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              font: `700 10.5px/1 ${FONT_MONO}`,
-              color: 'var(--text-secondary)',
-              letterSpacing: '0.04em',
-              flexShrink: 0
-            }}
-          >
+      <div className="flex flex-col gap-3 p-[16px_20px_18px]">
+        <div className="flex items-center gap-[14px]">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-[10px] border-[0.5px] border-[var(--border-strong)] bg-card font-mono text-[10.5px] leading-none font-bold tracking-[0.04em] text-[var(--text-secondary)]">
             {fileExtensionBadge(download.fileName)}
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="min-w-0 flex-1">
             <div
-              className="truncate text-foreground"
-              style={{ font: `600 15px/1.3 ${FONT_UI}`, letterSpacing: '-0.01em' }}
+              className="truncate font-sans text-[15px] leading-[1.3] font-semibold tracking-[-0.01em] text-foreground"
               title={download.fileName}
             >
               {download.fileName}
             </div>
-            <div
-              style={{
-                marginTop: 4,
-                font: `12.5px/1.2 ${FONT_MONO}`,
-                color: 'var(--text-secondary)',
-                fontVariantNumeric: 'tabular-nums',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 7
-              }}
-            >
+            <div className="mt-1 flex items-center gap-[7px] font-mono text-[12.5px] leading-[1.2] tabular-nums text-[var(--text-secondary)]">
               <span>
                 {formatBytes(isAssembling ? assembledBytes : download.bytesDownloaded)}
                 {knownSize ? ` of ${formatBytes(download.totalBytes)}` : ''}
@@ -477,26 +333,30 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
               {!isPaused && !isAssembling && knownSize && effectiveSpeed > 0 && (
                 <>
                   <Dot />
-                  <span style={{ color: 'var(--text-secondary)' }}>
+                  <span className="text-[var(--text-secondary)]">
                     {formatEta(remainingBytes, effectiveSpeed)} left
                   </span>
                 </>
               )}
               {isPaused && (
-                <StatusPill
-                  label="PAUSED"
-                  color="var(--color-usb)"
+                <ColorBadge
                   bg="var(--color-usb-bg)"
                   border="var(--color-usb-border)"
-                />
+                  text="var(--color-usb)"
+                  className="h-auto rounded-[3.5px] px-[7px] py-0.5 text-[9.5px] font-semibold tracking-[0.08em]"
+                >
+                  PAUSED
+                </ColorBadge>
               )}
               {isAssembling && (
-                <StatusPill
-                  label="ASSEMBLING"
-                  color="var(--color-ethernet-text)"
+                <ColorBadge
                   bg="var(--color-ethernet-bg)"
                   border="var(--color-ethernet-border)"
-                />
+                  text="var(--color-ethernet-text)"
+                  className="h-auto rounded-[3.5px] px-[7px] py-0.5 text-[9.5px] font-semibold tracking-[0.08em]"
+                >
+                  ASSEMBLING
+                </ColorBadge>
               )}
             </div>
           </div>
@@ -514,28 +374,24 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         />
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'baseline',
-            justifyContent: 'space-between',
-            padding: '0 20px 8px'
-          }}
-        >
-          <div style={sectionHeaderLabelStyle}>Networks</div>
-          <div style={sectionHeaderMetaStyle}>
+      <div className="flex-1 overflow-x-hidden overflow-y-auto">
+        <div className="flex items-baseline justify-between p-[0_20px_8px]">
+          <div className={sectionHeaderClass}>Networks</div>
+          <div className="shrink-0 font-mono text-[10.5px] leading-none text-muted-foreground">
             {groups.length} combined · {download.chunks.length} streams · {networksStatusLabel}
           </div>
         </div>
-        <div style={networkTableGridStyle}>
-          <div style={networkTableHeaderStyle}>
+        <div
+          className="grid gap-x-3 px-5"
+          style={{ gridTemplateColumns: NETWORK_ROW_GRID_COLUMNS }}
+        >
+          <div className="col-span-full grid grid-cols-subgrid gap-x-3 border-b border-border pt-2.5 pb-[7px] font-mono text-[9.5px] leading-none tracking-[0.12em] text-muted-foreground uppercase">
             <div />
             <div>Network</div>
             <div>Progress</div>
-            <div style={{ textAlign: 'right' }}>Share</div>
-            <div style={{ textAlign: 'right' }}>Speed</div>
-            <div style={{ textAlign: 'right' }}>Downloaded</div>
+            <div className="text-right">Share</div>
+            <div className="text-right">Speed</div>
+            <div className="text-right">Downloaded</div>
           </div>
           {groups.map((group) => {
             const sharePercent =
@@ -556,56 +412,40 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         </div>
       </div>
 
-      <div style={footerStyle}>
-        <div
-          style={{
-            ...footerTextStyle,
-            flex: 1,
-            minWidth: 0,
-            overflow: 'hidden',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 7
-          }}
-        >
+      <div className="flex items-center gap-3 border-t-[0.5px] border-t-[var(--footer-border)] bg-secondary px-5 py-[11px]">
+        <div className="flex min-w-0 flex-1 items-center gap-[7px] overflow-hidden font-mono text-[11px] leading-[1.4] text-muted-foreground">
           <span className="truncate" title={`Saving to: ${download.destinationPath}`}>
             Saving to {toDisplayPath(dirnameOf(download.destinationPath), homeDir)}
           </span>
           <Dot shrink />
-          <span style={{ flexShrink: 0 }}>Resumable</span>
+          <span className="shrink-0">Resumable</span>
           {totalRetries > 0 && (
             <>
               <Dot shrink />
-              <span style={{ color: 'var(--color-usb)', flexShrink: 0 }}>
+              <span className="shrink-0 text-[var(--color-usb)]">
                 {totalRetries} {totalRetries === 1 ? 'retry' : 'retries'}
               </span>
             </>
           )}
         </div>
-        <button
+        <Button
           type="button"
+          variant={isPaused ? 'default' : 'secondary'}
           onClick={handlePauseResume}
           disabled={isAssembling || resuming}
           title={isAssembling ? "Can't pause while assembling the file" : undefined}
-          style={{
-            ...(isPaused ? primaryButtonStyle : secondaryButtonStyle),
-            ...((isAssembling || resuming) && { opacity: 0.5, cursor: 'not-allowed' })
-          }}
         >
           {pauseResumeLabel}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="destructive"
           onClick={handleCancel}
           disabled={isAssembling}
           title={isAssembling ? "Can't cancel while assembling the file" : undefined}
-          style={{
-            ...dangerButtonStyle,
-            ...(isAssembling && { opacity: 0.5, cursor: 'not-allowed' })
-          }}
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   )

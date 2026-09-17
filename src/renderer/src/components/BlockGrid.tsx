@@ -1,6 +1,6 @@
 import type { BlockState, BlockStatus } from '@shared/types'
 import { useCallback, useRef, useState } from 'react'
-import { FONT_MONO, type NetworkVisual } from '../theme'
+import type { NetworkVisual } from '../theme'
 import { formatBytes, type NetworkGroup } from '../utils/format'
 
 // The grid is a byte-space map of the file: one square per chunk, running left-to-right,
@@ -240,81 +240,32 @@ export function BlockGrid({
     ).offsets
 
     return (
-      <div
-        style={{
-          background: 'var(--bg-secondary)',
-          border: '0.5px solid var(--border)',
-          borderRadius: 9,
-          padding: '10px 14px 11px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 9
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 14,
-            flexWrap: 'wrap'
-          }}
-        >
+      <div className="flex flex-col gap-[9px] rounded-[9px] border-[0.5px] border-border bg-card px-[14px] pt-[10px] pb-[11px]">
+        <div className="flex flex-wrap items-center gap-[14px]">
           {groups.map((group, idx) => {
             const visual = visuals[idx]
             return (
               <div
                 key={group.interfaceId}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5.5,
-                  font: `500 10.5px/1 ${FONT_MONO}`,
-                  color: 'var(--text-secondary)'
-                }}
+                className="flex items-center gap-[5.5px] font-mono text-[10.5px] leading-none font-medium text-[var(--text-secondary)]"
               >
                 <span
-                  style={{
-                    width: 7,
-                    height: 7,
-                    borderRadius: '50%',
-                    background: visual.solid,
-                    flexShrink: 0
-                  }}
+                  className="size-[7px] shrink-0 rounded-full"
+                  style={{ background: visual.solid }}
                 />
-                <span style={{ color: 'var(--text)', fontWeight: 600 }}>{visual.name}</span>
+                <span className="font-semibold text-foreground">{visual.name}</span>
               </div>
             )
           })}
           {assembling && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5.5,
-                font: `500 10.5px/1 ${FONT_MONO}`,
-                color: 'var(--text-secondary)'
-              }}
-            >
-              <span
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: '50%',
-                  background: ASSEMBLED_SOLID,
-                  flexShrink: 0
-                }}
-              />
-              <span style={{ color: 'var(--text)', fontWeight: 600 }}>Assembled</span>
+            <div className="flex items-center gap-[5.5px] font-mono text-[10.5px] leading-none font-medium text-[var(--text-secondary)]">
+              <span className="size-[7px] shrink-0 rounded-full bg-[var(--text)]" />
+              <span className="font-semibold text-foreground">Assembled</span>
             </div>
           )}
           {cells.length > 0 && chunkBytes > 0 && (
             <div
-              style={{
-                marginLeft: 'auto',
-                font: `500 10px/1 ${FONT_MONO}`,
-                color: 'var(--text-tertiary)',
-                fontVariantNumeric: 'tabular-nums'
-              }}
+              className="ml-auto font-mono text-[10px] leading-none font-medium tabular-nums text-muted-foreground"
               title={`This file downloads as ${blocks.length} chunks of ${formatBytes(chunkBytes)}, one per square.${
                 rows > MAX_VISIBLE_ROWS ? ' Scroll the grid to see the rest.' : ''
               }`}
@@ -468,17 +419,7 @@ export function BlockGrid({
 
   // Fallback for single stream / non-splittable download: clean horizontal bar
   return (
-    <div
-      style={{
-        height: 10,
-        borderRadius: 5,
-        background: 'var(--track-bg)',
-        overflow: 'hidden',
-        display: 'flex',
-        gap: 2,
-        border: '0.5px solid var(--border-strong)'
-      }}
-    >
+    <div className="flex h-2.5 gap-0.5 overflow-hidden rounded-[5px] border-[0.5px] border-[var(--border-strong)] bg-[var(--track-bg)]">
       {knownSize ? (
         <>
           {groups.map((group, index) => (
@@ -493,7 +434,7 @@ export function BlockGrid({
           <div style={{ flex: remainingBytes || 0.0001 }} />
         </>
       ) : (
-        <div style={{ width: '100%', background: 'var(--color-accent)' }} />
+        <div className="w-full bg-primary" />
       )}
     </div>
   )

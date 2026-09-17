@@ -1,21 +1,10 @@
 import { useState } from 'react'
 import type { DownloadState } from '@shared/types'
+import { CyclableChip } from '../components/CyclableChip'
 import { ThroughputChart } from '../components/ThroughputChart'
+import { Button } from '../components/ui/button'
 import { useAppStore } from '../store/useAppStore'
-import {
-  FONT_MONO,
-  FONT_UI,
-  accentChipStyle,
-  footerStyle,
-  footerTextStyle,
-  primaryButtonStyle,
-  resolveNetworkVisual,
-  secondaryButtonStyle,
-  sectionHeaderLabelStyle,
-  statGridStyle,
-  statLabelStyle,
-  statValueStyle
-} from '../theme'
+import { resolveNetworkVisual } from '../theme'
 import {
   dirnameOf,
   formatBytes,
@@ -25,11 +14,9 @@ import {
   toDisplayPath
 } from '../utils/format'
 
-const heroScopeStyle: React.CSSProperties = {
-  padding: '18px 20px',
-  background: 'var(--hero-bg)',
-  borderBottom: '1px solid var(--hero-border)'
-}
+const heroClass = 'border-b border-b-[var(--hero-border)] bg-[image:var(--hero-bg)] px-5 py-[18px]'
+const sectionHeaderClass =
+  'font-mono text-[10px] leading-none tracking-[0.16em] text-muted-foreground uppercase'
 
 export function CompleteScreen({
   download,
@@ -107,26 +94,11 @@ export function CompleteScreen({
   const handleReveal = (): void => void window.plexo.revealInFolder(download.destinationPath)
 
   return (
-    <div
-      className="bg-background"
-      style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
-    >
-      <div className="text-foreground" style={heroScopeStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-          <div
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: '50%',
-              background: 'var(--color-wifi-bg)',
-              border: '1px solid var(--color-wifi-border)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0
-            }}
-          >
-            <svg viewBox="0 0 24 24" style={{ width: 21, height: 21 }}>
+    <div className="flex h-full flex-col bg-background">
+      <div className={`${heroClass} text-foreground`}>
+        <div className="flex items-center gap-[18px]">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-full border border-[var(--color-wifi-border)] bg-[var(--color-wifi-bg)]">
+            <svg viewBox="0 0 24 24" className="size-[21px]">
               <path
                 d="M5,13 L10,18 L19,7"
                 fill="none"
@@ -137,88 +109,43 @@ export function CompleteScreen({
               />
             </svg>
           </div>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div
-              style={{
-                font: `700 16px/1.2 ${FONT_UI}`,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
-              }}
-            >
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-sans text-[16px] leading-[1.2] font-bold">
               {download.fileName}
             </div>
-            <div
-              className="text-muted-foreground"
-              style={{
-                marginTop: 5,
-                font: `11.5px/1.3 ${FONT_MONO}`,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
-              }}
-            >
+            <div className="mt-[5px] truncate font-mono text-[11.5px] leading-[1.3] text-muted-foreground">
               {formatBytes(finalSize)} ·{' '}
               {toDisplayPath(dirnameOf(download.destinationPath), homeDir)}
             </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
-            <div
-              className="text-muted-foreground"
-              style={{
-                font: `500 9px/1 ${FONT_MONO}`,
-                letterSpacing: '0.16em'
-              }}
-            >
+          <div className="flex flex-col items-end gap-[5px]">
+            <div className="font-mono text-[9px] leading-none font-medium tracking-[0.16em] text-muted-foreground">
               AVERAGE
             </div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-              <div
-                className="text-foreground"
-                style={{
-                  font: `600 26px/0.9 ${FONT_MONO}`,
-                  letterSpacing: '-0.02em',
-                  fontVariantNumeric: 'tabular-nums'
-                }}
-              >
+            <div className="flex items-baseline gap-1.5">
+              <div className="font-mono text-[26px] leading-[0.9] font-semibold tracking-[-0.02em] tabular-nums text-foreground">
                 {formatSpeed(avgSpeed).split(' ')[0]}
               </div>
-              <div className="text-muted-foreground" style={{ font: `500 11px/1 ${FONT_MONO}` }}>
+              <div className="font-mono text-[11px] leading-none font-medium text-muted-foreground">
                 MB/s
               </div>
             </div>
             {activeChipOption && (
-              <button
-                type="button"
+              <CyclableChip
+                label={activeChipOption.label}
+                tooltip={`${activeChipOption.tooltip} (click to toggle)`}
+                bg="var(--color-usb-bg)"
+                border="var(--color-usb-border)"
+                color="var(--color-usb-text)"
+                cyclable
                 onClick={() => setChipModeIndex((i) => (i + 1) % chipOptions.length)}
-                title={`${activeChipOption.tooltip} (click to toggle)`}
-                style={{
-                  ...accentChipStyle,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                  border: '0.5px solid var(--color-usb-border)',
-                  background: 'var(--color-usb-bg)',
-                  color: 'var(--color-usb-text)'
-                }}
-              >
-                <span>{activeChipOption.label}</span>
-                <span style={{ opacity: 0.55, fontSize: 8.5 }}>⇄</span>
-              </button>
+              />
             )}
           </div>
         </div>
       </div>
 
-      <div
-        style={{
-          margin: '18px 20px',
-          ...statGridStyle,
-          gridTemplateColumns: 'repeat(5, minmax(0, 1fr))'
-        }}
-      >
+      <div className="mx-5 my-[18px] grid grid-cols-5 overflow-hidden rounded-[10px] border-[0.5px] border-border bg-card">
         {[
           { label: 'Size', value: formatBytes(finalSize) },
           { label: 'Time', value: formatDuration(elapsedSeconds) },
@@ -228,42 +155,31 @@ export function CompleteScreen({
         ].map((stat, index) => (
           <div
             key={stat.label}
-            className={index > 0 ? 'border-l-[0.5px] border-border' : undefined}
-            style={{
-              padding: '11px 14px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 5
-            }}
+            className={`flex flex-col gap-[5px] p-[11px_14px] ${
+              index > 0 ? 'border-l-[0.5px] border-border' : ''
+            }`}
           >
-            <div style={statLabelStyle}>{stat.label}</div>
-            <div style={statValueStyle}>{stat.value}</div>
+            <div className="font-mono text-[9px] leading-none font-medium tracking-[0.14em] text-muted-foreground uppercase">
+              {stat.label}
+            </div>
+            <div className="font-mono text-[14px] leading-none font-medium tabular-nums">
+              {stat.value}
+            </div>
           </div>
         ))}
       </div>
 
-      <div style={{ margin: '0 20px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={sectionHeaderLabelStyle}>Speed over the download</div>
+      <div className="mx-5 mb-4 flex flex-col gap-2">
+        <div className={sectionHeaderClass}>Speed over the download</div>
         <ThroughputChart
           order={groups.map((g, i) => ({ interfaceId: g.interfaceId, solid: visuals[i].solid }))}
           historyByInterface={speedHistoryByInterface}
         />
       </div>
 
-      <div
-        style={{ margin: '0 20px 20px', display: 'flex', flexDirection: 'column', gap: 9, flex: 1 }}
-      >
-        <div style={sectionHeaderLabelStyle}>Contribution by network</div>
-        <div
-          className="bg-muted"
-          style={{
-            display: 'flex',
-            height: 10,
-            borderRadius: 999,
-            overflow: 'hidden',
-            gap: 2
-          }}
-        >
+      <div className="mx-5 mb-5 flex flex-1 flex-col gap-[9px]">
+        <div className={sectionHeaderClass}>Contribution by network</div>
+        <div className="flex h-2.5 gap-0.5 overflow-hidden rounded-full bg-muted">
           {groups.map((group, index) => (
             <div
               key={group.interfaceId}
@@ -271,20 +187,18 @@ export function CompleteScreen({
             />
           ))}
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+        <div className="flex flex-col gap-[9px]">
           {groups.map((group, index) => (
-            <div key={group.interfaceId} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <div key={group.interfaceId} className="flex items-center gap-[9px]">
               <div
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: '50%',
-                  background: visuals[index].solid
-                }}
+                className="size-[7px] shrink-0 rounded-full"
+                style={{ background: visuals[index].solid }}
               />
-              <div style={{ font: `500 12px/1 ${FONT_UI}` }}>{visuals[index].name}</div>
-              <div style={{ flex: 1 }} />
-              <div style={{ font: `11.5px/1 ${FONT_MONO}`, color: 'var(--text-secondary)' }}>
+              <div className="font-sans text-[12px] leading-none font-medium">
+                {visuals[index].name}
+              </div>
+              <div className="flex-1" />
+              <div className="font-mono text-[11.5px] leading-none text-[var(--text-secondary)]">
                 {formatBytes(group.bytesDownloaded)} ·{' '}
                 {Math.round((group.bytesDownloaded / totalWeight) * 100)}%
               </div>
@@ -293,19 +207,19 @@ export function CompleteScreen({
         </div>
       </div>
 
-      <div style={footerStyle}>
-        <div style={footerTextStyle}>
+      <div className="flex items-center gap-3 border-t-[0.5px] border-t-[var(--footer-border)] bg-secondary px-5 py-[11px]">
+        <div className="shrink-0 font-mono text-[11px] leading-[1.4] whitespace-nowrap text-muted-foreground">
           {`reassembled from ${totalChunkCount} chunks · ${totalRetries} ${
             totalRetries === 1 ? 'retry' : 'retries'
           }`}
         </div>
-        <div style={{ flex: 1 }} />
-        <button type="button" onClick={onNewDownload} style={secondaryButtonStyle}>
+        <div className="flex-1" />
+        <Button type="button" variant="secondary" onClick={onNewDownload}>
           New Download
-        </button>
-        <button type="button" onClick={handleReveal} style={primaryButtonStyle}>
+        </Button>
+        <Button type="button" onClick={handleReveal}>
           {window.plexo.platform === 'darwin' ? 'Reveal in Finder' : 'Show in folder'}
-        </button>
+        </Button>
       </div>
     </div>
   )

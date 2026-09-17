@@ -50,7 +50,7 @@ export function ThroughputChart({
     <svg
       viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
       preserveAspectRatio="none"
-      style={{ width: '100%', height: 104, display: 'block', marginTop: 7 }}
+      className="mt-[7px] block h-[104px] w-full"
     >
       <g stroke="var(--border)" strokeWidth={1}>
         <line x1={0} y1={HEIGHT * 0.33} x2={WIDTH} y2={HEIGHT * 0.33} />

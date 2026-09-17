@@ -73,20 +73,7 @@ export function ThemeToggle(): React.JSX.Element {
       type="button"
       title={`${current.label} — click to change`}
       onClick={cycle}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: 26,
-        height: 26,
-        border: '0.5px solid var(--border)',
-        borderRadius: 6,
-        background: 'var(--bg-tertiary)',
-        color: 'var(--text-secondary)',
-        cursor: 'pointer',
-        WebkitAppRegion: 'no-drag',
-        flexShrink: 0
-      }}
+      className="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-[6px] border-[0.5px] border-border bg-secondary text-[var(--text-secondary)] [-webkit-app-region:no-drag]"
     >
       {current.icon}
     </button>

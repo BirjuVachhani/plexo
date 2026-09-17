@@ -1,17 +1,13 @@
 import type { ProbeResult } from '@shared/types'
+import { AlertTriangle, ClipboardPaste } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { NetworkCard } from '../components/NetworkCard'
+import { Alert, AlertDescription } from '../components/ui/alert'
+import { Button } from '../components/ui/button'
+import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group'
 import { useNetworkPolling } from '../hooks/useNetworkPolling'
+import { cn } from '../lib/utils'
 import { useAppStore } from '../store/useAppStore'
-import {
-  DANGER,
-  FONT_MONO,
-  FONT_UI,
-  disabledPrimaryButtonStyle,
-  primaryButtonStyle,
-  sectionHeaderLabelStyle,
-  sectionHeaderMetaStyle
-} from '../theme'
 import { describeError, formatBytes, toDisplayPath } from '../utils/format'
 
 type ProbeState =
@@ -23,12 +19,8 @@ type ProbeState =
 const PROBE_DEBOUNCE_MS = 600
 const PRESET_STREAMS = [1, 2, 4, 8] as const
 
-const fieldLabelStyle: React.CSSProperties = {
-  font: `500 10px/1 ${FONT_MONO}`,
-  letterSpacing: '0.14em',
-  color: 'var(--text-tertiary)',
-  flexShrink: 0
-}
+const fieldLabelClass =
+  'shrink-0 font-mono text-[10px] tracking-[0.14em] text-[var(--text-tertiary)]'
 
 export function IdleScreen(): React.JSX.Element {
   useNetworkPolling(true)
@@ -154,106 +146,64 @@ export function IdleScreen(): React.JSX.Element {
   const totalChunks = isSingleRangeServer ? 1 : effectiveNetworkCount * chunksPerNetwork
 
   return (
-    <div
-      style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}
-    >
-      <div style={{ padding: '16px 20px 14px', display: 'flex', flexDirection: 'column', gap: 9 }}>
-        <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
+    <div className="flex h-full flex-col bg-background">
+      <div className="flex flex-col gap-[9px] px-5 pt-4 pb-3.5">
+        <div className="flex items-center gap-[9px]">
           <div
-            style={{
-              flex: 1,
-              minWidth: 0,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 9,
-              padding: '9px 12px',
-              borderRadius: 9,
-              background: 'var(--input-bg)',
-              border:
-                probe.status === 'error'
-                  ? `0.5px solid ${DANGER}`
-                  : '0.5px solid var(--border-strong)'
-            }}
+            className={cn(
+              'flex h-9 min-w-0 flex-1 items-center gap-[9px] rounded-[9px] border bg-[var(--input-bg)] px-3',
+              probe.status === 'error'
+                ? 'border-[var(--color-danger)]'
+                : 'border-[var(--border-strong)]'
+            )}
           >
-            <div style={fieldLabelStyle}>LINK</div>
+            <div className={fieldLabelClass}>LINK</div>
             <input
               type="text"
               value={url}
               onChange={(event) => setUrl(event.target.value)}
               placeholder="https://"
-              style={{
-                flex: 1,
-                minWidth: 0,
-                border: 'none',
-                outline: 'none',
-                background: 'transparent',
-                font: `13px/1.3 ${FONT_MONO}`,
-                color: 'var(--text)'
-              }}
+              className="min-w-0 flex-1 border-none bg-transparent font-mono text-[13px] text-foreground outline-none"
             />
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="xs"
               onClick={handlePaste}
-              style={{
-                border: 'none',
-                borderRadius: 5,
-                background: 'var(--track-bg)',
-                padding: '3px 8px',
-                font: `500 9.5px/1 ${FONT_MONO}`,
-                color: 'var(--text-secondary)',
-                whiteSpace: 'nowrap',
-                cursor: 'pointer',
-                flexShrink: 0
-              }}
+              className="shrink-0 gap-1 font-mono text-[9.5px] uppercase tracking-wide"
             >
-              PASTE {window.plexo.platform === 'darwin' ? '⌘V' : 'Ctrl+V'}
-            </button>
+              <ClipboardPaste className="size-3" />
+              Paste {window.plexo.platform === 'darwin' ? '⌘V' : 'Ctrl+V'}
+            </Button>
           </div>
-          <button
+          <Button
             type="button"
             onClick={handleStart}
             disabled={!canStart}
-            style={{
-              ...(canStart ? primaryButtonStyle : disabledPrimaryButtonStyle),
-              boxSizing: 'border-box',
-              width: 112,
-              padding: '8px 14px',
-              textAlign: 'center'
-            }}
+            className="h-9 w-28 shrink-0"
           >
             {starting ? 'Starting…' : probe.status === 'probing' ? 'Checking…' : 'Start'}
-          </button>
+          </Button>
         </div>
 
         {probe.status === 'error' && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 7,
-              font: `12px/1.4 ${FONT_UI}`,
-              color: DANGER
-            }}
-          >
-            <span style={{ flexShrink: 0 }}>⚠</span>
-            {probe.message}
-          </div>
+          <Alert variant="destructive" className="py-1.5">
+            <AlertTriangle />
+            <AlertDescription className="text-[var(--color-danger)]">
+              {probe.message}
+            </AlertDescription>
+          </Alert>
         )}
 
         <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 9,
-            padding: '7px 12px',
-            borderRadius: 9,
-            background: 'var(--bg-secondary)',
-            border:
-              probe.status === 'ready' ? '0.5px solid var(--border)' : '0.5px dashed var(--border)',
-            opacity: probe.status === 'ready' ? 1 : 0.5
-          }}
+          className={cn(
+            'flex h-9 items-center gap-[9px] rounded-[9px] border px-3',
+            probe.status === 'ready'
+              ? 'border-[var(--border)] opacity-100'
+              : 'border-dashed border-[var(--border)] opacity-50'
+          )}
         >
-          <div style={fieldLabelStyle}>SAVE AS</div>
+          <div className={fieldLabelClass}>SAVE AS</div>
           <input
             type="text"
             value={
@@ -262,188 +212,109 @@ export function IdleScreen(): React.JSX.Element {
             onChange={(event) => setFileNameOverride(event.target.value)}
             disabled={probe.status !== 'ready'}
             placeholder="—"
-            style={{
-              flex: 1,
-              minWidth: 0,
-              border: 'none',
-              outline: 'none',
-              background: 'transparent',
-              font: `12.5px/1.3 ${FONT_MONO}`,
-              color: 'var(--text)'
-            }}
+            className="min-w-0 flex-1 border-none bg-transparent font-mono text-[12.5px] text-foreground outline-none"
           />
           {probe.status === 'ready' && probe.result.totalBytes !== null && (
-            <div
-              style={{
-                font: `500 11px/1 ${FONT_MONO}`,
-                color: 'var(--text-tertiary)',
-                whiteSpace: 'nowrap',
-                flexShrink: 0
-              }}
-            >
+            <div className="shrink-0 whitespace-nowrap font-mono text-[11px] font-medium text-[var(--text-tertiary)]">
               {formatBytes(probe.result.totalBytes)} (est.)
             </div>
           )}
         </div>
 
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 9,
-            padding: '7px 12px',
-            borderRadius: 9,
-            background: 'var(--bg-secondary)',
-            border: '0.5px solid var(--border)'
-          }}
-        >
-          <div style={fieldLabelStyle}>TO</div>
-          <div
-            style={{
-              flex: 1,
-              minWidth: 0,
-              font: `12.5px/1.3 ${FONT_MONO}`,
-              color: 'var(--text-secondary)',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis'
-            }}
-          >
+        <div className="flex h-9 items-center gap-[9px] rounded-[9px] border border-[var(--border)] px-3">
+          <div className={fieldLabelClass}>TO</div>
+          <div className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-[var(--text-secondary)]">
             {toDisplayPath(destinationDir || downloadsDir, homeDir)}
           </div>
-          <button
+          <Button
             type="button"
+            variant="link"
+            size="xs"
             onClick={handleBrowse}
-            style={{
-              border: 'none',
-              background: 'none',
-              font: `500 11px/1 ${FONT_MONO}`,
-              color: 'var(--color-accent)',
-              whiteSpace: 'nowrap',
-              cursor: 'pointer',
-              flexShrink: 0
-            }}
+            className="h-auto shrink-0 px-0 font-mono text-[11px]"
           >
             Browse…
-          </button>
+          </Button>
         </div>
 
         <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-            padding: '8px 12px',
-            borderRadius: 9,
-            background: 'var(--bg-secondary)',
-            border: '0.5px solid var(--border)',
-            opacity: isSingleRangeServer ? 0.6 : 1
-          }}
+          className={cn(
+            'flex min-h-9 items-center justify-between gap-3 rounded-[9px] border border-[var(--border)] px-3 py-1.5',
+            isSingleRangeServer && 'opacity-60'
+          )}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <div style={fieldLabelStyle}>PARALLEL STREAMS</div>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {PRESET_STREAMS.map((preset) => {
-                const isSelected = chunksPerNetwork === preset
-                return (
-                  <button
-                    key={preset}
-                    type="button"
-                    disabled={isSingleRangeServer}
-                    onClick={() => setChunksPerNetwork(preset)}
-                    style={{
-                      border: isSelected
-                        ? '0.5px solid var(--color-accent)'
-                        : '0.5px solid var(--border)',
-                      borderRadius: 5,
-                      background: isSelected ? 'var(--color-usb-bg)' : 'var(--track-bg)',
-                      color: isSelected ? 'var(--color-usb-text)' : 'var(--text-secondary)',
-                      font: `600 10.5px/1 ${FONT_MONO}`,
-                      padding: '4px 8px',
-                      cursor: isSingleRangeServer ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.15s ease'
-                    }}
-                  >
-                    {preset}×
-                  </button>
-                )
-              })}
-            </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className={fieldLabelClass}>PARALLEL STREAMS</div>
+            <ToggleGroup
+              value={[String(chunksPerNetwork)]}
+              onValueChange={(values) => {
+                if (values.length === 0) return
+                setChunksPerNetwork(Number(values[0]))
+              }}
+              disabled={isSingleRangeServer}
+              variant="default"
+              spacing={1}
+            >
+              {PRESET_STREAMS.map((preset) => (
+                <ToggleGroupItem
+                  key={preset}
+                  value={String(preset)}
+                  size="sm"
+                  className="h-5 border border-[var(--border)] bg-[var(--track-bg)] px-1.5 font-mono text-[10px] font-semibold text-[var(--text-secondary)] aria-pressed:!border-[var(--color-accent)] aria-pressed:!bg-primary aria-pressed:!text-primary-foreground"
+                >
+                  {preset}×
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
           </div>
 
           <div
-            style={{
-              font: `500 11px/1 ${FONT_MONO}`,
-              color: isSingleRangeServer ? 'var(--text-tertiary)' : 'var(--text-secondary)',
-              textAlign: 'right',
-              whiteSpace: 'nowrap'
-            }}
+            className={cn(
+              'text-right font-mono text-[11px] whitespace-nowrap',
+              isSingleRangeServer ? 'text-[var(--text-tertiary)]' : 'text-[var(--text-secondary)]'
+            )}
           >
             {isSingleRangeServer ? (
               '1 stream (server does not support ranges)'
             ) : selectedInterfaceIds.length > 0 ? (
               <>
-                <span style={{ color: 'var(--text)', fontWeight: 600 }}>{chunksPerNetwork}</span> /
-                network ·{' '}
-                <span style={{ color: 'var(--text)', fontWeight: 600 }}>{totalChunks}</span> total
+                <span className="font-semibold text-foreground">{chunksPerNetwork}</span> / network
+                · <span className="font-semibold text-foreground">{totalChunks}</span> total
                 parallel streams
               </>
             ) : (
               <>
-                <span style={{ color: 'var(--text)', fontWeight: 600 }}>{chunksPerNetwork}</span> /
-                network
+                <span className="font-semibold text-foreground">{chunksPerNetwork}</span> / network
               </>
             )}
           </div>
         </div>
 
         {isSingleRangeServer && (
-          <div style={{ font: `11.5px/1.4 ${FONT_UI}`, color: 'var(--text-tertiary)' }}>
+          <div className="text-[11.5px] text-[var(--text-tertiary)]">
             This server doesn&apos;t support multi-chunk downloads for this file — using a single
             network.
           </div>
         )}
         {startError && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 7,
-              font: `11.5px/1.4 ${FONT_UI}`,
-              color: DANGER
-            }}
-          >
-            <span style={{ flexShrink: 0 }}>⚠</span>
-            {startError}
-          </div>
+          <Alert variant="destructive" className="py-1.5">
+            <AlertTriangle />
+            <AlertDescription className="text-[var(--color-danger)]">{startError}</AlertDescription>
+          </Alert>
         )}
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 14px' }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'baseline',
-            justifyContent: 'space-between',
-            paddingBottom: 8,
-            borderBottom: '0.5px solid var(--border)'
-          }}
-        >
-          <div style={sectionHeaderLabelStyle}>Connected Networks</div>
-          <div style={sectionHeaderMetaStyle}>
+      <div className="flex-1 overflow-y-auto px-5 pb-3.5">
+        <div className="flex items-baseline justify-between border-b border-[var(--border)] pb-2">
+          <div className="font-mono text-[10px] tracking-[0.16em] text-[var(--text-tertiary)] uppercase">
+            Connected Networks
+          </div>
+          <div className="shrink-0 font-mono text-[10.5px] text-[var(--text-tertiary)]">
             {interfaces.length} detected · {selectedInterfaceIds.length} selected
           </div>
         </div>
 
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
-            gap: 10,
-            paddingTop: 12
-          }}
-        >
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-2.5 pt-3">
           {interfaces.map((iface) => (
             <NetworkCard
               key={iface.id}
@@ -456,17 +327,8 @@ export function IdleScreen(): React.JSX.Element {
         </div>
       </div>
 
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          padding: '11px 20px',
-          background: 'var(--bg-tertiary)',
-          borderTop: '0.5px solid var(--footer-border)'
-        }}
-      >
-        <div style={{ font: `11px/1.4 ${FONT_MONO}`, color: 'var(--text-tertiary)' }}>
+      <div className="flex items-center gap-2.5 border-t border-[var(--footer-border)] bg-[var(--bg-tertiary)] px-5 py-[11px]">
+        <div className="font-mono text-[11px] text-[var(--text-tertiary)]">
           {selectedInterfaceIds.length} {selectedInterfaceIds.length === 1 ? 'network' : 'networks'}{' '}
           selected
           {selectedInterfaceIds.length > 0

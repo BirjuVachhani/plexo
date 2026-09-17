@@ -1,8 +1,11 @@
 import type { NetworkInterfaceInfo } from '@shared/types'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import { FONT_MONO, FONT_UI, resolveNetworkVisual, type NetworkColorId } from '../theme'
 import { NetworkEditorFields } from './NetworkEditorFields'
+import { Badge } from './ui/badge'
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 interface NetworkCardProps {
   iface: NetworkInterfaceInfo
@@ -63,7 +66,6 @@ export function NetworkCard({
   onToggle
 }: NetworkCardProps): React.JSX.Element {
   const [editing, setEditing] = useState(false)
-  const buttonRef = useRef<HTMLButtonElement>(null)
   const preference = useAppStore((store) => store.networkPreferences[iface.id])
   const setNetworkPreference = useAppStore((store) => store.setNetworkPreference)
   const visual = resolveNetworkVisual(iface.kind, iface.displayName, preference)
@@ -114,45 +116,57 @@ export function NetworkCard({
             {visual.name}
           </div>
         </button>
-        <button
-          ref={buttonRef}
-          type="button"
-          onClick={() => setEditing(true)}
-          title="Rename or recolor this network"
-          style={{
-            border: 'none',
-            background: 'none',
-            color: 'var(--text-tertiary)',
-            font: `700 12px/1 ${FONT_UI}`,
-            cursor: 'pointer',
-            padding: '2px 4px',
-            flexShrink: 0
-          }}
-        >
-          ⋯
-        </button>
-        {editing && (
-          <NetworkEditorFields
-            anchorRef={buttonRef}
-            name={preference?.customName ?? ''}
-            onNameChange={(customName) => setNetworkPreference(iface.id, { customName })}
-            namePlaceholder={iface.displayName}
-            colorId={preference?.colorId as NetworkColorId | undefined}
-            onColorSelect={(colorId) => setNetworkPreference(iface.id, { colorId })}
-            interfaceKind={iface.kind}
-            onDone={() => setEditing(false)}
-          />
-        )}
-        <div
-          style={{
-            font: `500 10px/1 ${FONT_MONO}`,
-            letterSpacing: '0.1em',
-            color: selected ? visual.text : 'var(--text-tertiary)',
-            flexShrink: 0
-          }}
+        <Popover open={editing} onOpenChange={setEditing}>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <PopoverTrigger
+                  render={
+                    <button
+                      type="button"
+                      style={{
+                        border: 'none',
+                        background: 'none',
+                        color: 'var(--text-tertiary)',
+                        font: `700 12px/1 ${FONT_UI}`,
+                        cursor: 'pointer',
+                        padding: '2px 4px',
+                        flexShrink: 0
+                      }}
+                    >
+                      ⋯
+                    </button>
+                  }
+                />
+              }
+            />
+            <TooltipContent>Rename or recolor this network</TooltipContent>
+          </Tooltip>
+          <PopoverContent className="w-[276px]">
+            <NetworkEditorFields
+              name={preference?.customName ?? ''}
+              onNameChange={(customName) => setNetworkPreference(iface.id, { customName })}
+              namePlaceholder={iface.displayName}
+              colorId={preference?.colorId as NetworkColorId | undefined}
+              onColorSelect={(colorId) => setNetworkPreference(iface.id, { colorId })}
+              interfaceKind={iface.kind}
+              onDone={() => setEditing(false)}
+            />
+          </PopoverContent>
+        </Popover>
+        <Badge
+          variant="outline"
+          style={
+            {
+              '--badge-bg': selected ? visual.bg : 'transparent',
+              '--badge-border': selected ? visual.border : 'var(--border)',
+              '--badge-text': selected ? visual.text : 'var(--text-tertiary)'
+            } as React.CSSProperties
+          }
+          className="rounded-[4px] border-[var(--badge-border)] bg-[var(--badge-bg)] font-mono text-[10px] tracking-[0.1em] text-[var(--badge-text)]"
         >
           {visual.label}
-        </div>
+        </Badge>
       </div>
       <div
         style={{

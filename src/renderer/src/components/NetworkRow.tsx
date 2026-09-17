@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import type { BlockState } from '@shared/types'
 import {
@@ -12,6 +12,7 @@ import {
 import type { NetworkGroup } from '../utils/format'
 import { formatBytes, formatSpeed } from '../utils/format'
 import { NetworkEditorFields } from './NetworkEditorFields'
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 
 interface NetworkRowProps {
   group: NetworkGroup
@@ -29,7 +30,6 @@ export function NetworkRow({
 }: NetworkRowProps): React.JSX.Element {
   const [editing, setEditing] = useState(false)
   const [expanded, setExpanded] = useState(false)
-  const buttonRef = useRef<HTMLButtonElement>(null)
   const preference = useAppStore((store) => store.networkPreferences[group.interfaceId])
   const setNetworkPreference = useAppStore((store) => store.setNetworkPreference)
   const visual = resolveNetworkVisual(group.interfaceKind, group.interfaceLabel, preference)
@@ -104,23 +104,38 @@ export function NetworkRow({
           <span>{group.chunks.length} streams</span>
           <span style={{ fontSize: 7.5, opacity: 0.75 }}>{expanded ? '▲' : '▼'}</span>
         </button>
-        <button
-          ref={buttonRef}
-          type="button"
-          onClick={() => setEditing((value) => !value)}
-          title="Rename or recolor this network"
-          style={{
-            border: 'none',
-            background: 'none',
-            color: 'var(--text-tertiary)',
-            font: `700 12px/1 ${FONT_UI}`,
-            cursor: 'pointer',
-            padding: '2px 4px',
-            flexShrink: 0
-          }}
-        >
-          ⋯
-        </button>
+        <Popover open={editing} onOpenChange={setEditing}>
+          <PopoverTrigger
+            render={
+              <button
+                type="button"
+                title="Rename or recolor this network"
+                style={{
+                  border: 'none',
+                  background: 'none',
+                  color: 'var(--text-tertiary)',
+                  font: `700 12px/1 ${FONT_UI}`,
+                  cursor: 'pointer',
+                  padding: '2px 4px',
+                  flexShrink: 0
+                }}
+              >
+                ⋯
+              </button>
+            }
+          />
+          <PopoverContent className="w-[276px]">
+            <NetworkEditorFields
+              name={preference?.customName ?? ''}
+              onNameChange={(customName) => setNetworkPreference(group.interfaceId, { customName })}
+              namePlaceholder={group.interfaceLabel}
+              colorId={preference?.colorId as NetworkColorId | undefined}
+              onColorSelect={(colorId) => setNetworkPreference(group.interfaceId, { colorId })}
+              interfaceKind={group.interfaceKind}
+              onDone={() => setEditing(false)}
+            />
+          </PopoverContent>
+        </Popover>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
         <div
@@ -414,18 +429,6 @@ export function NetworkRow({
             )
           })}
         </div>
-      )}
-      {editing && (
-        <NetworkEditorFields
-          anchorRef={buttonRef}
-          name={preference?.customName ?? ''}
-          onNameChange={(customName) => setNetworkPreference(group.interfaceId, { customName })}
-          namePlaceholder={group.interfaceLabel}
-          colorId={preference?.colorId as NetworkColorId | undefined}
-          onColorSelect={(colorId) => setNetworkPreference(group.interfaceId, { colorId })}
-          interfaceKind={group.interfaceKind}
-          onDone={() => setEditing(false)}
-        />
       )}
     </div>
   )

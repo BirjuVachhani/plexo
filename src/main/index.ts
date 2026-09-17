@@ -1,10 +1,11 @@
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
-import { app, BrowserWindow, nativeImage, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, Menu, nativeImage, nativeTheme, shell } from 'electron'
 import { join } from 'path'
 import iconDark from '../../resources/icon-dark.png?asset'
 import iconLight from '../../resources/icon-light.png?asset'
 import { registerIpcHandlers } from './ipc/handlers'
 import { loadThemeSource } from './settings'
+import { IpcChannels } from '../shared/ipc-channels'
 import type { DownloadManager } from './download/downloadManager'
 
 // In dev mode the app runs as the raw `electron` binary, which otherwise shows "Electron" in
@@ -29,6 +30,29 @@ function applyThemedIcon(): void {
   } else {
     mainWindow?.setIcon(image)
   }
+}
+
+// Only wired in dev — mirrors the default Electron menu (app/edit/view/window) plus one item to
+// toggle the renderer's floating simulate-download panel, which itself only renders in dev.
+function installDevMenu(): void {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+      {
+        label: 'Developer',
+        submenu: [
+          {
+            label: 'Toggle Dev Tools Panel',
+            accelerator: 'CmdOrCtrl+Shift+D',
+            click: () => mainWindow?.webContents.send(IpcChannels.toggleDevToolsPanel)
+          }
+        ]
+      }
+    ])
+  )
 }
 
 function createWindow(): void {
@@ -93,6 +117,8 @@ app.whenReady().then(async () => {
     mainWindow?.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#ffffff')
     applyThemedIcon()
   })
+
+  if (is.dev) installDevMenu()
 
   createWindow()
   applyThemedIcon()

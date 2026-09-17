@@ -1,5 +1,5 @@
 import type { NetworkInterfaceKind, SimulatedNetworkConfig } from '@shared/types'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import {
   DANGER,
@@ -73,6 +73,13 @@ export function DevToolsPanel(): React.JSX.Element | null {
   const [assembleSpeedMBps, setAssembleSpeedMBps] = useState(DEFAULT_ASSEMBLE_SPEED_MBPS)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Menu item lives in the main process (see installDevMenu in src/main/index.ts) — it can't
+  // reach this component's state directly, so it round-trips through IPC instead.
+  useEffect(() => {
+    if (!isDev) return
+    return window.plexo.onToggleDevToolsPanel(() => setOpen((v) => !v))
+  }, [isDev])
 
   if (!isDev) return null
 

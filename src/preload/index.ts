@@ -80,6 +80,12 @@ const plexoApi = {
     const listener = (_event: IpcRendererEvent, state: DownloadState): void => callback(state)
     ipcRenderer.on(IpcChannels.downloadUpdated, listener)
     return () => ipcRenderer.removeListener(IpcChannels.downloadUpdated, listener)
+  },
+
+  onToggleDevToolsPanel: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on(IpcChannels.toggleDevToolsPanel, listener)
+    return () => ipcRenderer.removeListener(IpcChannels.toggleDevToolsPanel, listener)
   }
 }
 

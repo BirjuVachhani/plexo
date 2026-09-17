@@ -13,14 +13,23 @@ import { describeError, formatBytes, toDisplayPath } from '../utils/format'
 type ProbeState =
   | { status: 'idle' }
   | { status: 'probing' }
-  | { status: 'ready'; result: ProbeResult; multiChunkAllowed: boolean }
+  | { status: 'ready'; result: ProbeResult }
   | { status: 'error'; message: string }
 
 const PROBE_DEBOUNCE_MS = 600
 const PRESET_STREAMS = [1, 2, 4, 8] as const
+const PASTE_SHORTCUT = window.plexo.platform === 'darwin' ? '⌘V' : 'Ctrl+V'
 
-const fieldLabelClass =
-  'shrink-0 font-mono text-[10px] tracking-[0.14em] text-[var(--text-tertiary)]'
+const fieldLabelClass = 'shrink-0 font-mono text-[10px] tracking-[0.14em] text-muted-foreground'
+
+function ErrorAlert({ message }: { message: string }): React.JSX.Element {
+  return (
+    <Alert variant="destructive" className="py-1.5">
+      <AlertTriangle />
+      <AlertDescription>{message}</AlertDescription>
+    </Alert>
+  )
+}
 
 export function IdleScreen(): React.JSX.Element {
   useNetworkPolling(true)
@@ -35,6 +44,7 @@ export function IdleScreen(): React.JSX.Element {
   const setDestinationDir = useAppStore((store) => store.setDraftDestinationDir)
 
   const [probe, setProbe] = useState<ProbeState>({ status: 'idle' })
+  // Tracks deselections rather than selections, so a newly-detected interface starts selected.
   const [deselectedInterfaceIds, setDeselectedInterfaceIds] = useState<string[]>([])
   const [chunksPerNetwork, setChunksPerNetwork] = useState(2)
   const [starting, setStarting] = useState(false)
@@ -64,8 +74,7 @@ export function IdleScreen(): React.JSX.Element {
       try {
         const result = await window.plexo.probeUrl(trimmed)
         if (probeRequestId.current !== requestId) return
-        const multiChunkAllowed = result.supportsRanges && result.totalBytes !== null
-        setProbe({ status: 'ready', result, multiChunkAllowed })
+        setProbe({ status: 'ready', result })
       } catch (error) {
         if (probeRequestId.current !== requestId) return
         setProbe({ status: 'error', message: describeError(error) })
@@ -75,16 +84,35 @@ export function IdleScreen(): React.JSX.Element {
     return () => clearTimeout(timer)
   }, [url])
 
-  const isSingleRangeServer = probe.status === 'ready' && !probe.multiChunkAllowed
+  const ready = probe.status === 'ready' ? probe.result : null
+  const multiChunkAllowed = ready !== null && ready.supportsRanges && ready.totalBytes !== null
+  const isSingleStreamOnly = ready !== null && !multiChunkAllowed
 
-  const activeDetectedIds = interfaces.map((iface) => iface.id)
-  const rawSelectedIds = activeDetectedIds.filter((id) => !deselectedInterfaceIds.includes(id))
-  const selectedInterfaceIds = isSingleRangeServer ? rawSelectedIds.slice(0, 1) : rawSelectedIds
+  const detectedIds = interfaces.map((iface) => iface.id)
+  const enabledIds = detectedIds.filter((id) => !deselectedInterfaceIds.includes(id))
+  const selectedInterfaceIds = isSingleStreamOnly ? enabledIds.slice(0, 1) : enabledIds
+
+  const connectionsPerNetwork = isSingleStreamOnly ? 1 : chunksPerNetwork
+  const totalChunks = isSingleStreamOnly ? 1 : selectedInterfaceIds.length * chunksPerNetwork
+  const startLabel = starting ? 'Starting…' : probe.status === 'probing' ? 'Checking…' : 'Start'
+  const canStart =
+    probe.status === 'ready' &&
+    selectedInterfaceIds.length > 0 &&
+    Boolean(destinationDir) &&
+    !starting
+  const effectiveDestinationDir = destinationDir || downloadsDir
+  const footerParts = [
+    `${selectedInterfaceIds.length} ${selectedInterfaceIds.length === 1 ? 'network' : 'networks'} selected`
+  ]
+  if (selectedInterfaceIds.length > 0) {
+    footerParts.push(`${totalChunks} ${totalChunks === 1 ? 'stream' : 'parallel streams'}`)
+  }
+  if (ready && ready.totalBytes !== null) footerParts.push(formatBytes(ready.totalBytes))
 
   const handleToggleInterface = (id: string): void => {
-    if (isSingleRangeServer) {
-      // Single-range servers can only download through 1 interface at a time
-      setDeselectedInterfaceIds(activeDetectedIds.filter((otherId) => otherId !== id))
+    if (isSingleStreamOnly) {
+      // Single-stream mode can only download through 1 interface at a time
+      setDeselectedInterfaceIds(detectedIds.filter((otherId) => otherId !== id))
       return
     }
 
@@ -92,7 +120,7 @@ export function IdleScreen(): React.JSX.Element {
       const isCurrentlySelected = !prev.includes(id)
       if (isCurrentlySelected) {
         // Deselecting: keep at least 1 interface selected
-        const remainingCount = activeDetectedIds.filter(
+        const remainingCount = detectedIds.filter(
           (otherId) => !prev.includes(otherId) && otherId !== id
         ).length
         if (remainingCount === 0) return prev
@@ -104,7 +132,7 @@ export function IdleScreen(): React.JSX.Element {
   }
 
   const handleBrowse = async (): Promise<void> => {
-    const chosen = await window.plexo.chooseDestinationFolder(destinationDir || downloadsDir)
+    const chosen = await window.plexo.chooseDestinationFolder(effectiveDestinationDir)
     if (chosen) setDestinationDir(chosen)
   }
 
@@ -114,7 +142,7 @@ export function IdleScreen(): React.JSX.Element {
   }
 
   const handleStart = async (): Promise<void> => {
-    if (probe.status !== 'ready' || selectedInterfaceIds.length === 0 || !destinationDir) return
+    if (probe.status !== 'ready' || !canStart) return
     setStarting(true)
     setStartError(null)
     try {
@@ -123,10 +151,10 @@ export function IdleScreen(): React.JSX.Element {
         destinationDir,
         suggestedFileName: fileNameOverride?.trim() || probe.result.suggestedFileName,
         totalBytes: probe.result.totalBytes ?? 0,
-        supportsRanges: probe.multiChunkAllowed,
+        supportsRanges: multiChunkAllowed,
         interfaceIds: selectedInterfaceIds,
-        chunkCount: probe.multiChunkAllowed ? selectedInterfaceIds.length * chunksPerNetwork : 1,
-        connectionsPerNetwork: probe.multiChunkAllowed ? chunksPerNetwork : 1,
+        chunkCount: totalChunks,
+        connectionsPerNetwork,
         etag: probe.result.etag,
         lastModified: probe.result.lastModified
       })
@@ -137,14 +165,6 @@ export function IdleScreen(): React.JSX.Element {
     }
   }
 
-  const canStart =
-    probe.status === 'ready' &&
-    selectedInterfaceIds.length > 0 &&
-    Boolean(destinationDir) &&
-    !starting
-  const effectiveNetworkCount = Math.max(1, selectedInterfaceIds.length)
-  const totalChunks = isSingleRangeServer ? 1 : effectiveNetworkCount * chunksPerNetwork
-
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="flex flex-col gap-[9px] px-5 pt-4 pb-3.5">
@@ -152,17 +172,18 @@ export function IdleScreen(): React.JSX.Element {
           <div
             className={cn(
               'flex h-9 min-w-0 flex-1 items-center gap-[9px] rounded-[9px] border bg-[var(--input-bg)] px-3',
-              probe.status === 'error'
-                ? 'border-[var(--color-danger)]'
-                : 'border-[var(--border-strong)]'
+              probe.status === 'error' ? 'border-destructive' : 'border-input'
             )}
           >
-            <div className={fieldLabelClass}>LINK</div>
+            <div id="idle-link-label" className={fieldLabelClass}>
+              LINK
+            </div>
             <input
               type="text"
               value={url}
               onChange={(event) => setUrl(event.target.value)}
               placeholder="https://"
+              aria-labelledby="idle-link-label"
               className="min-w-0 flex-1 border-none bg-transparent font-mono text-[13px] text-foreground outline-none"
             />
             <Button
@@ -170,10 +191,10 @@ export function IdleScreen(): React.JSX.Element {
               variant="secondary"
               size="xs"
               onClick={handlePaste}
-              className="shrink-0 gap-1 font-mono text-[9.5px] uppercase tracking-wide"
+              className="shrink-0 font-mono text-[9.5px] uppercase tracking-wide"
             >
-              <ClipboardPaste className="size-3" />
-              Paste {window.plexo.platform === 'darwin' ? '⌘V' : 'Ctrl+V'}
+              <ClipboardPaste data-icon="inline-start" />
+              Paste {PASTE_SHORTCUT}
             </Button>
           </div>
           <Button
@@ -182,49 +203,41 @@ export function IdleScreen(): React.JSX.Element {
             disabled={!canStart}
             className="h-9 w-28 shrink-0"
           >
-            {starting ? 'Starting…' : probe.status === 'probing' ? 'Checking…' : 'Start'}
+            {startLabel}
           </Button>
         </div>
 
-        {probe.status === 'error' && (
-          <Alert variant="destructive" className="py-1.5">
-            <AlertTriangle />
-            <AlertDescription className="text-[var(--color-danger)]">
-              {probe.message}
-            </AlertDescription>
-          </Alert>
-        )}
+        {probe.status === 'error' && <ErrorAlert message={probe.message} />}
 
         <div
           className={cn(
             'flex h-9 items-center gap-[9px] rounded-[9px] border px-3',
-            probe.status === 'ready'
-              ? 'border-[var(--border)] opacity-100'
-              : 'border-dashed border-[var(--border)] opacity-50'
+            ready ? 'border-border opacity-100' : 'border-dashed border-border opacity-50'
           )}
         >
-          <div className={fieldLabelClass}>SAVE AS</div>
+          <div id="idle-saveas-label" className={fieldLabelClass}>
+            SAVE AS
+          </div>
           <input
             type="text"
-            value={
-              probe.status === 'ready' ? (fileNameOverride ?? probe.result.suggestedFileName) : ''
-            }
+            value={ready ? (fileNameOverride ?? ready.suggestedFileName) : ''}
             onChange={(event) => setFileNameOverride(event.target.value)}
-            disabled={probe.status !== 'ready'}
+            disabled={!ready}
             placeholder="—"
+            aria-labelledby="idle-saveas-label"
             className="min-w-0 flex-1 border-none bg-transparent font-mono text-[12.5px] text-foreground outline-none"
           />
-          {probe.status === 'ready' && probe.result.totalBytes !== null && (
-            <div className="shrink-0 whitespace-nowrap font-mono text-[11px] font-medium text-[var(--text-tertiary)]">
-              {formatBytes(probe.result.totalBytes)} (est.)
+          {ready && ready.totalBytes !== null && (
+            <div className="shrink-0 whitespace-nowrap font-mono text-[11px] font-medium text-muted-foreground">
+              {formatBytes(ready.totalBytes)} (est.)
             </div>
           )}
         </div>
 
-        <div className="flex h-9 items-center gap-[9px] rounded-[9px] border border-[var(--border)] px-3">
+        <div className="flex h-9 items-center gap-[9px] rounded-[9px] border border-border px-3">
           <div className={fieldLabelClass}>TO</div>
           <div className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-[var(--text-secondary)]">
-            {toDisplayPath(destinationDir || downloadsDir, homeDir)}
+            {toDisplayPath(effectiveDestinationDir, homeDir)}
           </div>
           <Button
             type="button"
@@ -239,19 +252,22 @@ export function IdleScreen(): React.JSX.Element {
 
         <div
           className={cn(
-            'flex min-h-9 items-center justify-between gap-3 rounded-[9px] border border-[var(--border)] px-3 py-1.5',
-            isSingleRangeServer && 'opacity-60'
+            'flex min-h-9 items-center justify-between gap-3 rounded-[9px] border border-border px-3 py-1.5',
+            isSingleStreamOnly && 'opacity-60'
           )}
         >
           <div className="flex flex-wrap items-center gap-2">
-            <div className={fieldLabelClass}>PARALLEL STREAMS</div>
+            <div id="idle-streams-label" className={fieldLabelClass}>
+              PARALLEL STREAMS
+            </div>
             <ToggleGroup
               value={[String(chunksPerNetwork)]}
               onValueChange={(values) => {
                 if (values.length === 0) return
                 setChunksPerNetwork(Number(values[0]))
               }}
-              disabled={isSingleRangeServer}
+              disabled={isSingleStreamOnly}
+              aria-labelledby="idle-streams-label"
               variant="default"
               spacing={1}
             >
@@ -260,7 +276,7 @@ export function IdleScreen(): React.JSX.Element {
                   key={preset}
                   value={String(preset)}
                   size="sm"
-                  className="h-5 border border-[var(--border)] bg-[var(--track-bg)] px-1.5 font-mono text-[10px] font-semibold text-[var(--text-secondary)] aria-pressed:!border-[var(--color-accent)] aria-pressed:!bg-primary aria-pressed:!text-primary-foreground"
+                  className="h-5 border border-border bg-muted px-1.5 font-mono text-[10px] font-semibold text-[var(--text-secondary)] aria-pressed:!border-primary aria-pressed:!bg-primary aria-pressed:!text-primary-foreground"
                 >
                   {preset}×
                 </ToggleGroupItem>
@@ -271,45 +287,41 @@ export function IdleScreen(): React.JSX.Element {
           <div
             className={cn(
               'text-right font-mono text-[11px] whitespace-nowrap',
-              isSingleRangeServer ? 'text-[var(--text-tertiary)]' : 'text-[var(--text-secondary)]'
+              isSingleStreamOnly ? 'text-muted-foreground' : 'text-[var(--text-secondary)]'
             )}
           >
-            {isSingleRangeServer ? (
+            {isSingleStreamOnly ? (
               '1 stream (server does not support ranges)'
-            ) : selectedInterfaceIds.length > 0 ? (
-              <>
-                <span className="font-semibold text-foreground">{chunksPerNetwork}</span> / network
-                · <span className="font-semibold text-foreground">{totalChunks}</span> total
-                parallel streams
-              </>
             ) : (
               <>
                 <span className="font-semibold text-foreground">{chunksPerNetwork}</span> / network
+                {selectedInterfaceIds.length > 0 && (
+                  <>
+                    {' · '}
+                    <span className="font-semibold text-foreground">{totalChunks}</span> total
+                    parallel streams
+                  </>
+                )}
               </>
             )}
           </div>
         </div>
 
-        {isSingleRangeServer && (
-          <div className="text-[11.5px] text-[var(--text-tertiary)]">
+        {isSingleStreamOnly && (
+          <div className="text-[11.5px] text-muted-foreground">
             This server doesn&apos;t support multi-chunk downloads for this file — using a single
             network.
           </div>
         )}
-        {startError && (
-          <Alert variant="destructive" className="py-1.5">
-            <AlertTriangle />
-            <AlertDescription className="text-[var(--color-danger)]">{startError}</AlertDescription>
-          </Alert>
-        )}
+        {startError && <ErrorAlert message={startError} />}
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 pb-3.5">
-        <div className="flex items-baseline justify-between border-b border-[var(--border)] pb-2">
-          <div className="font-mono text-[10px] tracking-[0.16em] text-[var(--text-tertiary)] uppercase">
+        <div className="flex items-baseline justify-between border-b border-border pb-2">
+          <div className="font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">
             Connected Networks
           </div>
-          <div className="shrink-0 font-mono text-[10.5px] text-[var(--text-tertiary)]">
+          <div className="shrink-0 font-mono text-[10.5px] text-muted-foreground">
             {interfaces.length} detected · {selectedInterfaceIds.length} selected
           </div>
         </div>
@@ -327,17 +339,8 @@ export function IdleScreen(): React.JSX.Element {
         </div>
       </div>
 
-      <div className="flex items-center gap-2.5 border-t border-[var(--footer-border)] bg-[var(--bg-tertiary)] px-5 py-[11px]">
-        <div className="font-mono text-[11px] text-[var(--text-tertiary)]">
-          {selectedInterfaceIds.length} {selectedInterfaceIds.length === 1 ? 'network' : 'networks'}{' '}
-          selected
-          {selectedInterfaceIds.length > 0
-            ? ` · ${totalChunks} ${totalChunks === 1 ? 'stream' : 'parallel streams'}`
-            : ''}
-          {probe.status === 'ready' && probe.result.totalBytes !== null
-            ? ` · ${formatBytes(probe.result.totalBytes)}`
-            : ''}
-        </div>
+      <div className="flex items-center gap-2.5 border-t border-[var(--footer-border)] bg-secondary px-5 py-[11px]">
+        <div className="font-mono text-[11px] text-muted-foreground">{footerParts.join(' · ')}</div>
       </div>
     </div>
   )

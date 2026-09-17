@@ -302,12 +302,12 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <div className="truncate font-sans text-[15px] leading-[1.3] font-semibold tracking-[-0.01em] text-foreground">
+                  <div className="max-w-full truncate font-sans text-[15px] leading-[1.3] font-semibold tracking-[-0.01em] text-foreground inline-block">
                     {download.fileName}
                   </div>
                 }
               />
-              <TooltipContent side="bottom">{download.fileName}</TooltipContent>
+              <TooltipContent>{download.fileName}</TooltipContent>
             </Tooltip>
             <div className="mt-1 flex items-center gap-[7px] font-mono text-[12.5px] leading-[1.2] tabular-nums text-[var(--text-secondary)]">
               <span>

@@ -307,7 +307,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                   </div>
                 }
               />
-              <TooltipContent>{download.fileName}</TooltipContent>
+              <TooltipContent side="bottom">{download.fileName}</TooltipContent>
             </Tooltip>
             <div className="mt-1 flex items-center gap-[7px] font-mono text-[12.5px] leading-[1.2] tabular-nums text-[var(--text-secondary)]">
               <span>

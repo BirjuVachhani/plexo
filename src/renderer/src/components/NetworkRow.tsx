@@ -68,7 +68,7 @@ export function NetworkRow({
           onClick={() => setExpanded((v) => !v)}
           title={expanded ? 'Collapse streams' : 'Expand streams'}
           aria-expanded={expanded}
-          className={`inline-flex min-h-6 shrink-0 cursor-pointer items-center gap-[3px] rounded-[4px] border-[0.5px] border-border px-1.5 py-0.5 font-mono text-[10px] leading-none font-medium select-none ${
+          className={`inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-[4px] border-[0.5px] border-border px-[7px] py-[3px] font-mono text-[10.5px] leading-none font-medium select-none ${
             expanded ? 'bg-secondary text-foreground' : 'bg-card text-[var(--text-secondary)]'
           }`}
         >

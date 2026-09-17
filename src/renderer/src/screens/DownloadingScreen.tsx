@@ -7,6 +7,7 @@ import { ThroughputChart } from '../components/ThroughputChart'
 import { useNetworkPolling } from '../hooks/useNetworkPolling'
 import { useAppStore } from '../store/useAppStore'
 import {
+  DANGER,
   FONT_MONO,
   FONT_UI,
   accentChipStyle,
@@ -65,6 +66,17 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
     return () => clearInterval(interval)
   }, [isPaused])
 
+  // Resuming round-trips through the main process to re-verify the download before flipping
+  // status away from 'paused' (an ETag re-check over the network for a real download) — with no
+  // feedback in between, a slow check reads as the button not having registered the click.
+  const [resuming, setResuming] = useState(false)
+  useEffect(() => {
+    if (!isPaused || download.error) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setResuming(false)
+    }
+  }, [isPaused, download.error])
+
   useEffect(() => {
     if (isAssembling) {
       document.title = `Plexo — Assembling (${assemblePercent}%)`
@@ -84,8 +96,12 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   const elapsedSeconds = Math.max(0, (now - download.startedAt - totalPausedMs) / 1000)
 
   const handlePauseResume = (): void => {
-    if (isPaused) void window.plexo.resumeDownload(download.id)
-    else void window.plexo.pauseDownload(download.id)
+    if (isPaused) {
+      setResuming(true)
+      void window.plexo.resumeDownload(download.id)
+    } else {
+      void window.plexo.pauseDownload(download.id)
+    }
   }
   const handleCancel = (): void => void window.plexo.cancelDownload(download.id)
 
@@ -295,11 +311,11 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                   <div
                     style={{
                       font: `500 11px/1.2 ${FONT_UI}`,
-                      color: 'var(--text-tertiary)',
+                      color: download.error ? DANGER : 'var(--text-tertiary)',
                       marginTop: 2
                     }}
                   >
-                    Download paused
+                    {download.error ?? 'Download paused'}
                   </div>
                 ) : (
                   activeChipOption && (
@@ -555,14 +571,14 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         <button
           type="button"
           onClick={handlePauseResume}
-          disabled={isAssembling}
+          disabled={isAssembling || resuming}
           title={isAssembling ? "Can't pause while assembling the file" : undefined}
           style={{
             ...(isPaused ? primaryButtonStyle : secondaryButtonStyle),
-            ...(isAssembling && { opacity: 0.5, cursor: 'not-allowed' })
+            ...((isAssembling || resuming) && { opacity: 0.5, cursor: 'not-allowed' })
           }}
         >
-          {isPaused ? 'Resume' : 'Pause'}
+          {resuming ? 'Resuming…' : isPaused ? 'Resume' : 'Pause'}
         </button>
         <button
           type="button"

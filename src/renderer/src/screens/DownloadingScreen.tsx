@@ -480,7 +480,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         />
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
         <div
           style={{
             display: 'flex',

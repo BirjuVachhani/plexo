@@ -2,12 +2,21 @@ import { FONT_MONO } from '../theme'
 import { formatSpeed } from '../utils/format'
 
 const ROW_HEIGHT = 36
-const LABEL_X = 58
-const DOT_X = 64
-const CURVE_START_X = 70
-const COMBINE_X = 122
-const STREAM_END_X = 158
-const WIDTH = 166
+// Gaps between the label column and the rest of the diagram stay fixed — only the label
+// column's own width flexes with the longest network name, so a long custom label (the dev
+// tool lets you type anything) grows the diagram instead of getting cut off.
+const DOT_GAP = 8
+const CURVE_GAP = 6
+const CURVE_LEN = 64
+const STREAM_LEN = 42
+const END_PAD = 8
+const MIN_LABEL_X = 68
+const MAX_LABEL_CHARS = 18
+// Rough advance width (px) of one uppercase glyph in the label's 8.5px mono font plus its
+// 0.08em letter-spacing — an overestimate is safer here than an underestimate, since this
+// sizes an SVG column rather than flowing text a browser could wrap or ellipsize for us.
+const CHAR_WIDTH = 6.4
+const LABEL_EDGE_PAD = 4
 
 export interface CombineDiagramNetwork {
   solid: string
@@ -34,6 +43,17 @@ export function CombineDiagram({
 }): React.JSX.Element {
   const height = Math.max(78, networks.length * ROW_HEIGHT + 10)
   const midY = height / 2
+
+  const longestLabelChars = Math.min(
+    MAX_LABEL_CHARS,
+    networks.reduce((max, network) => Math.max(max, network.label.trim().length), 0)
+  )
+  const LABEL_X = Math.max(MIN_LABEL_X, longestLabelChars * CHAR_WIDTH + LABEL_EDGE_PAD)
+  const DOT_X = LABEL_X + DOT_GAP
+  const CURVE_START_X = DOT_X + CURVE_GAP
+  const COMBINE_X = CURVE_START_X + CURVE_LEN
+  const STREAM_END_X = COMBINE_X + STREAM_LEN
+  const WIDTH = STREAM_END_X + END_PAD
 
   return (
     <svg
@@ -101,8 +121,11 @@ export function CombineDiagram({
       {networks.map((network, index) => {
         const y = (index + 0.5) * (height / networks.length)
         const label =
-          network.label.trim().length > 10
-            ? `${network.label.trim().slice(0, 9).toUpperCase()}…`
+          network.label.trim().length > MAX_LABEL_CHARS
+            ? `${network.label
+                .trim()
+                .slice(0, MAX_LABEL_CHARS - 1)
+                .toUpperCase()}…`
             : network.label.trim().toUpperCase()
         const hasSpeed = network.speedBytesPerSec != null && network.speedBytesPerSec > 0
         const speedText = hasSpeed ? formatSpeed(network.speedBytesPerSec!) : '—'

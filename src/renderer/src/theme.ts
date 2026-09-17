@@ -199,14 +199,15 @@ export const statValueStyle: React.CSSProperties = {
   fontVariantNumeric: 'tabular-nums'
 }
 
-// Network is a fixed width, sized to what its content (name + streams pill + "⋯" button) needs
-// and nothing more — giving it a share of `fr` growth (an earlier version of this did, in a 1:2
-// ratio with Progress) just accumulated dead trailing space inside it on a wide window, since
-// nothing in that cell actually gets wider. Progress is the one column that should visually
-// scale with the window (the bar already fills 100% of its track), so it alone takes the rest
-// of the space; that also keeps the gap after the bar, into Share, the same fixed 12px as every
-// other column boundary — instead of Network's gap growing while Progress's stays put.
-export const NETWORK_ROW_GRID_COLUMNS = '10px 220px 1fr 48px 78px 90px'
+// Network sizes to its content (name + streams pill + "⋯" button) instead of a guessed fixed
+// px — `minmax(0, max-content)` grows it to fit whatever's actually in that cell (no dead
+// trailing space before Progress) and, just as importantly, lets it shrink below that on a
+// narrow window instead of holding a fixed width the row can't fit in. Progress is the one
+// column that should visually scale with the window (the bar already fills 100% of its track),
+// so it alone takes the leftover space; that also keeps the gap after the bar, into Share, the
+// same fixed 12px as every other column boundary — instead of Network's gap growing while
+// Progress's stays put.
+export const NETWORK_ROW_GRID_COLUMNS = '10px minmax(0, max-content) 1fr 48px 78px 90px'
 
 // The header and every NetworkRow used to each be their own independent CSS grid with this same
 // column template — which happened to compute matching track widths most of the time, but wasn't

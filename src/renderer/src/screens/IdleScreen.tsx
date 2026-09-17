@@ -269,16 +269,12 @@ export function IdleScreen(): React.JSX.Element {
               }}
               disabled={isSingleStreamOnly}
               aria-labelledby="idle-streams-label"
-              variant="default"
+              variant="pill"
+              size="xs"
               spacing={1}
             >
               {PRESET_STREAMS.map((preset) => (
-                <ToggleGroupItem
-                  key={preset}
-                  value={String(preset)}
-                  size="sm"
-                  className="h-5 border border-border bg-muted px-1.5 font-mono text-[10px] font-semibold text-[var(--text-secondary)] aria-pressed:!border-primary aria-pressed:!bg-primary aria-pressed:!text-primary-foreground"
-                >
+                <ToggleGroupItem key={preset} value={String(preset)}>
                   {preset}×
                 </ToggleGroupItem>
               ))}

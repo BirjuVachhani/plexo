@@ -342,16 +342,12 @@ export function DevToolsPanel(): React.JSX.Element | null {
                   setConnectionsPerNetwork(Number(values[0]))
                 }}
                 aria-labelledby="devtools-connections-label"
-                variant="default"
+                variant="pill"
+                size="xs"
                 spacing={1}
               >
                 {PRESET_CONNECTIONS.map((preset) => (
-                  <ToggleGroupItem
-                    key={preset}
-                    value={String(preset)}
-                    size="sm"
-                    className="h-5 border border-border bg-muted px-1.5 font-mono text-[10px] font-semibold text-[var(--text-secondary)] aria-pressed:!border-primary aria-pressed:!bg-primary aria-pressed:!text-primary-foreground"
-                  >
+                  <ToggleGroupItem key={preset} value={String(preset)}>
                     {preset}×
                   </ToggleGroupItem>
                 ))}

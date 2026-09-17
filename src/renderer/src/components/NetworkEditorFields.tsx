@@ -42,9 +42,12 @@ export function NetworkEditorFields({
       </div>
 
       <div className="flex flex-col gap-[5px]">
-        <label className={fieldLabelClass}>Display Name</label>
+        <label htmlFor="network-display-name" className={fieldLabelClass}>
+          Display Name
+        </label>
         <input
           ref={inputRef}
+          id="network-display-name"
           type="text"
           value={name}
           onChange={(event) => onNameChange(event.target.value)}
@@ -53,7 +56,7 @@ export function NetworkEditorFields({
           }}
           placeholder={namePlaceholder}
           autoFocus
-          className="rounded-[6px] border border-input bg-background px-[9px] py-1.5 font-sans text-[12px] leading-[1.3] font-medium text-foreground outline-none"
+          className="rounded-[6px] border border-input bg-background px-[9px] py-1.5 font-sans text-[12px] leading-[1.3] font-medium text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
         />
       </div>
 
@@ -75,7 +78,9 @@ export function NetworkEditorFields({
             type="button"
             onClick={() => onColorSelect(undefined)}
             title="Default color for this network kind"
-            className={`flex size-[19px] shrink-0 items-center justify-center rounded-full bg-background p-0 ${
+            aria-label="Default color for this network kind"
+            aria-pressed={!colorId}
+            className={`flex size-6 shrink-0 items-center justify-center rounded-full bg-background p-0 ${
               !colorId ? 'border-2 border-foreground' : 'border border-input'
             }`}
           >
@@ -89,7 +94,9 @@ export function NetworkEditorFields({
                 type="button"
                 onClick={() => onColorSelect(swatch.id)}
                 title={swatch.label}
-                className={`size-[19px] shrink-0 rounded-full p-0 ${
+                aria-label={swatch.label}
+                aria-pressed={isSelected}
+                className={`size-6 shrink-0 rounded-full p-0 ${
                   isSelected ? 'scale-110 border-2 border-foreground' : 'border border-transparent'
                 }`}
                 style={{ background: swatch.solid }}

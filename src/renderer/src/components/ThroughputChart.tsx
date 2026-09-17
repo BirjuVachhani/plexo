@@ -1,3 +1,5 @@
+import { formatSpeed } from '../utils/format'
+
 const WIDTH = 560
 const HEIGHT = 130
 
@@ -46,11 +48,16 @@ export function ThroughputChart({
     .map((value, i) => `${(i * xStep).toFixed(1)},${toY(value).toFixed(1)}`)
     .join(' ')
 
+  const peakTotal = Math.max(0, ...totals)
+  const latestTotal = totals[totals.length - 1] ?? 0
+
   return (
     <svg
       viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
       preserveAspectRatio="none"
       className="mt-[7px] block h-[104px] w-full"
+      role="img"
+      aria-label={`Combined throughput over time. Currently ${formatSpeed(latestTotal)}, peak ${formatSpeed(peakTotal)}.`}
     >
       <g stroke="var(--border)" strokeWidth={1}>
         <line x1={0} y1={HEIGHT * 0.33} x2={WIDTH} y2={HEIGHT * 0.33} />

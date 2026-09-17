@@ -48,7 +48,7 @@ export function ErrorScreen({
             }`}
           >
             {cancelled ? (
-              <svg viewBox="0 0 24 24" className="size-[22px]">
+              <svg viewBox="0 0 24 24" className="size-[22px]" aria-hidden="true">
                 <circle
                   cx="12"
                   cy="12"
@@ -68,7 +68,7 @@ export function ErrorScreen({
                 />
               </svg>
             ) : (
-              <svg viewBox="0 0 24 24" className="size-[22px]">
+              <svg viewBox="0 0 24 24" className="size-[22px]" aria-hidden="true">
                 <circle
                   cx="12"
                   cy="12"
@@ -151,7 +151,7 @@ export function ErrorScreen({
         <button
           type="button"
           onClick={handleCopyUrl}
-          className={`shrink-0 border-none bg-transparent px-1 py-0.5 font-mono text-[11px] leading-none ${
+          className={`min-h-6 shrink-0 border-none bg-transparent px-1 py-0.5 font-mono text-[11px] leading-none ${
             copied ? 'text-[var(--color-success)]' : 'text-primary'
           }`}
         >

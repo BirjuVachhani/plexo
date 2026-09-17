@@ -1,5 +1,5 @@
 import type { NetworkInterfaceKind, SimulatedNetworkConfig } from '@shared/types'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import { describeError, toDisplayPath } from '../utils/format'
 import { Button } from './ui/button'
@@ -60,6 +60,7 @@ export function DevToolsPanel(): React.JSX.Element | null {
   const [assembleSpeedMBps, setAssembleSpeedMBps] = useState(DEFAULT_ASSEMBLE_SPEED_MBPS)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
 
   // Menu item lives in the main process (see installDevMenu in src/main/index.ts) — it can't
   // reach this component's state directly, so it round-trips through IPC instead.
@@ -67,6 +68,38 @@ export function DevToolsPanel(): React.JSX.Element | null {
     if (!isDev) return
     return window.plexo.onToggleDevToolsPanel(() => setOpen((v) => !v))
   }, [isDev])
+
+  // Base UI's `Popover`/`Dialog` primitives already ship in this codebase for exactly this
+  // (focus trap, Escape-to-close, aria-modal) — this panel predates that pattern being pulled in
+  // elsewhere. Minimal hand-rolled equivalent here rather than a new dependency for a dev-only tool.
+  useEffect(() => {
+    if (!open) return
+    panelRef.current?.focus()
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        setOpen(false)
+        return
+      }
+      if (event.key !== 'Tab' || !panelRef.current) return
+      const focusable = panelRef.current.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [open])
 
   if (!isDev) return null
 
@@ -138,19 +171,31 @@ export function DevToolsPanel(): React.JSX.Element | null {
             if (event.target === event.currentTarget) setOpen(false)
           }}
         >
-          <div className="flex max-h-[calc(100%-60px)] w-[380px] flex-col gap-3 overflow-y-auto rounded-[12px] border-[0.5px] border-[var(--border-strong)] bg-card p-4 shadow-[0_8px_30px_rgba(0,0,0,0.4)]">
+          <div
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="devtools-panel-title"
+            tabIndex={-1}
+            className="flex max-h-[calc(100%-60px)] w-[380px] flex-col gap-3 overflow-y-auto rounded-[12px] border-[0.5px] border-[var(--border-strong)] bg-card p-4 shadow-[0_8px_30px_rgba(0,0,0,0.4)] outline-none [overscroll-behavior:contain]"
+          >
             <div className="flex items-center justify-between">
-              <div className="font-sans text-[13px] leading-[1.2] font-bold text-foreground">
+              <div
+                id="devtools-panel-title"
+                className="font-sans text-[13px] leading-[1.2] font-bold text-foreground"
+              >
                 Simulate a download
               </div>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-xs"
                 onClick={() => setOpen(false)}
                 aria-label="Close"
-                className="border-none bg-transparent font-sans text-sm leading-none font-semibold text-muted-foreground"
+                className="font-sans text-sm leading-none font-semibold text-muted-foreground"
               >
                 ×
-              </button>
+              </Button>
             </div>
             <div className="font-sans text-[11.5px] leading-[1.4] text-muted-foreground">
               Pick a file already on disk to &quot;download&quot; it through the real pipeline —
@@ -214,6 +259,7 @@ export function DevToolsPanel(): React.JSX.Element | null {
                           kind: event.target.value as NetworkInterfaceKind
                         })
                       }
+                      aria-label="Network kind"
                       className={`${rowInputClass} shrink-0`}
                     >
                       {KIND_OPTIONS.map((kind) => (
@@ -228,6 +274,7 @@ export function DevToolsPanel(): React.JSX.Element | null {
                       onChange={(event) =>
                         updateNetwork(network.key, { label: event.target.value })
                       }
+                      aria-label="Network name"
                       className={`${rowInputClass} min-w-0 flex-1`}
                     />
                     <Button

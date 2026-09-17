@@ -98,7 +98,7 @@ export function CompleteScreen({
       <div className={`${heroClass} text-foreground`}>
         <div className="flex items-center gap-[18px]">
           <div className="flex size-11 shrink-0 items-center justify-center rounded-full border border-[var(--color-wifi-border)] bg-[var(--color-wifi-bg)]">
-            <svg viewBox="0 0 24 24" className="size-[21px]">
+            <svg viewBox="0 0 24 24" className="size-[21px]" aria-hidden="true">
               <path
                 d="M5,13 L10,18 L19,7"
                 fill="none"

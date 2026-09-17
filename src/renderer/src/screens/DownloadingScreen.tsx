@@ -112,7 +112,11 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
       void window.plexo.pauseDownload(download.id)
     }
   }
-  const handleCancel = (): void => void window.plexo.cancelDownload(download.id)
+  const handleCancel = (): void => {
+    if (window.confirm('Cancel this download? Progress will be lost.')) {
+      void window.plexo.cancelDownload(download.id)
+    }
+  }
 
   const effectiveSpeed = isPaused ? 0 : download.speedBytesPerSec
   const speed = splitFormattedBytes(effectiveSpeed)

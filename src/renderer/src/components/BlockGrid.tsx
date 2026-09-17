@@ -390,7 +390,12 @@ export function BlockGrid({
                     outline: hoveredIndex === index ? '1.5px solid var(--text-secondary)' : 'none',
                     outlineOffset: 1,
                     overflow: 'hidden',
-                    transition: 'opacity 0.3s, box-shadow 0.15s'
+                    transition: 'opacity 0.3s, box-shadow 0.15s',
+                    // A multi-GB file can mean thousands of cells; skip layout/paint work for the
+                    // ones scrolled out of view (MAX_VISIBLE_ROWS caps what's visible, not what's
+                    // rendered) rather than hand-rolling a virtualized list for a fixed-size grid.
+                    contentVisibility: 'auto',
+                    containIntrinsicSize: `${TARGET_CELL_PX}px ${CELL_HEIGHT_PX}px`
                   }}
                 >
                   {/* One square, one color: the network that actually delivered most of this

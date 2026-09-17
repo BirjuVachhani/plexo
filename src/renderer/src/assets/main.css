@@ -27,7 +27,10 @@
 
   --text: #1d1d1f;
   --text-secondary: #6e6e73;
-  --text-tertiary: #8a8a8e;
+  /* #8a8a8e (the original design value) is only 3.45:1 against this screen's white/near-white
+     backgrounds — fails WCAG AA (4.5:1) for the 9-13px text this token is used at throughout.
+     Darkened to the lightest gray that still clears 4.5:1. */
+  --text-tertiary: #737377;
 
   --border: #e0e0e2;
   --border-subtle: #ececee;
@@ -271,5 +274,15 @@ button {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

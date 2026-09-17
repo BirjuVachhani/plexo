@@ -4,6 +4,7 @@ import { useAppStore } from '../store/useAppStore'
 import { resolveNetworkVisual, type NetworkColorId } from '../theme'
 import { ColorBadge } from './ColorBadge'
 import { NetworkEditorFields } from './NetworkEditorFields'
+import { Button } from './ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
@@ -61,6 +62,8 @@ export function NetworkCard({
       <div className="flex items-center gap-[9px]">
         <button
           type="button"
+          role="checkbox"
+          aria-checked={selected}
           onClick={onToggle}
           className="flex min-w-0 flex-1 items-center gap-[9px] border-none bg-transparent p-0 text-left [font:inherit] text-inherit"
         >
@@ -79,13 +82,15 @@ export function NetworkCard({
               render={
                 <PopoverTrigger
                   render={
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon-xs"
                       aria-label="Rename or recolor this network"
-                      className="shrink-0 border-none bg-transparent px-1 py-0.5 font-sans text-xs font-bold text-muted-foreground"
+                      className="shrink-0 font-sans text-xs font-bold text-muted-foreground"
                     >
                       ⋯
-                    </button>
+                    </Button>
                   }
                 />
               }

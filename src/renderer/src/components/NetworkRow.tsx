@@ -11,6 +11,7 @@ import type { NetworkGroup } from '../utils/format'
 import { formatBytes, formatSpeed } from '../utils/format'
 import { ColorBadge } from './ColorBadge'
 import { NetworkEditorFields } from './NetworkEditorFields'
+import { Button } from './ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 
 interface NetworkRowProps {
@@ -66,7 +67,8 @@ export function NetworkRow({
           type="button"
           onClick={() => setExpanded((v) => !v)}
           title={expanded ? 'Collapse streams' : 'Expand streams'}
-          className={`inline-flex shrink-0 cursor-pointer items-center gap-[3px] rounded-[4px] border-[0.5px] border-border px-1.5 py-0.5 font-mono text-[10px] leading-none font-medium select-none ${
+          aria-expanded={expanded}
+          className={`inline-flex min-h-6 shrink-0 cursor-pointer items-center gap-[3px] rounded-[4px] border-[0.5px] border-border px-1.5 py-0.5 font-mono text-[10px] leading-none font-medium select-none ${
             expanded ? 'bg-secondary text-foreground' : 'bg-card text-[var(--text-secondary)]'
           }`}
         >
@@ -76,14 +78,16 @@ export function NetworkRow({
         <Popover open={editing} onOpenChange={setEditing}>
           <PopoverTrigger
             render={
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-xs"
                 title="Rename or recolor this network"
                 aria-label="Rename or recolor this network"
-                className="shrink-0 border-none bg-transparent px-1 py-0.5 font-sans text-xs font-bold text-muted-foreground"
+                className="shrink-0 font-sans text-xs font-bold text-muted-foreground"
               >
                 ⋯
-              </button>
+              </Button>
             }
           />
           <PopoverContent className="w-[276px]">

@@ -23,7 +23,7 @@ export function CyclableChip({
       type="button"
       onClick={onClick}
       title={tooltip}
-      className="inline-flex w-fit items-center gap-1.5 rounded-[5px] border-[0.5px] px-2.5 py-1 font-mono text-[10.5px] font-semibold whitespace-nowrap select-none"
+      className="inline-flex min-h-6 w-fit items-center gap-1.5 rounded-[5px] border-[0.5px] px-2.5 py-1 font-mono text-[10.5px] font-semibold whitespace-nowrap select-none"
       style={{
         background: bg,
         borderColor: border,

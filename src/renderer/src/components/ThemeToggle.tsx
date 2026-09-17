@@ -72,6 +72,7 @@ export function ThemeToggle(): React.JSX.Element {
     <button
       type="button"
       title={`${current.label} — click to change`}
+      aria-label={`${current.label} — click to change`}
       onClick={cycle}
       className="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-[6px] border-[0.5px] border-border bg-secondary text-[var(--text-secondary)] [-webkit-app-region:no-drag]"
     >

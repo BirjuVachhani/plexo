@@ -179,12 +179,13 @@ export function IdleScreen(): React.JSX.Element {
               LINK
             </div>
             <input
-              type="text"
+              type="url"
               value={url}
               onChange={(event) => setUrl(event.target.value)}
               placeholder="https://"
+              spellCheck={false}
               aria-labelledby="idle-link-label"
-              className="min-w-0 flex-1 border-none bg-transparent font-mono text-[13px] text-foreground outline-none"
+              className="min-w-0 flex-1 rounded-[3px] border-none bg-transparent font-mono text-[13px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             />
             <Button
               type="button"
@@ -225,7 +226,7 @@ export function IdleScreen(): React.JSX.Element {
             disabled={!ready}
             placeholder="—"
             aria-labelledby="idle-saveas-label"
-            className="min-w-0 flex-1 border-none bg-transparent font-mono text-[12.5px] text-foreground outline-none"
+            className="min-w-0 flex-1 rounded-[3px] border-none bg-transparent font-mono text-[12.5px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           />
           {ready && ready.totalBytes !== null && (
             <div className="shrink-0 whitespace-nowrap font-mono text-[11px] font-medium text-muted-foreground">

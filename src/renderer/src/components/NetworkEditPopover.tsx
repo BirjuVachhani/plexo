@@ -69,7 +69,7 @@ export function NetworkEditPopover({
                   type="button"
                   variant="ghost"
                   size="icon-xs"
-                  aria-label="Rename or recolor this network"
+                  aria-label="Edit network"
                   className="shrink-0 text-muted-foreground"
                 >
                   <Pencil className="size-3" />
@@ -78,7 +78,7 @@ export function NetworkEditPopover({
             />
           }
         />
-        <TooltipContent>Rename or recolor this network</TooltipContent>
+        <TooltipContent>Edit network</TooltipContent>
       </Tooltip>
       <PopoverContent aria-label={`Edit ${visual.name}`} className="gap-3 p-3">
         <div className="flex flex-col gap-[6px]">

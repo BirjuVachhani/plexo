@@ -25,7 +25,7 @@ interface AppStore {
   /** User customizations (name/color) per network interface id — persisted in the main process. */
   networkPreferences: NetworkPreferences
 
-  /** 'system' by default — persisted in the main process alongside nativeTheme.themeSource. */
+  /** Persisted in the main process alongside nativeTheme.themeSource. */
   themeSource: ThemeSource
 
   homeDir: string
@@ -67,7 +67,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   interfacesError: null,
   latencies: {},
   networkPreferences: {},
-  themeSource: 'system',
+  themeSource: 'light',
 
   homeDir: '',
   downloadsDir: '',
@@ -145,7 +145,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const themeSource = await window.plexo.getThemeSource()
       set({ themeSource })
     } catch {
-      // Best-effort — a failed read just leaves the toggle showing the 'system' default.
+      // Best-effort — a failed read just leaves the toggle showing the 'light' default.
     }
   },
 

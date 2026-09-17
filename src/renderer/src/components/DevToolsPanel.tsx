@@ -144,29 +144,6 @@ export function DevToolsPanel(): React.JSX.Element | null {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        title="Dev tools — simulate a download"
-        style={{
-          position: 'fixed',
-          bottom: 14,
-          left: 14,
-          zIndex: 1000,
-          border: '0.5px solid var(--color-ethernet-border)',
-          borderRadius: 999,
-          background: 'var(--color-ethernet-bg)',
-          color: 'var(--color-ethernet-text)',
-          font: `700 10px/1 ${FONT_MONO}`,
-          letterSpacing: '0.08em',
-          padding: '6px 11px',
-          cursor: 'pointer',
-          boxShadow: '0 2px 10px rgba(0,0,0,0.25)'
-        }}
-      >
-        DEV
-      </button>
-
       {open && (
         <div
           style={{

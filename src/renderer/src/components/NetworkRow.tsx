@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Pencil } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import type { BlockState } from '@shared/types'
 import {
@@ -63,18 +64,6 @@ export function NetworkRow({
         >
           {visual.name}
         </span>
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          title={expanded ? 'Collapse streams' : 'Expand streams'}
-          aria-expanded={expanded}
-          className={`inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-[4px] border-[0.5px] border-border px-[7px] py-[3px] font-mono text-[10.5px] leading-none font-medium select-none ${
-            expanded ? 'bg-secondary text-foreground' : 'bg-card text-[var(--text-secondary)]'
-          }`}
-        >
-          <span>{group.chunks.length} streams</span>
-          <span className="text-[7.5px] opacity-75">{expanded ? '▲' : '▼'}</span>
-        </button>
         <Popover open={editing} onOpenChange={setEditing}>
           <PopoverTrigger
             render={
@@ -84,9 +73,9 @@ export function NetworkRow({
                 size="icon-xs"
                 title="Rename or recolor this network"
                 aria-label="Rename or recolor this network"
-                className="shrink-0 font-sans text-xs font-bold text-muted-foreground"
+                className="shrink-0 text-muted-foreground"
               >
-                ⋯
+                <Pencil className="size-3" />
               </Button>
             }
           />
@@ -102,6 +91,18 @@ export function NetworkRow({
             />
           </PopoverContent>
         </Popover>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          title={expanded ? 'Collapse streams' : 'Expand streams'}
+          aria-expanded={expanded}
+          className={`inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-[4px] border-[0.5px] border-border px-[7px] py-[3px] font-mono text-[10.5px] leading-none font-medium select-none ${
+            expanded ? 'bg-secondary text-foreground' : 'bg-card text-[var(--text-secondary)]'
+          }`}
+        >
+          <span>{group.chunks.length} streams</span>
+          <span className="text-[7.5px] opacity-75">{expanded ? '▲' : '▼'}</span>
+        </button>
       </div>
       <div className="flex min-w-0 items-center">
         <div className="h-1.5 flex-1 overflow-hidden rounded-full border-[0.5px] border-[var(--border-strong)] bg-[var(--track-bg)]">

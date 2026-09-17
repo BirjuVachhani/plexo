@@ -1,4 +1,5 @@
 import type { NetworkInterfaceInfo } from '@shared/types'
+import { Pencil } from 'lucide-react'
 import { useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import { resolveNetworkVisual, type NetworkColorId } from '../theme'
@@ -60,55 +61,57 @@ export function NetworkCard({
       }}
     >
       <div className="flex items-center gap-[9px]">
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={selected}
-          onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center gap-[9px] border-none bg-transparent p-0 text-left [font:inherit] text-inherit"
-        >
-          <Checkbox checked={selected} color={visual.solid} onColor={visual.onSolid} />
-          <div
-            className={`min-w-0 truncate font-sans text-[13px] leading-none font-semibold ${
-              selected ? 'text-foreground' : 'text-[var(--text-secondary)]'
-            }`}
+        <div className="flex min-w-0 flex-1 items-center gap-[9px]">
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={selected}
+            onClick={onToggle}
+            className="flex min-w-0 shrink items-center gap-[9px] border-none bg-transparent p-0 text-left [font:inherit] text-inherit"
           >
-            {visual.name}
-          </div>
-        </button>
-        <Popover open={editing} onOpenChange={setEditing}>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <PopoverTrigger
-                  render={
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
-                      aria-label="Rename or recolor this network"
-                      className="shrink-0 font-sans text-xs font-bold text-muted-foreground"
-                    >
-                      ⋯
-                    </Button>
-                  }
-                />
-              }
-            />
-            <TooltipContent>Rename or recolor this network</TooltipContent>
-          </Tooltip>
-          <PopoverContent className="w-[276px]">
-            <NetworkEditorFields
-              name={preference?.customName ?? ''}
-              onNameChange={(customName) => setNetworkPreference(iface.id, { customName })}
-              namePlaceholder={iface.displayName}
-              colorId={preference?.colorId as NetworkColorId | undefined}
-              onColorSelect={(colorId) => setNetworkPreference(iface.id, { colorId })}
-              interfaceKind={iface.kind}
-              onDone={() => setEditing(false)}
-            />
-          </PopoverContent>
-        </Popover>
+            <Checkbox checked={selected} color={visual.solid} onColor={visual.onSolid} />
+            <div
+              className={`min-w-0 truncate font-sans text-[13px] leading-none font-semibold ${
+                selected ? 'text-foreground' : 'text-[var(--text-secondary)]'
+              }`}
+            >
+              {visual.name}
+            </div>
+          </button>
+          <Popover open={editing} onOpenChange={setEditing}>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <PopoverTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label="Rename or recolor this network"
+                        className="shrink-0 text-muted-foreground"
+                      >
+                        <Pencil className="size-3" />
+                      </Button>
+                    }
+                  />
+                }
+              />
+              <TooltipContent>Rename or recolor this network</TooltipContent>
+            </Tooltip>
+            <PopoverContent className="w-[276px]">
+              <NetworkEditorFields
+                name={preference?.customName ?? ''}
+                onNameChange={(customName) => setNetworkPreference(iface.id, { customName })}
+                namePlaceholder={iface.displayName}
+                colorId={preference?.colorId as NetworkColorId | undefined}
+                onColorSelect={(colorId) => setNetworkPreference(iface.id, { colorId })}
+                interfaceKind={iface.kind}
+                onDone={() => setEditing(false)}
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
         <ColorBadge
           bg={selected ? visual.bg : 'transparent'}
           border={selected ? visual.border : 'var(--border)'}

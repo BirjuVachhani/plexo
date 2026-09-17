@@ -26,6 +26,12 @@ export function ErrorScreen({
   const percent = knownSize
     ? Math.min(100, Math.round((download.bytesDownloaded / download.totalBytes) * 100))
     : 0
+  const heading = cancelled ? 'Download Cancelled' : 'Download Failed'
+  const description = cancelled
+    ? 'The download was stopped before finishing.'
+    : download.error
+      ? describeError(download.error)
+      : 'An error occurred during transfer.'
 
   const handleCopyUrl = async (): Promise<void> => {
     try {
@@ -39,7 +45,8 @@ export function ErrorScreen({
 
   return (
     <div
-      style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}
+      className="bg-background"
+      style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
     >
       <div
         style={{
@@ -52,12 +59,12 @@ export function ErrorScreen({
         }}
       >
         <div
+          className="bg-card"
           style={{
             maxWidth: 440,
             width: '100%',
             borderRadius: 14,
             padding: '28px 24px',
-            background: 'var(--bg-secondary)',
             border: '0.5px solid var(--border-strong)',
             boxShadow: '0 16px 40px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.2)',
             display: 'flex',
@@ -119,26 +126,22 @@ export function ErrorScreen({
           </div>
 
           {/* Heading */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <div style={{ font: `700 17px/1.2 ${FONT_UI}`, color: 'var(--text)' }}>
-              {cancelled ? 'Download Cancelled' : 'Download Failed'}
+          <div role="alert" style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <div className="text-foreground" style={{ font: `700 17px/1.2 ${FONT_UI}` }}>
+              {heading}
             </div>
             <div style={{ font: `12px/1.4 ${FONT_UI}`, color: 'var(--text-secondary)' }}>
-              {cancelled
-                ? 'The download was stopped before finishing.'
-                : download.error
-                  ? describeError(download.error)
-                  : 'An error occurred during transfer.'}
+              {description}
             </div>
           </div>
 
           {/* File capsule */}
           <div
+            className="bg-background"
             style={{
               width: '100%',
               borderRadius: 9,
               padding: '10px 12px',
-              background: 'var(--bg)',
               border: '0.5px solid var(--border)',
               display: 'flex',
               alignItems: 'center',
@@ -147,11 +150,11 @@ export function ErrorScreen({
             }}
           >
             <div
+              className="bg-card"
               style={{
                 width: 34,
                 height: 34,
                 borderRadius: 7,
-                background: 'var(--bg-secondary)',
                 border: '0.5px solid var(--border-strong)',
                 display: 'flex',
                 alignItems: 'center',
@@ -165,9 +168,9 @@ export function ErrorScreen({
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div
+                className="text-foreground"
                 style={{
                   font: `600 12.5px/1.3 ${FONT_UI}`,
-                  color: 'var(--text)',
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis'
@@ -177,10 +180,10 @@ export function ErrorScreen({
                 {download.fileName}
               </div>
               <div
+                className="text-muted-foreground"
                 style={{
                   marginTop: 2,
                   font: `11px/1 ${FONT_MONO}`,
-                  color: 'var(--text-tertiary)',
                   fontVariantNumeric: 'tabular-nums'
                 }}
               >

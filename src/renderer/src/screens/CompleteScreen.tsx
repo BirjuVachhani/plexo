@@ -28,8 +28,7 @@ import {
 const heroScopeStyle: React.CSSProperties = {
   padding: '18px 20px',
   background: 'var(--hero-bg)',
-  borderBottom: '1px solid var(--hero-border)',
-  color: 'var(--text)'
+  borderBottom: '1px solid var(--hero-border)'
 }
 
 export function CompleteScreen({
@@ -109,9 +108,10 @@ export function CompleteScreen({
 
   return (
     <div
-      style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}
+      className="bg-background"
+      style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
     >
-      <div style={heroScopeStyle}>
+      <div className="text-foreground" style={heroScopeStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
           <div
             style={{
@@ -149,10 +149,10 @@ export function CompleteScreen({
               {download.fileName}
             </div>
             <div
+              className="text-muted-foreground"
               style={{
                 marginTop: 5,
                 font: `11.5px/1.3 ${FONT_MONO}`,
-                color: 'var(--text-tertiary)',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis'
@@ -164,26 +164,26 @@ export function CompleteScreen({
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5 }}>
             <div
+              className="text-muted-foreground"
               style={{
                 font: `500 9px/1 ${FONT_MONO}`,
-                letterSpacing: '0.16em',
-                color: 'var(--text-tertiary)'
+                letterSpacing: '0.16em'
               }}
             >
               AVERAGE
             </div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
               <div
+                className="text-foreground"
                 style={{
                   font: `600 26px/0.9 ${FONT_MONO}`,
                   letterSpacing: '-0.02em',
-                  color: 'var(--text)',
                   fontVariantNumeric: 'tabular-nums'
                 }}
               >
                 {formatSpeed(avgSpeed).split(' ')[0]}
               </div>
-              <div style={{ font: `500 11px/1 ${FONT_MONO}`, color: 'var(--text-tertiary)' }}>
+              <div className="text-muted-foreground" style={{ font: `500 11px/1 ${FONT_MONO}` }}>
                 MB/s
               </div>
             </div>
@@ -228,12 +228,12 @@ export function CompleteScreen({
         ].map((stat, index) => (
           <div
             key={stat.label}
+            className={index > 0 ? 'border-l-[0.5px] border-border' : undefined}
             style={{
               padding: '11px 14px',
               display: 'flex',
               flexDirection: 'column',
-              gap: 5,
-              borderLeft: index > 0 ? '0.5px solid var(--border)' : undefined
+              gap: 5
             }}
           >
             <div style={statLabelStyle}>{stat.label}</div>
@@ -255,12 +255,12 @@ export function CompleteScreen({
       >
         <div style={sectionHeaderLabelStyle}>Contribution by network</div>
         <div
+          className="bg-muted"
           style={{
             display: 'flex',
             height: 10,
             borderRadius: 999,
             overflow: 'hidden',
-            background: 'var(--track-bg)',
             gap: 2
           }}
         >
@@ -295,10 +295,9 @@ export function CompleteScreen({
 
       <div style={footerStyle}>
         <div style={footerTextStyle}>
-          reassembled from {totalChunkCount} chunks
-          {totalRetries > 0
-            ? ` · ${totalRetries} ${totalRetries === 1 ? 'retry' : 'retries'}`
-            : ' · 0 retries'}
+          {`reassembled from ${totalChunkCount} chunks · ${totalRetries} ${
+            totalRetries === 1 ? 'retry' : 'retries'
+          }`}
         </div>
         <div style={{ flex: 1 }} />
         <button type="button" onClick={onNewDownload} style={secondaryButtonStyle}>

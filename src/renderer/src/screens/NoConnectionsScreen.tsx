@@ -18,7 +18,8 @@ export function NoConnectionsScreen(): React.JSX.Element {
 
   return (
     <div
-      style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}
+      className="bg-background"
+      style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
     >
       <div
         style={{
@@ -32,7 +33,7 @@ export function NoConnectionsScreen(): React.JSX.Element {
         }}
       >
         <CombineDiagram networks={PLACEHOLDER_NETWORKS} muted />
-        <div style={{ font: `700 16px/1.2 ${FONT_UI}`, color: 'var(--text)' }}>
+        <div className="text-foreground" style={{ font: `700 16px/1.2 ${FONT_UI}` }}>
           No networks to combine
         </div>
         <div
@@ -61,16 +62,16 @@ export function NoConnectionsScreen(): React.JSX.Element {
       </div>
 
       <div
+        className="bg-secondary"
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: 10,
           padding: '11px 20px',
-          background: 'var(--bg-tertiary)',
           borderTop: '0.5px solid var(--footer-border)'
         }}
       >
-        <div style={{ font: `11px/1.4 ${FONT_MONO}`, color: 'var(--text-tertiary)' }}>
+        <div className="text-muted-foreground" style={{ font: `11px/1.4 ${FONT_MONO}` }}>
           0 networks · watching for changes
         </div>
         <div style={{ flex: 1 }} />

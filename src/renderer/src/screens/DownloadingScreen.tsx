@@ -7,7 +7,6 @@ import { ThroughputChart } from '../components/ThroughputChart'
 import { useNetworkPolling } from '../hooks/useNetworkPolling'
 import { useAppStore } from '../store/useAppStore'
 import {
-  DANGER,
   FONT_MONO,
   FONT_UI,
   accentChipStyle,
@@ -41,8 +40,60 @@ import {
 const heroScopeStyle: React.CSSProperties = {
   padding: '18px 20px',
   background: 'var(--hero-bg)',
-  borderBottom: '1px solid var(--hero-border)',
-  color: 'var(--text)'
+  borderBottom: '1px solid var(--hero-border)'
+}
+
+// Build list of toggleable comparison metrics for active networks (only "X× [NETWORK] ALONE").
+interface SpeedChipOption {
+  label: string
+  tooltip: string
+  color: string
+  bg: string
+  border: string
+}
+
+/** Inline "·" separator between adjacent stats. `shrink` pins it at its natural width inside a
+ * flex row that might otherwise squeeze it (footer rows), matching each call site's prior style. */
+function Dot({ shrink }: { shrink?: boolean }): React.JSX.Element {
+  return <span style={{ opacity: 0.35, flexShrink: shrink ? 0 : undefined }}>·</span>
+}
+
+function InlineStat({ label, value }: { label: string; value: string }): React.JSX.Element {
+  return (
+    <span>
+      {label} <span className="font-semibold text-foreground">{value}</span>
+    </span>
+  )
+}
+
+/** The small "PAUSED"/"ASSEMBLING" tag next to the file name — shape is fixed, only the label
+ * and its network-kind color tokens vary between the two call sites. */
+function StatusPill({
+  label,
+  color,
+  bg,
+  border
+}: {
+  label: string
+  color: string
+  bg: string
+  border: string
+}): React.JSX.Element {
+  return (
+    <span
+      style={{
+        font: `600 9.5px/1 ${FONT_MONO}`,
+        letterSpacing: '0.08em',
+        color,
+        background: bg,
+        border: `0.5px solid ${border}`,
+        padding: '2px 7px',
+        borderRadius: 3.5
+      }}
+    >
+      {label}
+    </span>
+  )
 }
 
 export function DownloadingScreen({ download }: { download: DownloadState }): React.JSX.Element {
@@ -56,7 +107,8 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   const isPaused = download.status === 'paused'
   const isAssembling = download.status === 'assembling'
   const percent = formatPercent(download.bytesDownloaded, download.totalBytes)
-  const assemblePercent = formatPercent(download.assembledBytes ?? 0, download.totalBytes)
+  const assembledBytes = download.assembledBytes ?? 0
+  const assemblePercent = formatPercent(assembledBytes, download.totalBytes)
   const knownSize = download.totalBytes > 0
   const [now, setNow] = useState(() => Date.now())
 
@@ -127,14 +179,6 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
 
   const avgSpeedBytesPerSec = elapsedSeconds > 0 ? download.bytesDownloaded / elapsedSeconds : 0
 
-  // Build list of toggleable comparison metrics for active networks (only "X× [NETWORK] ALONE")
-  interface SpeedChipOption {
-    label: string
-    tooltip: string
-    color: string
-    bg: string
-    border: string
-  }
   const chipOptions: SpeedChipOption[] = []
   if (groups.length > 1 && !isPaused) {
     const sortedIndices = groups
@@ -185,11 +229,21 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
   const activeChipOption =
     chipOptions.length > 0 ? chipOptions[chipModeIndex % chipOptions.length] : null
 
+  const throughputStatusLabel = isAssembling
+    ? 'ASSEMBLING'
+    : isPaused
+      ? 'PAUSED'
+      : `LAST ${speedHistory.length}S`
+  const networksStatusLabel = isAssembling
+    ? 'assembling'
+    : isPaused
+      ? 'paused'
+      : `${activeGroups.length} active`
+  const pauseResumeLabel = resuming ? 'Resuming…' : isPaused ? 'Resume' : 'Pause'
+
   return (
-    <div
-      style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg)' }}
-    >
-      <div style={heroScopeStyle}>
+    <div className="flex h-full flex-col bg-background">
+      <div style={heroScopeStyle} className="text-foreground">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <CombineDiagram
             networks={groups.map((group, index) => ({
@@ -213,11 +267,8 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             {isAssembling ? (
               <>
                 <div
-                  style={{
-                    font: `500 10px/1 ${FONT_MONO}`,
-                    letterSpacing: '0.2em',
-                    color: 'var(--text-tertiary)'
-                  }}
+                  className="text-muted-foreground"
+                  style={{ font: `500 10px/1 ${FONT_MONO}`, letterSpacing: '0.2em' }}
                 >
                   ASSEMBLING
                 </div>
@@ -232,7 +283,10 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                   >
                     {assemblePercent}
                   </div>
-                  <div style={{ font: `500 12px/1 ${FONT_MONO}`, color: 'var(--text-tertiary)' }}>
+                  <div
+                    className="text-muted-foreground"
+                    style={{ font: `500 12px/1 ${FONT_MONO}` }}
+                  >
                     %
                   </div>
                 </div>
@@ -240,10 +294,10 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             ) : (
               <>
                 <div
+                  className="text-muted-foreground"
                   style={{
                     font: `500 10px/1 ${FONT_MONO}`,
                     letterSpacing: '0.2em',
-                    color: 'var(--text-tertiary)',
                     display: 'flex',
                     alignItems: 'center',
                     gap: 6
@@ -268,52 +322,42 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
                   <div
+                    className={isPaused ? 'text-muted-foreground' : 'text-foreground'}
                     style={{
                       font: `600 38px/0.88 ${FONT_MONO}`,
                       letterSpacing: '-0.03em',
-                      color: isPaused ? 'var(--text-tertiary)' : 'var(--text)',
                       fontVariantNumeric: 'tabular-nums'
                     }}
                   >
                     {isPaused ? '—' : speed.value}
                   </div>
                   {!isPaused && (
-                    <div style={{ font: `500 12px/1 ${FONT_MONO}`, color: 'var(--text-tertiary)' }}>
+                    <div
+                      className="text-muted-foreground"
+                      style={{ font: `500 12px/1 ${FONT_MONO}` }}
+                    >
                       {speed.unit}/s
                     </div>
                   )}
                 </div>
                 <div
+                  className="text-muted-foreground"
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: 8,
                     font: `500 10px/1 ${FONT_MONO}`,
-                    color: 'var(--text-tertiary)',
                     fontVariantNumeric: 'tabular-nums'
                   }}
                 >
-                  <span>
-                    AVG{' '}
-                    <span style={{ color: 'var(--text)', fontWeight: 600 }}>
-                      {formatSpeed(avgSpeedBytesPerSec)}
-                    </span>
-                  </span>
-                  <span style={{ opacity: 0.35 }}>·</span>
-                  <span>
-                    PEAK{' '}
-                    <span style={{ color: 'var(--text)', fontWeight: 600 }}>
-                      {formatSpeed(peakSpeedBytesPerSec)}
-                    </span>
-                  </span>
+                  <InlineStat label="AVG" value={formatSpeed(avgSpeedBytesPerSec)} />
+                  <Dot />
+                  <InlineStat label="PEAK" value={formatSpeed(peakSpeedBytesPerSec)} />
                 </div>
                 {isPaused ? (
                   <div
-                    style={{
-                      font: `500 11px/1.2 ${FONT_UI}`,
-                      color: download.error ? DANGER : 'var(--text-tertiary)',
-                      marginTop: 2
-                    }}
+                    className={download.error ? 'text-destructive' : 'text-muted-foreground'}
+                    style={{ font: `500 11px/1.2 ${FONT_UI}`, marginTop: 2 }}
                   >
                     {download.error ?? 'Download paused'}
                   </div>
@@ -356,14 +400,10 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             }}
           >
             <div
-              style={{
-                font: `500 9.5px/1 ${FONT_MONO}`,
-                letterSpacing: '0.12em',
-                color: 'var(--text-tertiary)'
-              }}
+              className="text-muted-foreground"
+              style={{ font: `500 9.5px/1 ${FONT_MONO}`, letterSpacing: '0.12em' }}
             >
-              THROUGHPUT ·{' '}
-              {isAssembling ? 'ASSEMBLING' : isPaused ? 'PAUSED' : `LAST ${speedHistory.length}S`}
+              THROUGHPUT · {throughputStatusLabel}
             </div>
             <ThroughputChart
               order={groups.map((g, i) => ({
@@ -386,11 +426,11 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <div
+            className="bg-card"
             style={{
               width: 44,
               height: 44,
               borderRadius: 10,
-              background: 'var(--bg-secondary)',
               border: '0.5px solid var(--border-strong)',
               display: 'flex',
               alignItems: 'center',
@@ -405,14 +445,8 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div
-              style={{
-                font: `600 15px/1.3 ${FONT_UI}`,
-                letterSpacing: '-0.01em',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                color: 'var(--text)'
-              }}
+              className="truncate text-foreground"
+              style={{ font: `600 15px/1.3 ${FONT_UI}`, letterSpacing: '-0.01em' }}
               title={download.fileName}
             >
               {download.fileName}
@@ -429,56 +463,40 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
               }}
             >
               <span>
-                {formatBytes(
-                  isAssembling ? (download.assembledBytes ?? 0) : download.bytesDownloaded
-                )}
+                {formatBytes(isAssembling ? assembledBytes : download.bytesDownloaded)}
                 {knownSize ? ` of ${formatBytes(download.totalBytes)}` : ''}
               </span>
               {knownSize && (
                 <>
-                  <span style={{ opacity: 0.35 }}>·</span>
-                  <span style={{ color: 'var(--text)', fontWeight: 600 }}>
+                  <Dot />
+                  <span className="font-semibold text-foreground">
                     {isAssembling ? assemblePercent : percent}%
                   </span>
                 </>
               )}
               {!isPaused && !isAssembling && knownSize && effectiveSpeed > 0 && (
                 <>
-                  <span style={{ opacity: 0.35 }}>·</span>
+                  <Dot />
                   <span style={{ color: 'var(--text-secondary)' }}>
                     {formatEta(remainingBytes, effectiveSpeed)} left
                   </span>
                 </>
               )}
               {isPaused && (
-                <span
-                  style={{
-                    font: `600 9.5px/1 ${FONT_MONO}`,
-                    letterSpacing: '0.08em',
-                    color: 'var(--color-usb)',
-                    background: 'var(--color-usb-bg)',
-                    border: '0.5px solid var(--color-usb-border)',
-                    padding: '2px 7px',
-                    borderRadius: 3.5
-                  }}
-                >
-                  PAUSED
-                </span>
+                <StatusPill
+                  label="PAUSED"
+                  color="var(--color-usb)"
+                  bg="var(--color-usb-bg)"
+                  border="var(--color-usb-border)"
+                />
               )}
               {isAssembling && (
-                <span
-                  style={{
-                    font: `600 9.5px/1 ${FONT_MONO}`,
-                    letterSpacing: '0.08em',
-                    color: 'var(--color-ethernet-text)',
-                    background: 'var(--color-ethernet-bg)',
-                    border: '0.5px solid var(--color-ethernet-border)',
-                    padding: '2px 7px',
-                    borderRadius: 3.5
-                  }}
-                >
-                  ASSEMBLING
-                </span>
+                <StatusPill
+                  label="ASSEMBLING"
+                  color="var(--color-ethernet-text)"
+                  bg="var(--color-ethernet-bg)"
+                  border="var(--color-ethernet-border)"
+                />
               )}
             </div>
           </div>
@@ -492,7 +510,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
           remainingBytes={remainingBytes}
           isPaused={isPaused}
           assembling={isAssembling}
-          assembledBytes={download.assembledBytes ?? 0}
+          assembledBytes={assembledBytes}
         />
       </div>
 
@@ -507,8 +525,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         >
           <div style={sectionHeaderLabelStyle}>Networks</div>
           <div style={sectionHeaderMetaStyle}>
-            {groups.length} combined · {download.chunks.length} streams ·{' '}
-            {isAssembling ? 'assembling' : isPaused ? 'paused' : `${activeGroups.length} active`}
+            {groups.length} combined · {download.chunks.length} streams · {networksStatusLabel}
           </div>
         </div>
         <div style={networkTableGridStyle}>
@@ -551,17 +568,14 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             gap: 7
           }}
         >
-          <span
-            style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-            title={`Saving to: ${download.destinationPath}`}
-          >
+          <span className="truncate" title={`Saving to: ${download.destinationPath}`}>
             Saving to {toDisplayPath(dirnameOf(download.destinationPath), homeDir)}
           </span>
-          <span style={{ opacity: 0.35, flexShrink: 0 }}>·</span>
+          <Dot shrink />
           <span style={{ flexShrink: 0 }}>Resumable</span>
           {totalRetries > 0 && (
             <>
-              <span style={{ opacity: 0.35, flexShrink: 0 }}>·</span>
+              <Dot shrink />
               <span style={{ color: 'var(--color-usb)', flexShrink: 0 }}>
                 {totalRetries} {totalRetries === 1 ? 'retry' : 'retries'}
               </span>
@@ -578,7 +592,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             ...((isAssembling || resuming) && { opacity: 0.5, cursor: 'not-allowed' })
           }}
         >
-          {resuming ? 'Resuming…' : isPaused ? 'Resume' : 'Pause'}
+          {pauseResumeLabel}
         </button>
         <button
           type="button"

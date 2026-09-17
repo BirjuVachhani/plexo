@@ -258,6 +258,7 @@ export class DownloadManager {
       return
     }
 
+    const restored: DownloadRuntime[] = []
     await Promise.all(
       entries.map(async (id) => {
         try {
@@ -295,7 +296,7 @@ export class DownloadManager {
             if (block.status === 'downloading') block.status = 'pending'
           }
 
-          const runtime: DownloadRuntime = {
+          restored.push({
             state,
             requestPayload: persisted.requestPayload,
             activeInterfaces: persisted.activeInterfaces,
@@ -307,14 +308,27 @@ export class DownloadManager {
             totalBlocks: state.totalBlocks ?? blocks.length,
             persistenceChain: Promise.resolve(),
             removed: false
-          }
-          this.runtimes.set(id, runtime)
-          await this.persistNow(runtime)
+          })
         } catch {
           // Ignore incomplete or corrupt manifests; other downloads can still be restored.
         }
       })
     )
+
+    // Plexo only ever tracks one current download — getCurrentDownload() always returns
+    // whichever restored runtime started most recently. Any other one restored alongside it is
+    // an orphan (most likely left over from before concurrent starts were blocked): nothing
+    // would ever look at it again, so left in `runtimes` it would sit there forever, invisibly
+    // failing every future start() with "a download is already in progress".
+    restored.sort((a, b) => b.state.startedAt - a.state.startedAt)
+    const [current, ...orphans] = restored
+
+    await Promise.all(orphans.map((runtime) => this.removePersistedDownload(runtime)))
+
+    if (current) {
+      this.runtimes.set(current.state.id, current)
+      await this.persistNow(current)
+    }
   }
 
   async getCurrentDownload(): Promise<DownloadState | null> {

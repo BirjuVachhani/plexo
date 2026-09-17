@@ -402,10 +402,16 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
 
       <div className="flex items-center gap-3 border-t-[0.5px] border-t-[var(--footer-border)] bg-secondary px-5 py-[11px]">
         <div className="flex min-w-0 flex-1 items-center gap-[7px] overflow-hidden font-mono text-[11px] leading-[1.4] text-muted-foreground">
-          <TruncatedText
-            text={`Saving to ${toDisplayPath(dirnameOf(download.destinationPath), homeDir)}`}
-            tooltipText={`Saving to: ${download.destinationPath}`}
-          />
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span className="shrink-0 whitespace-nowrap">
+                  Saving to {toDisplayPath(dirnameOf(download.destinationPath), homeDir)}
+                </span>
+              }
+            />
+            <TooltipContent>Saving to: {download.destinationPath}</TooltipContent>
+          </Tooltip>
           <Dot shrink />
           <span className="shrink-0">Resumable</span>
           {totalRetries > 0 && (

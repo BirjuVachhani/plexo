@@ -1,7 +1,7 @@
 import type { DownloadState } from '@shared/types'
 import { useState } from 'react'
+import { TruncatedText } from '../components/TruncatedText'
 import { Button } from '../components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
 import { describeError, fileExtensionBadge, formatBytes } from '../utils/format'
 
 export function ErrorScreen({
@@ -108,16 +108,10 @@ export function ErrorScreen({
               {fileExtensionBadge(download.fileName)}
             </div>
             <div className="min-w-0 flex-1">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <div className="inline-block max-w-full truncate font-sans text-[12.5px] leading-[1.3] font-semibold text-foreground">
-                      {download.fileName}
-                    </div>
-                  }
-                />
-                <TooltipContent>{download.fileName}</TooltipContent>
-              </Tooltip>
+              <TruncatedText
+                text={download.fileName}
+                className="font-sans text-[12.5px] leading-[1.3] font-semibold text-foreground"
+              />
               <div className="mt-0.5 font-mono text-[11px] leading-none tabular-nums text-muted-foreground">
                 {download.bytesDownloaded > 0 ? (
                   <>
@@ -147,17 +141,8 @@ export function ErrorScreen({
 
       {/* Footer with properly constrained, non-overflowing URL */}
       <div className="flex min-w-0 items-center gap-3 border-t-[0.5px] border-t-[var(--footer-border)] bg-secondary px-5 py-[11px]">
-        <div className="min-w-0 flex-1 truncate font-mono text-[11px] leading-none text-muted-foreground">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <span className="inline-block max-w-full truncate align-bottom">
-                  {download.url}
-                </span>
-              }
-            />
-            <TooltipContent>{download.url}</TooltipContent>
-          </Tooltip>
+        <div className="min-w-0 flex-1 font-mono text-[11px] leading-none text-muted-foreground">
+          <TruncatedText text={download.url} />
         </div>
         <button
           type="button"

@@ -2,6 +2,7 @@ import type { NetworkInterfaceKind, SimulatedNetworkConfig } from '@shared/types
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import { describeError, toDisplayPath } from '../utils/format'
+import { TruncatedText } from './TruncatedText'
 import { Button } from './ui/button'
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
@@ -207,20 +208,18 @@ export function DevToolsPanel(): React.JSX.Element | null {
             <div className="flex flex-col gap-[5px]">
               <div className={fieldLabelClass}>SOURCE FILE</div>
               <div className="flex gap-1.5">
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <div
-                        className={`${rowInputClass} min-w-0 flex-1 truncate ${
-                          sourceFilePath ? 'text-foreground' : 'text-muted-foreground'
-                        }`}
-                      >
-                        {sourceFilePath ? toDisplayPath(sourceFilePath, homeDir) : 'No file chosen'}
-                      </div>
+                <div
+                  className={`${rowInputClass} min-w-0 flex-1 ${
+                    sourceFilePath ? 'text-foreground' : 'text-muted-foreground'
+                  }`}
+                >
+                  <TruncatedText
+                    text={
+                      sourceFilePath ? toDisplayPath(sourceFilePath, homeDir) : 'No file chosen'
                     }
+                    tooltipText={sourceFilePath ?? 'No file chosen'}
                   />
-                  <TooltipContent>{sourceFilePath ?? 'No file chosen'}</TooltipContent>
-                </Tooltip>
+                </div>
                 <Button type="button" variant="secondary" onClick={handleChooseFile}>
                   Choose…
                 </Button>
@@ -230,16 +229,12 @@ export function DevToolsPanel(): React.JSX.Element | null {
             <div className="flex flex-col gap-[5px]">
               <div className={fieldLabelClass}>DESTINATION</div>
               <div className="flex gap-1.5">
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <div className={`${rowInputClass} min-w-0 flex-1 truncate`}>
-                        {toDisplayPath(effectiveDestinationDir, homeDir)}
-                      </div>
-                    }
+                <div className={`${rowInputClass} min-w-0 flex-1`}>
+                  <TruncatedText
+                    text={toDisplayPath(effectiveDestinationDir, homeDir)}
+                    tooltipText={effectiveDestinationDir}
                   />
-                  <TooltipContent>{effectiveDestinationDir}</TooltipContent>
-                </Tooltip>
+                </div>
                 <Button type="button" variant="secondary" onClick={handleChooseDestination}>
                   Browse…
                 </Button>

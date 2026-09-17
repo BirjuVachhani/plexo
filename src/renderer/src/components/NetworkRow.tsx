@@ -6,7 +6,7 @@ import type { NetworkGroup } from '../utils/format'
 import { formatBytes, formatSpeed } from '../utils/format'
 import { ColorBadge } from './ColorBadge'
 import { NetworkEditPopover } from './NetworkEditPopover'
-import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
+import { TruncatedText } from './TruncatedText'
 
 interface NetworkRowProps {
   group: NetworkGroup
@@ -48,16 +48,10 @@ export function NetworkRow({
         }}
       />
       <div className="flex min-w-0 items-center gap-[6px]">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <span className="truncate font-sans text-[12.5px] leading-[1.2] font-semibold text-foreground">
-                {visual.name}
-              </span>
-            }
-          />
-          <TooltipContent>{visual.name}</TooltipContent>
-        </Tooltip>
+        <TruncatedText
+          text={visual.name}
+          className="font-sans text-[12.5px] leading-[1.2] font-semibold text-foreground"
+        />
         <NetworkEditPopover
           interfaceId={group.interfaceId}
           interfaceKind={group.interfaceKind}

@@ -6,6 +6,7 @@ import { CombineDiagram } from '../components/CombineDiagram'
 import { CyclableChip } from '../components/CyclableChip'
 import { NetworkRow } from '../components/NetworkRow'
 import { ThroughputChart } from '../components/ThroughputChart'
+import { TruncatedText } from '../components/TruncatedText'
 import { Button } from '../components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
 import { useNetworkPolling } from '../hooks/useNetworkPolling'
@@ -299,16 +300,10 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             {fileExtensionBadge(download.fileName)}
           </div>
           <div className="min-w-0 flex-1">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <div className="max-w-full truncate font-sans text-[15px] leading-[1.3] font-semibold tracking-[-0.01em] text-foreground inline-block">
-                    {download.fileName}
-                  </div>
-                }
-              />
-              <TooltipContent>{download.fileName}</TooltipContent>
-            </Tooltip>
+            <TruncatedText
+              text={download.fileName}
+              className="font-sans text-[15px] leading-[1.3] font-semibold tracking-[-0.01em] text-foreground"
+            />
             <div className="mt-1 flex items-center gap-[7px] font-mono text-[12.5px] leading-[1.2] tabular-nums text-[var(--text-secondary)]">
               <span>
                 {formatBytes(isAssembling ? assembledBytes : download.bytesDownloaded)}
@@ -407,16 +402,10 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
 
       <div className="flex items-center gap-3 border-t-[0.5px] border-t-[var(--footer-border)] bg-secondary px-5 py-[11px]">
         <div className="flex min-w-0 flex-1 items-center gap-[7px] overflow-hidden font-mono text-[11px] leading-[1.4] text-muted-foreground">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <span className="truncate">
-                  Saving to {toDisplayPath(dirnameOf(download.destinationPath), homeDir)}
-                </span>
-              }
-            />
-            <TooltipContent>Saving to: {download.destinationPath}</TooltipContent>
-          </Tooltip>
+          <TruncatedText
+            text={`Saving to ${toDisplayPath(dirnameOf(download.destinationPath), homeDir)}`}
+            tooltipText={`Saving to: ${download.destinationPath}`}
+          />
           <Dot shrink />
           <span className="shrink-0">Resumable</span>
           {totalRetries > 0 && (

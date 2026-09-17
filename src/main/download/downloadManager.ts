@@ -601,12 +601,18 @@ export class DownloadManager {
     }
 
     let availableInterfaces: NetworkInterfaceInfo[]
-    try {
-      availableInterfaces = await this.refreshInterfaces()
-    } catch {
-      runtime.state.error = 'Could not refresh network interfaces. Try resuming again.'
-      this.pushUpdate(runtime)
-      return
+    if (isSimulatedUrl(url)) {
+      // Synthetic sim interfaces aren't real NICs the OS enumerates — they never "disconnect",
+      // so the ones already on the runtime are still exactly right.
+      availableInterfaces = runtime.activeInterfaces
+    } else {
+      try {
+        availableInterfaces = await this.refreshInterfaces()
+      } catch {
+        runtime.state.error = 'Could not refresh network interfaces. Try resuming again.'
+        this.pushUpdate(runtime)
+        return
+      }
     }
     if (runtime.state.status !== 'paused') return
 

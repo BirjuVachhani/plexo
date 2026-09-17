@@ -325,8 +325,28 @@ export class DownloadManager {
     return latest ? structuredClone(latest.state) : null
   }
 
+  /** Plexo shows one download at a time (see useAppStore's currentDownload) — starting a second
+   * one while one is already running/paused/assembling would silently race it for disk I/O and
+   * scramble the renderer's single-download view as updates from both interleave. */
+  private hasActiveDownload(): boolean {
+    for (const runtime of this.runtimes.values()) {
+      if (
+        runtime.state.status === 'downloading' ||
+        runtime.state.status === 'paused' ||
+        runtime.state.status === 'assembling'
+      ) {
+        return true
+      }
+    }
+    return false
+  }
+
   async start(requestPayload: StartDownloadRequest): Promise<string> {
     await this.initialization
+    if (this.hasActiveDownload()) {
+      throw new Error('A download is already in progress — finish or remove it first.')
+    }
+
     const interfaces = requestPayload.interfaceIds
       .map((interfaceId) => this.getInterfaceById(interfaceId))
       .filter((iface): iface is NetworkInterfaceInfo => Boolean(iface))
@@ -348,6 +368,9 @@ export class DownloadManager {
    */
   async startSimulated(payload: StartSimulatedDownloadRequest): Promise<string> {
     await this.initialization
+    if (this.hasActiveDownload()) {
+      throw new Error('A download is already in progress — finish or remove it first.')
+    }
     if (payload.networks.length === 0) {
       throw new Error('Select at least one simulated network')
     }

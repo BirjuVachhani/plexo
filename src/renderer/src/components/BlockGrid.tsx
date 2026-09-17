@@ -2,7 +2,6 @@ import type { BlockState, BlockStatus } from '@shared/types'
 import { useCallback, useRef, useState } from 'react'
 import type { NetworkVisual } from '../theme'
 import { formatBytes, type NetworkGroup } from '../utils/format'
-import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 // The grid is a byte-space map of the file: one square per chunk, running left-to-right,
 // top-to-bottom. Each square is drawn in exactly one network's color — a square reads as one
@@ -224,8 +223,7 @@ export function BlockGrid({
         (hoveredCell.status === 'pending' ? 'queued' : '—')
       readout = `Chunk #${hoveredCell.chunkNumber} · ${formatBytes(hoveredCell.bytesDownloaded)} / ${formatBytes(hoveredCell.totalBytes)} · ${where}`
     } else {
-      const scrollHint = rows > MAX_VISIBLE_ROWS ? ' · scroll' : ''
-      readout = `${blocks.length} chunks · ${formatBytes(chunkBytes)} each${scrollHint}`
+      readout = `${blocks.length} chunks · ${formatBytes(chunkBytes)} each`
     }
 
     // Cumulative byte offset per cell, in the exact order reassemble() appends part files —
@@ -265,20 +263,9 @@ export function BlockGrid({
             </div>
           )}
           {cells.length > 0 && chunkBytes > 0 && (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <div className="ml-auto font-mono text-[10px] leading-none font-medium tabular-nums text-muted-foreground">
-                    {readout}
-                  </div>
-                }
-              />
-              <TooltipContent>
-                This file downloads as {blocks.length} chunks of {formatBytes(chunkBytes)}, one per
-                square.
-                {rows > MAX_VISIBLE_ROWS ? ' Scroll the grid to see the rest.' : ''}
-              </TooltipContent>
-            </Tooltip>
+            <div className="ml-auto font-mono text-[10px] leading-none font-medium tabular-nums text-muted-foreground">
+              {readout}
+            </div>
           )}
         </div>
 

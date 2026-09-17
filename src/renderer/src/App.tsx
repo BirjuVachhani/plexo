@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { DevToolsPanel } from './components/DevToolsPanel'
 import { TitleBar, type TitleBarStatus } from './components/TitleBar'
+import { TooltipProvider } from './components/ui/tooltip'
 import { useDownloadEvents } from './hooks/useDownloadEvents'
 import { CompleteScreen } from './screens/CompleteScreen'
 import { DownloadingScreen } from './screens/DownloadingScreen'
@@ -81,11 +82,13 @@ function App(): React.JSX.Element {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <TitleBar status={titleBarStatus} />
-      <div style={{ flex: 1, minHeight: 0 }}>{screen}</div>
-      <DevToolsPanel />
-    </div>
+    <TooltipProvider>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <TitleBar status={titleBarStatus} />
+        <div style={{ flex: 1, minHeight: 0 }}>{screen}</div>
+        <DevToolsPanel />
+      </div>
+    </TooltipProvider>
   )
 }
 

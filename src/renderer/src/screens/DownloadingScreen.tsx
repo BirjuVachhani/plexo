@@ -4,7 +4,9 @@ import { BlockGrid } from '../components/BlockGrid'
 import { ColorBadge } from '../components/ColorBadge'
 import { CombineDiagram } from '../components/CombineDiagram'
 import { CyclableChip } from '../components/CyclableChip'
+import { HeroBand } from '../components/HeroBand'
 import { NetworkRow } from '../components/NetworkRow'
+import { ScreenFooter } from '../components/ScreenFooter'
 import { ThroughputChart } from '../components/ThroughputChart'
 import { TruncatedText } from '../components/TruncatedText'
 import {
@@ -35,13 +37,6 @@ import {
   splitFormattedBytes,
   toDisplayPath
 } from '../utils/format'
-
-// The hero band is always this exact dark panel from the design, regardless of the app's own
-// light/dark theme — scoping the theme variables it reads (--text, --border, ...) to these
-// literal values keeps its own children (labels, the combine diagram, the chart) legible no
-// matter which OS appearance the rest of the window is following.
-const heroClass =
-  'border-b border-b-[var(--hero-border)] bg-[image:var(--hero-bg)] px-5 py-[18px] text-foreground'
 
 /** Inline "·" separator between adjacent stats. `shrink` pins it at its natural width inside a
  * flex row that might otherwise squeeze it (footer rows), matching each call site's prior style. */
@@ -229,7 +224,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div className={heroClass}>
+      <HeroBand>
         <div className="flex items-center gap-[14px]">
           <CombineDiagram
             networks={groups.map((group, index) => ({
@@ -303,7 +298,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             />
           </div>
         </div>
-      </div>
+      </HeroBand>
 
       <div className="flex flex-col gap-3 p-[16px_20px_18px]">
         <div className="flex items-center gap-[14px]">
@@ -406,7 +401,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         </div>
       </div>
 
-      <div className="flex items-center gap-3 border-t-[0.5px] border-t-[var(--footer-border)] bg-secondary px-5 py-[11px]">
+      <ScreenFooter>
         <div className="flex min-w-0 flex-1 items-center gap-[7px] overflow-hidden font-mono text-[11px] leading-[1.4] text-muted-foreground">
           <Tooltip>
             <TooltipTrigger
@@ -465,7 +460,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      </div>
+      </ScreenFooter>
     </div>
   )
 }

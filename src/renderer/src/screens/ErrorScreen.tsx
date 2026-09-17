@@ -1,5 +1,6 @@
 import type { DownloadState } from '@shared/types'
 import { useState } from 'react'
+import { ScreenFooter } from '../components/ScreenFooter'
 import { TruncatedText } from '../components/TruncatedText'
 import { Button } from '../components/ui/button'
 import { describeError, fileExtensionBadge, formatBytes } from '../utils/format'
@@ -140,7 +141,7 @@ export function ErrorScreen({
       </div>
 
       {/* Footer with properly constrained, non-overflowing URL */}
-      <div className="flex min-w-0 items-center gap-3 border-t-[0.5px] border-t-[var(--footer-border)] bg-secondary px-5 py-[11px]">
+      <ScreenFooter className="min-w-0">
         <div className="min-w-0 flex-1 font-mono text-[11px] leading-none text-muted-foreground">
           <TruncatedText text={download.url} />
         </div>
@@ -153,7 +154,7 @@ export function ErrorScreen({
         >
           {copied ? 'Copied' : 'Copy URL'}
         </button>
-      </div>
+      </ScreenFooter>
     </div>
   )
 }

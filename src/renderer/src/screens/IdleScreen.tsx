@@ -2,6 +2,7 @@ import type { ProbeResult } from '@shared/types'
 import { AlertTriangle, ClipboardPaste } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { NetworkCard } from '../components/NetworkCard'
+import { ScreenFooter } from '../components/ScreenFooter'
 import { Alert, AlertDescription } from '../components/ui/alert'
 import { Button } from '../components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group'
@@ -336,9 +337,9 @@ export function IdleScreen(): React.JSX.Element {
         </div>
       </div>
 
-      <div className="flex items-center gap-2.5 border-t border-[var(--footer-border)] bg-secondary px-5 py-[11px]">
+      <ScreenFooter className="gap-2.5">
         <div className="font-mono text-[11px] text-muted-foreground">{footerParts.join(' · ')}</div>
-      </div>
+      </ScreenFooter>
     </div>
   )
 }

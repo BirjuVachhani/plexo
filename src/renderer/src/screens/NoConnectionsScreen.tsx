@@ -1,4 +1,5 @@
 import { CombineDiagram } from '../components/CombineDiagram'
+import { ScreenFooter } from '../components/ScreenFooter'
 import { Button } from '../components/ui/button'
 import { useNetworkPolling } from '../hooks/useNetworkPolling'
 import { useAppStore } from '../store/useAppStore'
@@ -41,7 +42,7 @@ export function NoConnectionsScreen(): React.JSX.Element {
         </div>
       </div>
 
-      <div className="flex items-center gap-2.5 border-t-[0.5px] border-t-[var(--footer-border)] bg-secondary px-5 py-[11px]">
+      <ScreenFooter className="gap-2.5">
         <div className="font-mono text-[11px] leading-[1.4] text-muted-foreground">
           0 networks · watching for changes
         </div>
@@ -49,7 +50,7 @@ export function NoConnectionsScreen(): React.JSX.Element {
         <Button type="button" disabled>
           Start
         </Button>
-      </div>
+      </ScreenFooter>
     </div>
   )
 }

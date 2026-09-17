@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { DownloadState } from '@shared/types'
 import { CyclableChip } from '../components/CyclableChip'
+import { HeroBand } from '../components/HeroBand'
+import { ScreenFooter } from '../components/ScreenFooter'
 import { ThroughputChart } from '../components/ThroughputChart'
 import { Button } from '../components/ui/button'
 import { useNetworkVisuals } from '../hooks/useNetworkVisuals'
@@ -14,7 +16,6 @@ import {
   toDisplayPath
 } from '../utils/format'
 
-const heroClass = 'border-b border-b-[var(--hero-border)] bg-[image:var(--hero-bg)] px-5 py-[18px]'
 const sectionHeaderClass =
   'font-mono text-[10px] leading-none tracking-[0.16em] text-muted-foreground uppercase'
 
@@ -91,7 +92,7 @@ export function CompleteScreen({
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <div className={`${heroClass} text-foreground`}>
+      <HeroBand>
         <div className="flex items-center gap-[18px]">
           <div className="flex size-11 shrink-0 items-center justify-center rounded-full border border-[var(--color-wifi-border)] bg-[var(--color-wifi-bg)]">
             <svg viewBox="0 0 24 24" className="size-[21px]" aria-hidden="true">
@@ -139,7 +140,7 @@ export function CompleteScreen({
             )}
           </div>
         </div>
-      </div>
+      </HeroBand>
 
       <div className="mx-5 my-[18px] grid grid-cols-5 overflow-hidden rounded-[10px] border-[0.5px] border-border bg-card">
         {[
@@ -203,7 +204,7 @@ export function CompleteScreen({
         </div>
       </div>
 
-      <div className="flex items-center gap-3 border-t-[0.5px] border-t-[var(--footer-border)] bg-secondary px-5 py-[11px]">
+      <ScreenFooter>
         <div className="shrink-0 font-mono text-[11px] leading-[1.4] whitespace-nowrap text-muted-foreground">
           {`reassembled from ${totalChunkCount} chunks · ${totalRetries} ${
             totalRetries === 1 ? 'retry' : 'retries'
@@ -216,7 +217,7 @@ export function CompleteScreen({
         <Button type="button" onClick={handleReveal}>
           {window.plexo.platform === 'darwin' ? 'Reveal in Finder' : 'Show in folder'}
         </Button>
-      </div>
+      </ScreenFooter>
     </div>
   )
 }

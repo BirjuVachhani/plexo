@@ -92,6 +92,9 @@ export class Origin {
   lastModified: string | null
   readonly log: LoggedRequest[] = []
   private rule: (request: OriginRequest) => Fault | undefined = () => 'ok'
+  private version: (
+    request: OriginRequest
+  ) => { content: Buffer; etag: string | null } | undefined = () => undefined
   private holdAt: number | null = null
   private holdReached: (() => void) | null = null
   private holdRelease: (() => void) | null = null
@@ -135,6 +138,14 @@ export class Origin {
   /** Decides each request's fault. Returning undefined means 'ok'. */
   setRule(rule: (request: OriginRequest) => Fault | undefined): void {
     this.rule = rule
+  }
+
+  /** Answers some requests as if from another server behind a load balancer, with its own
+   * content and ETag. Returning undefined serves the default version. */
+  setVersionRule(
+    rule: (request: OriginRequest) => { content: Buffer; etag: string | null } | undefined
+  ): void {
+    this.version = rule
   }
 
   /** Swaps the served file, as a server publishing a new version would. */
@@ -190,10 +201,12 @@ export class Origin {
     }
 
     // Snapshot, so a setContent() mid-response doesn't splice two versions into one reply.
-    const content = this.content
+    const served = this.version(request)
+    const content = served?.content ?? this.content
+    const etag = served ? served.etag : this.etag
     const total = content.length
     const headers: Record<string, string | number> = {}
-    if (this.etag) headers['ETag'] = this.etag
+    if (etag) headers['ETag'] = etag
     if (this.lastModified) headers['Last-Modified'] = this.lastModified
     if (this.options.contentDisposition) {
       headers['Content-Disposition'] = this.options.contentDisposition

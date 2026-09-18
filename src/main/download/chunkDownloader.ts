@@ -3,6 +3,7 @@ import { request as httpRequest, type ClientRequest, type IncomingMessage } from
 import { request as httpsRequest } from 'node:https'
 import { URL } from 'node:url'
 import { testKnobs } from '../testKnobs'
+import { compareVersion, type FileVersion, type VersionCheck } from './fileVersion'
 
 export interface ChunkDownloadOptions {
   url: string
@@ -16,18 +17,22 @@ export interface ChunkDownloadOptions {
   append: boolean
   onProgress: (bytesDownloadedThisRun: number) => void
   signal: AbortSignal
-  /** What the probe saw. A response that disagrees comes from a different version of the file. */
-  expected: {
-    etag: string | null
-    lastModified: string | null
-    /** 0 = unknown. */
-    totalBytes: number
-  }
+  /** The version the download started on, plus any confirmed to serve identical bytes. */
+  acceptedVersions: FileVersion[]
 }
 
-/** The server is now serving a different file than the one this download started on. Retrying
- * can't help — every retry would fetch the new version — so this fails the whole download. */
-export class RemoteChangedError extends Error {}
+/** A response whose version doesn't match the download's. Nothing from it was written; the
+ * caller decides whether it's a new file (fail) or the same bytes under another label (accept). */
+export class RemoteChangedError extends Error {
+  constructor(
+    readonly check: Exclude<VersionCheck, { kind: 'same' }>,
+    readonly seen: FileVersion
+  ) {
+    super(
+      `The file on the server changed during the download (${check.detail}). Start the download over.`
+    )
+  }
+}
 
 // A server that accepts the connection and then goes silent (no data, no
 // error, no close) would otherwise hang the chunk forever with no way to
@@ -63,35 +68,15 @@ function header(res: IncomingMessage, name: string): string | undefined {
   return Array.isArray(value) ? value[0] : value
 }
 
-/** Why this response can't belong to the file the download started on, or null if it can. Each
- * part is fetched separately, so without this a file republished mid-download would be stitched
- * together from two versions and still pass every length check. */
-function versionMismatch(
-  res: IncomingMessage,
-  served: ServedRange | null,
-  expected: ChunkDownloadOptions['expected']
-): string | null {
-  const etag = header(res, 'etag')
-  if (expected.etag && etag && etag !== expected.etag) return `its ETag is now ${etag}`
-  const lastModified = header(res, 'last-modified')
-  if (
-    !expected.etag &&
-    expected.lastModified &&
-    lastModified &&
-    lastModified !== expected.lastModified
-  ) {
-    return `it was modified at ${lastModified}`
+/** The version a response says it's from. A 206 states the file's total size in
+ * Content-Range; a 200 is the whole file, so its length is the size. */
+function versionOf(res: IncomingMessage, served: ServedRange | null): FileVersion {
+  const length = header(res, 'content-length')
+  return {
+    etag: header(res, 'etag') ?? null,
+    lastModified: header(res, 'last-modified') ?? null,
+    totalBytes: served?.total ?? (res.statusCode === 200 && length ? Number(length) : 0)
   }
-  // A 206 states the file's total size in Content-Range; a 200 is the whole file, so its length.
-  const total =
-    served?.total ??
-    (res.statusCode === 200 && header(res, 'content-length')
-      ? Number(header(res, 'content-length'))
-      : null)
-  if (expected.totalBytes > 0 && total !== null && total !== expected.totalBytes) {
-    return `it is now ${total} bytes instead of ${expected.totalBytes}`
-  }
-  return null
 }
 
 /**
@@ -113,7 +98,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
     append,
     onProgress,
     signal,
-    expected
+    acceptedVersions
   } = options
 
   return new Promise((resolve, reject) => {
@@ -208,14 +193,13 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
             return
           }
 
+          // Each part is fetched separately, so a file republished mid-download would otherwise
+          // be stitched together from two versions and still pass every length check.
           const served = parseContentRange(res.headers['content-range'])
-          const mismatch = versionMismatch(res, served, expected)
-          if (mismatch) {
-            fail(
-              new RemoteChangedError(
-                `The file on the server changed during the download (${mismatch}). Start the download over.`
-              )
-            )
+          const seen = versionOf(res, served)
+          const check = compareVersion(acceptedVersions, seen)
+          if (check.kind !== 'same') {
+            fail(new RemoteChangedError(check, seen))
             res.resume()
             return
           }
@@ -306,6 +290,56 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
       req.end()
     }
 
+    attempt(new URL(url), MAX_REDIRECTS)
+  })
+}
+
+/** Fetches `start`..`end` into memory, following redirects, and reports which version served
+ * it — used to compare a few bytes already on disk against what a server serves now. */
+export function fetchRange(
+  url: string,
+  start: number,
+  end: number,
+  localAddress: string
+): Promise<{ body: Buffer; version: FileVersion }> {
+  return new Promise((resolve, reject) => {
+    const attempt = (target: URL, redirectsLeft: number): void => {
+      const requester = target.protocol === 'https:' ? httpsRequest : httpRequest
+      const req = requester(
+        {
+          method: 'GET',
+          hostname: target.hostname,
+          port: target.port || undefined,
+          path: `${target.pathname}${target.search}`,
+          localAddress,
+          family: 4,
+          headers: { 'User-Agent': 'Plexo/1.0', Range: `bytes=${start}-${end}` }
+        },
+        (res) => {
+          const status = res.statusCode ?? 0
+          if (status >= 300 && status < 400 && res.headers.location && redirectsLeft > 0) {
+            res.resume()
+            attempt(new URL(res.headers.location, target), redirectsLeft - 1)
+            return
+          }
+          const served = parseContentRange(res.headers['content-range'])
+          if (status !== 206 || served?.start !== start) {
+            res.resume()
+            reject(new Error(`Unexpected response to a sample request (status ${status})`))
+            return
+          }
+          const chunks: Buffer[] = []
+          res.on('data', (chunk: Buffer) => chunks.push(chunk))
+          res.on('error', reject)
+          res.on('end', () =>
+            resolve({ body: Buffer.concat(chunks), version: versionOf(res, served) })
+          )
+        }
+      )
+      req.on('error', reject)
+      req.setTimeout(STALL_TIMEOUT_MS, () => req.destroy(new Error('Sample request stalled')))
+      req.end()
+    }
     attempt(new URL(url), MAX_REDIRECTS)
   })
 }

@@ -136,6 +136,17 @@ test.describe('edge cases', () => {
     await plexo.waitForStatus('completed', 5000)
   })
 
+  test('a server that never answers the link check → an error, not endless "Checking…" @smoke', async ({
+    plexo,
+    serve
+  }) => {
+    const origin = await serve({ size: BLOCK })
+    origin.setRule(() => 'stallHeaders')
+    const started = Date.now()
+    await expect(plexo.api.probeUrl(origin.url())).rejects.toThrow(/did not respond/)
+    expect(Date.now() - started).toBeLessThan(10_000)
+  })
+
   test('starting a second download while one is active is refused @smoke', async ({
     plexo,
     serve

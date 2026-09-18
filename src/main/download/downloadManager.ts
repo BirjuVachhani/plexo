@@ -25,10 +25,10 @@ import type {
   StartDownloadRequest,
   StartSimulatedDownloadRequest
 } from '../../shared/types'
-import { downloadChunk, RemoteChangedError } from './chunkDownloader'
+import { downloadChunk, fetchRange, RemoteChangedError } from './chunkDownloader'
+import { compareVersion, type FileVersion } from './fileVersion'
 import { testKnobs } from '../testKnobs'
 import { reserveDestinationPath } from './paths'
-import { isResourceUnchanged } from './probe'
 import {
   createSimSession,
   downloadChunkSimulated,
@@ -60,6 +60,9 @@ interface DownloadRuntime {
   persistenceTimer?: NodeJS.Timeout
   persistenceChain: Promise<void>
   removed: boolean
+  /** The version this download started on, plus any since confirmed to serve identical bytes
+   * (see confirmSameBytes). Not persisted: after a restart, a confirmation is simply redone. */
+  acceptedVersions: FileVersion[]
 }
 
 interface PersistedDownload {
@@ -192,6 +195,18 @@ async function reconcilePartFileSize(partPath: string, expectedBytes: number): P
   return safeBytes
 }
 
+function requestedVersion(request: StartDownloadRequest): FileVersion {
+  return { etag: request.etag, lastModified: request.lastModified, totalBytes: request.totalBytes }
+}
+
+// How much of the already-downloaded file to re-fetch and compare when a server labels a
+// response with an ETag or Last-Modified this download hasn't seen before.
+const SAMPLE_BYTES = 16 * 1024
+const MAX_SAMPLES = 8
+/** A sample must come from a server presenting the new label; behind a load balancer the next
+ * request may land on another one, so take a few tries at reaching it. */
+const SAMPLE_TRIES = 4
+
 function formatGigabytes(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(2)} GB`
 }
@@ -308,7 +323,8 @@ export class DownloadManager {
             blocks,
             totalBlocks: state.totalBlocks ?? blocks.length,
             persistenceChain: Promise.resolve(),
-            removed: false
+            removed: false,
+            acceptedVersions: [requestedVersion(persisted.requestPayload)]
           })
         } catch {
           // Ignore incomplete or corrupt manifests; other downloads can still be restored.
@@ -561,7 +577,8 @@ export class DownloadManager {
       blocks,
       totalBlocks: blocks.length,
       persistenceChain: Promise.resolve(),
-      removed: false
+      removed: false,
+      acceptedVersions: [requestedVersion(requestPayload)]
     }
     this.runtimes.set(id, runtime)
     await this.persistNow(runtime)
@@ -604,28 +621,11 @@ export class DownloadManager {
     void this.resumeAfterVerifying(runtime)
   }
 
-  // Appending onto part files assumes the remote file hasn't changed since
-  // it was probed — if the server's ETag/Last-Modified moved on while this
-  // download sat paused, resuming would silently stitch old and new bytes
-  // together. Check first, and refuse to resume rather than corrupt the
-  // output (the user can always start the download over from scratch).
+  // A file that changed on the server while this download was paused is caught by the first
+  // chunk request after resuming: its response is checked against the version the download
+  // started on (see runWorker), which can tell a real change from a relabelled server.
   private async resumeAfterVerifying(runtime: DownloadRuntime): Promise<void> {
-    const { url, etag, lastModified } = runtime.requestPayload
-    // A simulated download has no server to re-probe — the source file sitting on disk is
-    // exactly what it was when the sim session was created, so there's nothing to verify.
-    const unchanged = isSimulatedUrl(url) || (await isResourceUnchanged(url, etag, lastModified))
-
-    if (runtime.state.status !== 'paused') return // cancelled while we were checking
-
-    if (!unchanged) {
-      runtime.state.status = 'error'
-      runtime.state.error =
-        'The remote file changed while this download was paused, so resuming would corrupt it. Start the download over instead.'
-      this.pushUpdate(runtime)
-      await this.cleanupTempDir(runtime)
-      await this.discardUnfinishedDestination(runtime)
-      return
-    }
+    const { url } = runtime.requestPayload
 
     let availableInterfaces: NetworkInterfaceInfo[]
     if (isSimulatedUrl(url)) {
@@ -873,11 +873,7 @@ export class DownloadManager {
           destinationPath: partPath,
           append: resumeOffset > 0,
           signal: controller.signal,
-          expected: {
-            etag: runtime.requestPayload.etag,
-            lastModified: runtime.requestPayload.lastModified,
-            totalBytes: runtime.requestPayload.totalBytes
-          },
+          acceptedVersions: runtime.acceptedVersions,
           onProgress: (bytesThisRun) => {
             const delta = bytesThisRun - lastReportedThisRun
             lastReportedThisRun = bytesThisRun
@@ -917,15 +913,41 @@ export class DownloadManager {
         chunk.error = message
 
         if (error instanceof RemoteChangedError) {
-          // Every other worker would hit the same new version, so stop them all now rather
-          // than let each burn through its retries first.
-          block.status = 'pending'
-          chunk.status = 'error'
-          chunk.speedBytesPerSec = 0
-          runtime.state.status = 'error'
-          runtime.state.error = message
-          for (const cr of runtime.chunkRuntimes.values()) cr.controller.abort()
-          break
+          const verdict =
+            error.check.kind === 'size'
+              ? 'different'
+              : await this.confirmSameBytes(runtime, iface, error.seen)
+          // The check takes a moment; the download may have been paused or stopped meanwhile.
+          const statusNow = runtime.state.status as DownloadStatus
+          if (statusNow !== 'downloading') {
+            block.status = 'pending'
+            chunk.status = statusNow === 'paused' ? 'paused' : 'cancelled'
+            chunk.speedBytesPerSec = 0
+            break
+          }
+          if (verdict === 'same') {
+            // Same bytes under another label — accept it and fetch this block again straight
+            // away; nothing from the rejected response was written.
+            if (compareVersion(runtime.acceptedVersions, error.seen).kind !== 'same') {
+              runtime.acceptedVersions.push(error.seen)
+            }
+            chunk.error = undefined
+            block.status = 'pending'
+            continue
+          }
+          if (verdict === 'different') {
+            // Every other worker would hit the same new version, so stop them all now rather
+            // than let each burn through its retries first.
+            block.status = 'pending'
+            chunk.status = 'error'
+            chunk.speedBytesPerSec = 0
+            runtime.state.status = 'error'
+            runtime.state.error = message
+            for (const cr of runtime.chunkRuntimes.values()) cr.controller.abort()
+            break
+          }
+          // 'unknown' — nothing to compare yet, or the check itself failed: retry like any
+          // other failed request. Nothing wrong was written either way.
         }
 
         attempt += 1
@@ -995,6 +1017,63 @@ export class DownloadManager {
     runtime.state.bytesDownloaded += deltaBytes
     runtime.state.speedBytesPerSec = sumChunkSpeeds(runtime)
     this.scheduleUpdate(runtime)
+  }
+
+  /**
+   * Settles whether a server labelling the file differently (new ETag or Last-Modified, same
+   * size) is serving the same bytes — load-balanced servers often disagree on labels for
+   * identical files — or a new version. Re-fetches a spread of bytes this download already has
+   * on disk, from a server presenting the new label, and compares them.
+   *
+   * 'unknown' when there's nothing on disk to compare yet or the samples couldn't be fetched;
+   * the caller then treats the response as an ordinary failed request and retries.
+   */
+  private async confirmSameBytes(
+    runtime: DownloadRuntime,
+    iface: NetworkInterfaceInfo,
+    seen: FileVersion
+  ): Promise<'same' | 'different' | 'unknown'> {
+    if (compareVersion(runtime.acceptedVersions, seen).kind === 'same') return 'same'
+
+    // Every byte on disk came from an accepted version: mismatched responses are rejected
+    // before anything is written.
+    const withData = runtime.blocks.filter((block) => block.bytesDownloaded > 0)
+    const step = Math.max(1, withData.length / MAX_SAMPLES)
+    const picks = Array.from(
+      { length: Math.min(MAX_SAMPLES, withData.length) },
+      (_, i) => withData[Math.floor(i * step)]
+    )
+
+    let compared = 0
+    for (const block of picks) {
+      const partPath = join(runtime.tempDir, `part-${block.index}`)
+      let local: Buffer
+      try {
+        local = (await readFile(partPath)).subarray(0, SAMPLE_BYTES)
+      } catch {
+        continue
+      }
+      if (local.length === 0) continue
+
+      for (let tries = 0; tries < SAMPLE_TRIES; tries++) {
+        try {
+          const remote = await fetchRange(
+            runtime.requestPayload.url,
+            block.rangeStart,
+            block.rangeStart + local.length - 1,
+            iface.address
+          )
+          // A reply from a server still presenting an accepted label proves nothing here.
+          if (compareVersion([seen], remote.version).kind !== 'same') continue
+          if (!remote.body.equals(local)) return 'different'
+          compared += 1
+          break
+        } catch {
+          return 'unknown'
+        }
+      }
+    }
+    return compared > 0 ? 'same' : 'unknown'
   }
 
   private recomputeAggregates(runtime: DownloadRuntime): void {

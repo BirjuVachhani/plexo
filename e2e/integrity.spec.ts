@@ -158,3 +158,56 @@ test.describe('the file changes on the server mid-download @smoke', () => {
     })
   }
 })
+
+test.describe('servers that label the same file differently @smoke', () => {
+  // None of these is a changed file, so none may fail the download.
+  test('load balancer: identical bytes, two different ETags', async ({ plexo, serve }) => {
+    const origin = await serve({ size: SIZE, etag: '"server-a"' })
+    origin.setVersionRule(({ n }) =>
+      n % 2 === 0 ? { content: origin.content, etag: '"server-b"' } : undefined
+    )
+    await plexo.start(origin.url(), origin.sha256, { connections: 4 })
+    await plexo.waitForStatus('completed')
+    expect(origin.log.filter((entry) => entry.n % 2 === 0).length).toBeGreaterThan(0)
+  })
+
+  test('the same ETag, differing only by W/ or a -gzip suffix', async ({ plexo, serve }) => {
+    const origin = await serve({ size: SIZE, etag: '"v1"' })
+    const variants = ['W/"v1"', '"v1-gzip"', '"v1"']
+    origin.setVersionRule(({ n }) => ({ content: origin.content, etag: variants[n % 3] }))
+    await plexo.start(origin.url(), origin.sha256, { connections: 2 })
+    await plexo.waitForStatus('completed')
+  })
+
+  test('load balancer: identical bytes, Last-Modified differs per server (no ETag)', async ({
+    plexo,
+    serve
+  }) => {
+    const origin = await serve({
+      size: SIZE,
+      etag: null,
+      lastModified: 'Wed, 01 Jan 2025 00:00:00 GMT'
+    })
+    // lastModified is shared, so alternate it from the rule instead.
+    origin.setVersionRule(({ n }) => {
+      origin.lastModified =
+        n % 2 === 0 ? 'Wed, 01 Jan 2025 00:00:07 GMT' : 'Wed, 01 Jan 2025 00:00:00 GMT'
+      return undefined
+    })
+    await plexo.start(origin.url(), origin.sha256, { connections: 4 })
+    await plexo.waitForStatus('completed')
+  })
+
+  test('half-rolled-out new version: some servers new, some old → error, never a mix', async ({
+    plexo,
+    serve
+  }) => {
+    const origin = await serve({ size: SIZE, seed: 1, etag: '"old"' })
+    const next = seededBytes(SIZE, 2)
+    origin.setVersionRule(({ n }) => (n % 2 === 0 ? { content: next, etag: '"new"' } : undefined))
+    await plexo.start(origin.url(), origin.sha256, { connections: 4 })
+    const state = await plexo.waitForStatus(['completed', 'error'])
+    expect(state.status).toBe('error')
+    expect(state.error).toMatch(/changed during the download/)
+  })
+})

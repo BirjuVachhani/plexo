@@ -7,7 +7,7 @@ import { testKnobs } from '../testKnobs'
 const MAX_REDIRECTS = 5
 const USER_AGENT = 'Plexo/1.0'
 // A server that accepts the connection and never answers would otherwise hang the probe — and
-// with it resume, which re-probes before continuing — forever. Same budget as a stalled chunk.
+// the link field's "Checking…" — forever. Same budget as a stalled chunk.
 const PROBE_TIMEOUT_MS = testKnobs.stallTimeoutMs
 
 type Headers = Record<string, string | string[] | undefined>
@@ -88,36 +88,6 @@ async function requestFollowingRedirects(
   }
 
   return { current, response }
-}
-
-/**
- * Re-checks a previously probed URL's strong validators before a paused
- * download resumes. Appending onto part files assumes the remote content
- * hasn't changed since it was probed — if it has (a different ETag or
- * Last-Modified), stitching old and new bytes together would silently
- * produce a corrupt file. Returns true when unchanged *or* when we can't
- * tell (no validators, or the check itself failed) — a probe failure isn't
- * proof the file changed, so it shouldn't block a resume on its own.
- */
-export async function isResourceUnchanged(
-  rawUrl: string,
-  etag: string | null,
-  lastModified: string | null
-): Promise<boolean> {
-  if (!etag && !lastModified) return true
-
-  try {
-    const { response } = await requestFollowingRedirects(rawUrl)
-    if (!response || response.statusCode >= 400) return true
-
-    const currentEtag = headerValue(response.headers, 'etag')
-    const currentLastModified = headerValue(response.headers, 'last-modified')
-    if (etag && currentEtag) return currentEtag === etag
-    if (lastModified && currentLastModified) return currentLastModified === lastModified
-    return true
-  } catch {
-    return true
-  }
 }
 
 export async function probeUrl(rawUrl: string): Promise<ProbeResult> {

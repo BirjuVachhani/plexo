@@ -92,37 +92,76 @@ test.describe('pause during a retry backoff', () => {
 })
 
 test.describe('resume safety checks @smoke', () => {
-  test('ETag changed while paused → error, nothing kept', async ({ plexo, serve }) => {
-    const origin = await serve({ size: SIZE })
+  /** Starts a download, pauses it partway, and lets `change` alter the server while paused. */
+  async function pauseThenChange(
+    plexo: import('./fixtures').PlexoApp,
+    origin: import('./origin').Origin,
+    change: () => void
+  ): Promise<{
+    id: string
+    resumedAt: number
+    paused: import('../src/shared/types').DownloadState
+  }> {
     const reached = origin.hold(5 * BLOCK)
     const id = await plexo.start(origin.url(), origin.sha256)
     await reached
     await plexo.api.pauseDownload(id)
-    await plexo.waitForStatus('paused')
-    origin.setContent(seededBytes(SIZE, 9), '"v2"')
+    const paused = await plexo.waitForStatus('paused')
+    change()
     origin.release()
-
+    const resumedAt = origin.log.length
     await plexo.api.resumeDownload(id)
+    return { id, resumedAt, paused }
+  }
+
+  test('a new version published while paused (new ETag) → error, nothing kept', async ({
+    plexo,
+    serve
+  }) => {
+    const origin = await serve({ size: SIZE })
+    await pauseThenChange(plexo, origin, () => origin.setContent(seededBytes(SIZE, 9), '"v2"'))
     const state = await plexo.waitForStatus('error')
     expect(state.error).toMatch(/changed/)
   })
 
-  test('Last-Modified changed while paused → error', async ({ plexo, serve }) => {
+  test('a new version published while paused (new Last-Modified) → error', async ({
+    plexo,
+    serve
+  }) => {
     const origin = await serve({
       size: SIZE,
       etag: null,
       lastModified: 'Wed, 01 Jan 2025 00:00:00 GMT'
     })
-    const reached = origin.hold(5 * BLOCK)
-    const id = await plexo.start(origin.url(), origin.sha256)
-    await reached
-    await plexo.api.pauseDownload(id)
-    await plexo.waitForStatus('paused')
-    origin.lastModified = 'Thu, 02 Jan 2025 00:00:00 GMT'
-    origin.release()
-
-    await plexo.api.resumeDownload(id)
+    await pauseThenChange(plexo, origin, () => {
+      origin.setContent(seededBytes(SIZE, 9), null)
+      origin.lastModified = 'Thu, 02 Jan 2025 00:00:00 GMT'
+    })
     await plexo.waitForStatus('error')
+  })
+
+  test('same bytes under a new ETag while paused (server migrated) → resumes, progress kept', async ({
+    plexo,
+    serve
+  }) => {
+    const origin = await serve({ size: SIZE })
+    const { resumedAt, paused } = await pauseThenChange(plexo, origin, () =>
+      origin.setContent(origin.content, '"migrated"')
+    )
+    await plexo.waitForStatus('completed')
+
+    // Kept, not restarted: after resuming, no block that was already complete was fetched again
+    // — only the small samples that confirmed the bytes match.
+    const done = (paused.blocks ?? []).filter((block) => block.status === 'completed')
+    const afterResume = origin.log.slice(resumedAt)
+    const refetchedDone = afterResume.filter((entry) =>
+      done.some((block) => entry.range?.start === block.rangeStart && entry.bytesSent > 16 * 1024)
+    )
+    expect(done.length).toBeGreaterThan(0)
+    expect(refetchedDone).toEqual([])
+    expect(afterResume.some((entry) => entry.bytesSent > 0 && entry.bytesSent <= 16 * 1024)).toBe(
+      true
+    )
   })
 
   test('no validators at all → resumes', async ({ plexo, serve }) => {
@@ -176,21 +215,6 @@ test.describe('resume safety checks @smoke', () => {
     origin.release()
     await plexo.api.resumeDownload(id)
     await plexo.waitForStatus('completed', 10_000)
-  })
-
-  test('resume while the server hangs on the check request', async ({ plexo, serve }) => {
-    const origin = await serve({ size: SIZE })
-    const reached = origin.hold(5 * BLOCK)
-    const id = await plexo.start(origin.url(), origin.sha256)
-    await reached
-    await plexo.api.pauseDownload(id)
-    await plexo.waitForStatus('paused')
-    origin.release()
-    origin.setRule(({ range }) => (range?.start === 0 && range.end === 0 ? 'stallHeaders' : 'ok'))
-
-    await plexo.api.resumeDownload(id)
-    // Either outcome is fine — resuming, or a clear error. Sitting silently paused is not.
-    await plexo.waitUntil((state) => state.status !== 'paused' || Boolean(state.error), 15_000)
   })
 })
 

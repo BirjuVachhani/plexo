@@ -433,6 +433,7 @@ export class DownloadManager {
     interfaces: NetworkInterfaceInfo[]
   ): Promise<string> {
     await mkdir(this.downloadsRoot(), { recursive: true })
+    await mkdir(requestPayload.destinationDir, { recursive: true })
     await ensureDiskSpace(
       requestPayload.destinationDir,
       this.downloadsRoot(),

@@ -108,7 +108,7 @@ export async function listActiveInterfaces(): Promise<NetworkInterfaceInfo[]> {
     result.push({
       id: device,
       device,
-      displayName: hardwareName ?? device,
+      displayName: hardwareName ?? adapter?.InterfaceDescription ?? device,
       address: ipv4.address,
       kind,
       mac: ipv4.mac && ipv4.mac !== '00:00:00:00:00:00' ? ipv4.mac : undefined

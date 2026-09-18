@@ -48,17 +48,47 @@ function requestOneByte(url: URL): Promise<ProbeResponse> {
   })
 }
 
+function parseContentDispositionFilename(disposition: string): string | null {
+  // RFC 6266 / RFC 5987: filename* takes precedence over filename
+  // format: filename*=charset'language'encoded-value
+  const extMatch = /\bfilename\*=(?:[a-zA-Z0-9_-]+)'[^']*'([^;\s]+)/i.exec(disposition)
+  if (extMatch?.[1]) {
+    try {
+      return decodeURIComponent(extMatch[1])
+    } catch {
+      return extMatch[1]
+    }
+  }
+
+  // Quoted string: preserves semicolons inside quotes, e.g. filename="report; final.pdf"
+  const quotedMatch = /\bfilename="((?:[^"\\]|\\.)*)"/i.exec(disposition)
+  if (quotedMatch?.[1]) {
+    const unescaped = quotedMatch[1].replace(/\\(.)/g, '$1')
+    try {
+      return decodeURIComponent(unescaped)
+    } catch {
+      return unescaped
+    }
+  }
+
+  // Unquoted token fallback
+  const tokenMatch = /\bfilename=([^;\s]+)/i.exec(disposition)
+  if (tokenMatch?.[1]) {
+    try {
+      return decodeURIComponent(tokenMatch[1])
+    } catch {
+      return tokenMatch[1]
+    }
+  }
+
+  return null
+}
+
 function fileNameFromHeaders(headers: Headers, url: URL): string {
   const disposition = headerValue(headers, 'content-disposition')
   if (disposition) {
-    const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition)
-    if (match?.[1]) {
-      try {
-        return decodeURIComponent(match[1])
-      } catch {
-        return match[1]
-      }
-    }
+    const parsed = parseContentDispositionFilename(disposition)
+    if (parsed) return parsed
   }
   let pathname = url.pathname
   try {

@@ -1,3 +1,4 @@
+import type { DownloadState } from '@shared/types'
 import { useEffect } from 'react'
 import { DevToolsPanel } from './components/DevToolsPanel'
 import { TitleBar, type TitleBarStatus } from './components/TitleBar'
@@ -9,7 +10,61 @@ import { ErrorScreen } from './screens/ErrorScreen'
 import { IdleScreen } from './screens/IdleScreen'
 import { NoConnectionsScreen } from './screens/NoConnectionsScreen'
 import { useAppStore } from './store/useAppStore'
-import { groupChunksByInterface } from './utils/format'
+
+function assertNever(status: never): never {
+  throw new Error(`Unhandled download status: ${String(status)}`)
+}
+
+/** One screen + title-bar status per download.status — a switch with an assertNever default so
+ * a new DownloadStatus value is a compile error here instead of silently falling into whichever
+ * branch happened to be last. */
+function renderDownload(
+  download: DownloadState,
+  handlers: { onNewDownload: () => void; onDownloadAgain: () => void }
+): { screen: React.JSX.Element; titleBarStatus: TitleBarStatus } {
+  switch (download.status) {
+    case 'downloading':
+      return {
+        screen: <DownloadingScreen download={download} />,
+        titleBarStatus: {
+          kind: 'combined',
+          networkCount: new Set(download.chunks.map((chunk) => chunk.interfaceId)).size
+        }
+      }
+    case 'paused':
+      return {
+        screen: <DownloadingScreen download={download} />,
+        titleBarStatus: {
+          kind: 'paused',
+          networkCount: new Set(download.chunks.map((chunk) => chunk.interfaceId)).size
+        }
+      }
+    case 'assembling':
+      return {
+        screen: <DownloadingScreen download={download} />,
+        titleBarStatus: { kind: 'assembling' }
+      }
+    case 'completed':
+      return {
+        screen: <CompleteScreen download={download} onNewDownload={handlers.onNewDownload} />,
+        titleBarStatus: { kind: 'none' }
+      }
+    case 'error':
+    case 'cancelled':
+      return {
+        screen: (
+          <ErrorScreen
+            download={download}
+            onNewDownload={handlers.onNewDownload}
+            onDownloadAgain={handlers.onDownloadAgain}
+          />
+        ),
+        titleBarStatus: { kind: 'none' }
+      }
+    default:
+      return assertNever(download.status)
+  }
+}
 
 function App(): React.JSX.Element {
   useDownloadEvents()
@@ -48,32 +103,10 @@ function App(): React.JSX.Element {
   let titleBarStatus: TitleBarStatus = { kind: 'none' }
 
   if (currentDownload) {
-    if (currentDownload.status === 'downloading') {
-      screen = <DownloadingScreen download={currentDownload} />
-      titleBarStatus = {
-        kind: 'combined',
-        networkCount: groupChunksByInterface(currentDownload.chunks).length
-      }
-    } else if (currentDownload.status === 'paused') {
-      screen = <DownloadingScreen download={currentDownload} />
-      titleBarStatus = {
-        kind: 'paused',
-        networkCount: groupChunksByInterface(currentDownload.chunks).length
-      }
-    } else if (currentDownload.status === 'assembling') {
-      screen = <DownloadingScreen download={currentDownload} />
-      titleBarStatus = { kind: 'assembling' }
-    } else if (currentDownload.status === 'completed') {
-      screen = <CompleteScreen download={currentDownload} onNewDownload={handleNewDownload} />
-    } else {
-      screen = (
-        <ErrorScreen
-          download={currentDownload}
-          onNewDownload={handleNewDownload}
-          onDownloadAgain={handleDownloadAgain}
-        />
-      )
-    }
+    ;({ screen, titleBarStatus } = renderDownload(currentDownload, {
+      onNewDownload: handleNewDownload,
+      onDownloadAgain: handleDownloadAgain
+    }))
   } else if (noConnections) {
     screen = <NoConnectionsScreen />
     titleBarStatus = { kind: 'offline' }

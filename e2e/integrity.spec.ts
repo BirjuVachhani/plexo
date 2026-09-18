@@ -1,6 +1,5 @@
-import { readFile } from 'node:fs/promises'
 import { BLOCK, expect, test } from './fixtures'
-import { seededBytes, sha256, type Fault } from './origin'
+import { seededBytes, type Fault } from './origin'
 
 // B. A misbehaving server or network. The rule every case here must satisfy — enforced by the
 // automatic checks in fixtures.ts — is that a download never ends `completed` with wrong bytes:
@@ -69,28 +68,47 @@ test.describe('permanent faults end in a clean error @smoke', () => {
   }
 })
 
-test('file changes on the server mid-download (same size, new ETag) @smoke', async ({
-  plexo,
-  serve
-}) => {
-  test.fail(
-    true,
-    'known gap: chunk responses are not checked against the probed ETag, so old and new bytes get stitched together'
-  )
-  const origin = await serve({ size: SIZE, seed: 1 })
-  const original = origin.sha256
-  const replacement = seededBytes(SIZE, 2)
+test.describe('the file changes on the server mid-download @smoke', () => {
+  const cases: [string, Omit<Parameters<typeof mutate>[0], 'origin'>][] = [
+    ['same size, new ETag', { etag: '"v2"' }],
+    ['same size, new Last-Modified (no ETag)', { lastModified: 'Thu, 02 Jan 2025 00:00:00 GMT' }],
+    ['different size, no validators at all', { size: SIZE + BLOCK }]
+  ]
 
-  const reached = origin.hold(3 * BLOCK + 100)
-  await plexo.start(origin.url(), original, { connections: 2 })
-  await reached
-  origin.setContent(replacement, '"v2"')
-  origin.release()
+  /** Republishes the file on the server, as a CDN rolling out a new version would. */
+  function mutate({
+    origin,
+    etag,
+    lastModified,
+    size
+  }: {
+    origin: import('./origin').Origin
+    etag?: string
+    lastModified?: string
+    size?: number
+  }): void {
+    origin.setContent(seededBytes(size ?? SIZE, 2), etag ?? origin.etag)
+    if (lastModified) origin.lastModified = lastModified
+  }
 
-  const state = await plexo.waitForStatus(['completed', 'error'])
-  // Acceptable outcomes: an error, or a file that is entirely one version. Never a mix.
-  if (state.status === 'completed') {
-    const got = sha256(await readFile(state.destinationPath))
-    expect([original, sha256(replacement)]).toContain(got)
+  for (const [label, change] of cases) {
+    test(label, async ({ plexo, serve }) => {
+      const origin = await serve({
+        size: SIZE,
+        seed: 1,
+        etag: change.etag ? '"v1"' : null,
+        lastModified: change.lastModified ? 'Wed, 01 Jan 2025 00:00:00 GMT' : null
+      })
+      const reached = origin.hold(3 * BLOCK + 100)
+      await plexo.start(origin.url(), origin.sha256, { connections: 2 })
+      await reached
+      mutate({ origin, ...change })
+      origin.release()
+
+      // Never a file stitched from two versions: the download stops with a clear reason.
+      const state = await plexo.waitForStatus(['completed', 'error'])
+      expect(state.status).toBe('error')
+      expect(state.error).toMatch(/changed during the download/)
+    })
   }
 })

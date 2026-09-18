@@ -25,7 +25,7 @@ import type {
   StartDownloadRequest,
   StartSimulatedDownloadRequest
 } from '../../shared/types'
-import { downloadChunk } from './chunkDownloader'
+import { downloadChunk, RemoteChangedError } from './chunkDownloader'
 import { testKnobs } from '../testKnobs'
 import { reserveDestinationPath } from './paths'
 import { isResourceUnchanged } from './probe'
@@ -839,6 +839,11 @@ export class DownloadManager {
           destinationPath: partPath,
           append: resumeOffset > 0,
           signal: controller.signal,
+          expected: {
+            etag: runtime.requestPayload.etag,
+            lastModified: runtime.requestPayload.lastModified,
+            totalBytes: runtime.requestPayload.totalBytes
+          },
           onProgress: (bytesThisRun) => {
             const delta = bytesThisRun - lastReportedThisRun
             lastReportedThisRun = bytesThisRun
@@ -876,6 +881,19 @@ export class DownloadManager {
 
         const message = error instanceof Error ? error.message : String(error)
         chunk.error = message
+
+        if (error instanceof RemoteChangedError) {
+          // Every other worker would hit the same new version, so stop them all now rather
+          // than let each burn through its retries first.
+          block.status = 'pending'
+          chunk.status = 'error'
+          chunk.speedBytesPerSec = 0
+          runtime.state.status = 'error'
+          runtime.state.error = message
+          for (const cr of runtime.chunkRuntimes.values()) cr.controller.abort()
+          break
+        }
+
         attempt += 1
         chunk.retryCount += 1
 

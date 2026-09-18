@@ -16,7 +16,18 @@ export interface ChunkDownloadOptions {
   append: boolean
   onProgress: (bytesDownloadedThisRun: number) => void
   signal: AbortSignal
+  /** What the probe saw. A response that disagrees comes from a different version of the file. */
+  expected: {
+    etag: string | null
+    lastModified: string | null
+    /** 0 = unknown. */
+    totalBytes: number
+  }
 }
+
+/** The server is now serving a different file than the one this download started on. Retrying
+ * can't help — every retry would fetch the new version — so this fails the whole download. */
+export class RemoteChangedError extends Error {}
 
 // A server that accepts the connection and then goes silent (no data, no
 // error, no close) would otherwise hang the chunk forever with no way to
@@ -31,18 +42,56 @@ const MAX_REDIRECTS = 5
 interface ServedRange {
   start: number
   end: number
+  /** null when the server sent `*`. */
+  total: number | null
 }
 
 /** Parses `Content-Range: bytes <start>-<end>/<total>`. Returns null if it isn't in that form. */
 function parseContentRange(value: string | string[] | undefined): ServedRange | null {
   const raw = Array.isArray(value) ? value[0] : value
   if (!raw) return null
-  const match = /^\s*bytes\s+(\d+)-(\d+)\/(?:\d+|\*)\s*$/i.exec(raw)
+  const match = /^\s*bytes\s+(\d+)-(\d+)\/(\d+|\*)\s*$/i.exec(raw)
   if (!match) return null
   const start = Number(match[1])
   const end = Number(match[2])
   if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null
-  return { start, end }
+  return { start, end, total: match[3] === '*' ? null : Number(match[3]) }
+}
+
+function header(res: IncomingMessage, name: string): string | undefined {
+  const value = res.headers[name]
+  return Array.isArray(value) ? value[0] : value
+}
+
+/** Why this response can't belong to the file the download started on, or null if it can. Each
+ * part is fetched separately, so without this a file republished mid-download would be stitched
+ * together from two versions and still pass every length check. */
+function versionMismatch(
+  res: IncomingMessage,
+  served: ServedRange | null,
+  expected: ChunkDownloadOptions['expected']
+): string | null {
+  const etag = header(res, 'etag')
+  if (expected.etag && etag && etag !== expected.etag) return `its ETag is now ${etag}`
+  const lastModified = header(res, 'last-modified')
+  if (
+    !expected.etag &&
+    expected.lastModified &&
+    lastModified &&
+    lastModified !== expected.lastModified
+  ) {
+    return `it was modified at ${lastModified}`
+  }
+  // A 206 states the file's total size in Content-Range; a 200 is the whole file, so its length.
+  const total =
+    served?.total ??
+    (res.statusCode === 200 && header(res, 'content-length')
+      ? Number(header(res, 'content-length'))
+      : null)
+  if (expected.totalBytes > 0 && total !== null && total !== expected.totalBytes) {
+    return `it is now ${total} bytes instead of ${expected.totalBytes}`
+  }
+  return null
 }
 
 /**
@@ -55,8 +104,17 @@ function parseContentRange(value: string | string[] | undefined): ServedRange | 
  * puts the block back on the queue for a retry instead of marking it done.
  */
 export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
-  const { url, rangeStart, rangeEnd, localAddress, destinationPath, append, onProgress, signal } =
-    options
+  const {
+    url,
+    rangeStart,
+    rangeEnd,
+    localAddress,
+    destinationPath,
+    append,
+    onProgress,
+    signal,
+    expected
+  } = options
 
   return new Promise((resolve, reject) => {
     if (signal.aborted) {
@@ -145,10 +203,21 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
             return
           }
 
+          const served = parseContentRange(res.headers['content-range'])
+          const mismatch = versionMismatch(res, served, expected)
+          if (mismatch) {
+            fail(
+              new RemoteChangedError(
+                `The file on the server changed during the download (${mismatch}). Start the download over.`
+              )
+            )
+            res.resume()
+            return
+          }
+
           // A 206 says where in the file these bytes belong — check it lines up
           // with what we asked for before writing any of them into the part file.
           if (status === 206) {
-            const served = parseContentRange(res.headers['content-range'])
             if (!served) {
               fail(new Error('Server sent a 206 without a usable Content-Range header'))
               res.resume()

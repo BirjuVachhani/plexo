@@ -19,10 +19,20 @@ import { listActiveInterfaces } from '../network/interfaces'
 import { loadNetworkPreferences, saveNetworkPreference } from '../network/preferences'
 import { saveThemeSource } from '../settings'
 
-const NETWORK_SETTINGS_URL =
-  process.platform === 'win32'
-    ? 'ms-settings:network-status'
-    : 'x-apple.systempreferences:com.apple.preference.network'
+async function openNetworkSettings(): Promise<void> {
+  if (process.platform === 'win32') {
+    await shell.openExternal('ms-settings:network-status')
+  } else if (process.platform === 'darwin') {
+    await shell.openExternal('x-apple.systempreferences:com.apple.preference.network')
+  } else if (process.platform === 'linux') {
+    try {
+      const { exec } = await import('node:child_process')
+      exec('gnome-control-center network || nm-connection-editor || true')
+    } catch {
+      // Best-effort
+    }
+  }
+}
 
 /** Typed wrapper around ipcMain.handle — the channel name picks its args/result shape out of
  * IpcContract, so a handler here that doesn't match what plexoApi (preload) actually calls is a
@@ -77,7 +87,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
   })
 
   handle('openNetworkSettings', async () => {
-    await shell.openExternal(NETWORK_SETTINGS_URL)
+    await openNetworkSettings()
   })
 
   handle('probeUrl', async (_event, url) => probeUrl(url))

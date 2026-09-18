@@ -75,8 +75,7 @@ function createWindow(): void {
       ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 16 } }
       : {}),
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      preload: join(__dirname, '../preload/index.js')
     }
   })
 
@@ -89,7 +88,10 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    // Only hand http(s) links to the OS shell — an arbitrary scheme (e.g. a custom protocol
+    // handler) reaching shell.openExternal is a known Electron risk if this ever fires with
+    // attacker- or server-influenced data.
+    if (/^https?:/i.test(details.url)) void shell.openExternal(details.url)
     return { action: 'deny' }
   })
 

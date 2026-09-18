@@ -30,10 +30,15 @@ export function CompleteScreen({
   const networkVisual = useNetworkVisuals()
 
   const finalSize = download.totalBytes || download.bytesDownloaded
+  const totalPausedMs = download.totalPausedMs ?? 0
   // completedAt is always set by the time a download reaches 'completed' — the
   // fallback here is just to keep this pure (no Date.now() during render).
-  const elapsedSeconds = ((download.completedAt ?? download.startedAt) - download.startedAt) / 1000
+  const elapsedSeconds = Math.max(
+    0,
+    ((download.completedAt ?? download.startedAt) - download.startedAt - totalPausedMs) / 1000
+  )
   const avgSpeed = elapsedSeconds > 0 ? finalSize / elapsedSeconds : 0
+  const [avgSpeedValue, avgSpeedUnit] = formatSpeed(avgSpeed).split(' ')
 
   const groups = groupChunksByInterface(download.chunks)
   const visuals = groups.map((group) =>
@@ -82,10 +87,10 @@ export function CompleteScreen({
             </div>
             <div className="flex items-baseline gap-1.5">
               <div className="font-mono text-[26px] leading-[0.9] font-semibold tracking-[-0.02em] tabular-nums text-foreground">
-                {formatSpeed(avgSpeed).split(' ')[0]}
+                {avgSpeedValue}
               </div>
               <div className="font-mono text-[11px] leading-none font-medium text-muted-foreground">
-                MB/s
+                {avgSpeedUnit}
               </div>
             </div>
           </div>

@@ -26,7 +26,7 @@ CI runs these checks on every pull request, with formatting checked rather than 
 
 `main` takes changes by pull request only: direct pushes and force-pushes are rejected, and CI has to be green before a PR can merge.
 
-CI also builds the Windows installer. Please describe how you checked your change manually (which URL/file size/interfaces you tried) in the PR description.
+Please describe how you checked your change manually (which URL/file size/interfaces you tried) in the PR description.
 
 ## End-to-end tests
 

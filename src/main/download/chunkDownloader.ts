@@ -2,6 +2,7 @@ import { createWriteStream, type WriteStream } from 'node:fs'
 import { request as httpRequest, type ClientRequest, type IncomingMessage } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { URL } from 'node:url'
+import { testKnobs } from '../testKnobs'
 
 export interface ChunkDownloadOptions {
   url: string
@@ -20,7 +21,7 @@ export interface ChunkDownloadOptions {
 // A server that accepts the connection and then goes silent (no data, no
 // error, no close) would otherwise hang the chunk forever with no way to
 // detect or retry it.
-const STALL_TIMEOUT_MS = 20_000
+const STALL_TIMEOUT_MS = testKnobs.stallTimeoutMs
 
 // Only the initial probe resolves redirects today — if a CDN reissues a
 // redirect mid-download (e.g. a signed URL rotates), a chunk needs to be

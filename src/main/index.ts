@@ -5,6 +5,7 @@ import iconDark from '../../resources/icon-dark.png?asset'
 import iconLight from '../../resources/icon-light.png?asset'
 import { registerIpcHandlers } from './ipc/handlers'
 import { loadThemeSource } from './settings'
+import { testKnobs } from './testKnobs'
 import { IpcChannels } from '../shared/ipc-channels'
 import type { DownloadManager } from './download/downloadManager'
 
@@ -12,6 +13,9 @@ import type { DownloadManager } from './download/downloadManager'
 // the Dock tooltip/menu bar — must be set before the app is ready. Packaged builds already get
 // this from electron-builder's productName, but setting it here keeps dev and packaged in sync.
 app.setName('Plexo')
+
+// Each e2e test runs against its own throwaway userData folder (downloads, manifests, settings).
+if (testKnobs.userDataDir) app.setPath('userData', testKnobs.userDataDir)
 
 let mainWindow: BrowserWindow | null = null
 let downloadManager: DownloadManager | null = null
@@ -75,12 +79,14 @@ function createWindow(): void {
       ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 16 } }
       : {}),
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js')
+      preload: join(__dirname, '../preload/index.js'),
+      // A hidden e2e window would otherwise have its timers throttled.
+      backgroundThrottling: !testKnobs.hideWindow
     }
   })
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow?.show()
+    if (!testKnobs.hideWindow) mainWindow?.show()
   })
 
   mainWindow.on('closed', () => {
@@ -123,7 +129,8 @@ app.whenReady().then(async () => {
   if (is.dev) installDevMenu()
 
   createWindow()
-  applyThemedIcon()
+  if (testKnobs.hideWindow) app.dock?.hide()
+  else applyThemedIcon()
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

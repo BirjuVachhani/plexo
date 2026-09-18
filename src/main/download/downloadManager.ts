@@ -26,6 +26,7 @@ import type {
   StartSimulatedDownloadRequest
 } from '../../shared/types'
 import { downloadChunk } from './chunkDownloader'
+import { testKnobs } from '../testKnobs'
 import { reserveDestinationPath } from './paths'
 import { isResourceUnchanged } from './probe'
 import {
@@ -95,7 +96,7 @@ function pushSpeedSample(samples: SpeedSample[], bytes: number, time: number): n
 const MAX_CHUNKS = 32
 
 const MAX_CHUNK_RETRIES = 5
-const RETRY_BASE_DELAY_MS = 1000
+const RETRY_BASE_DELAY_MS = testKnobs.retryBaseDelayMs
 const RETRY_MAX_DELAY_MS = 15_000
 
 function retryDelayMs(attempt: number): number {
@@ -445,7 +446,7 @@ export class DownloadManager {
     // block size instead of the count once a file is big enough to hit it.
     // The UI caps how many cells it renders separately (see BlockGrid), by
     // bucketing these blocks rather than by shrinking their count here.
-    const BASE_BLOCK_BYTES = 8 * 1024 * 1024 // 8 MB
+    const BASE_BLOCK_BYTES = testKnobs.blockBytes // 8 MB outside tests
     const MAX_REAL_BLOCKS = 4096
 
     let blockSizeBytes = 0

@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { networkInterfaces } from 'node:os'
 import { promisify } from 'node:util'
 import type { NetworkInterfaceInfo, NetworkInterfaceKind } from '../../shared/types'
+import { testInterfaces } from '../testKnobs'
 
 const execFileAsync = promisify(execFile)
 const DISCOVERY_TIMEOUT_MS = 5000
@@ -83,6 +84,9 @@ async function getWindowsAdapters(): Promise<Map<string, WindowsAdapter>> {
  * to a specific interface (see chunkDownloader's `localAddress` option).
  */
 export async function listActiveInterfaces(): Promise<NetworkInterfaceInfo[]> {
+  const overridden = testInterfaces()
+  if (overridden) return overridden
+
   const hardwarePorts = await getMacHardwarePortNames()
   const windowsAdapters = await getWindowsAdapters()
   const all = networkInterfaces()

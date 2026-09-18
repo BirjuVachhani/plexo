@@ -1,4 +1,4 @@
-import { cn } from '../lib/utils'
+import { cn } from 'cn'
 
 /** The bottom bar every screen ends on — border, background and padding are fixed, `className`
  * only tunes per-screen gap/alignment. */

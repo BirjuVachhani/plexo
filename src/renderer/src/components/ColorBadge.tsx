@@ -1,4 +1,4 @@
-import { cn } from '../lib/utils'
+import { cn } from 'cn'
 import { Badge } from './ui/badge'
 
 /** A `Badge` tinted with an arbitrary bg/border/text triple — for the many places a status or

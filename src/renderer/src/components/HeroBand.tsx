@@ -1,4 +1,4 @@
-import { cn } from '../lib/utils'
+import { cn } from 'cn'
 
 /** The dark panel every screen opens on — always this exact panel from the design regardless of
  * the app's own light/dark theme, so its children (labels, diagrams, charts) stay legible no

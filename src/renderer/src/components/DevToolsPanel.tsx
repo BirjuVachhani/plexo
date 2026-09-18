@@ -1,9 +1,10 @@
 import type { NetworkInterfaceKind, SimulatedNetworkConfig } from '@shared/types'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
 import { describeError, toDisplayPath } from '../utils/format'
 import { TruncatedText } from './TruncatedText'
 import { Button } from './ui/button'
+import { Dialog, DialogClose, DialogContent, DialogTitle } from './ui/dialog'
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
@@ -62,7 +63,6 @@ export function DevToolsPanel(): React.JSX.Element | null {
   const [assembleSpeedMBps, setAssembleSpeedMBps] = useState(DEFAULT_ASSEMBLE_SPEED_MBPS)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const panelRef = useRef<HTMLDivElement>(null)
 
   // Menu item lives in the main process (see installDevMenu in src/main/index.ts) — it can't
   // reach this component's state directly, so it round-trips through IPC instead.
@@ -70,38 +70,6 @@ export function DevToolsPanel(): React.JSX.Element | null {
     if (!isDev) return
     return window.plexo.onToggleDevToolsPanel(() => setOpen((v) => !v))
   }, [isDev])
-
-  // Base UI's `Popover`/`Dialog` primitives already ship in this codebase for exactly this
-  // (focus trap, Escape-to-close, aria-modal) — this panel predates that pattern being pulled in
-  // elsewhere. Minimal hand-rolled equivalent here rather than a new dependency for a dev-only tool.
-  useEffect(() => {
-    if (!open) return
-    panelRef.current?.focus()
-
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        setOpen(false)
-        return
-      }
-      if (event.key !== 'Tab' || !panelRef.current) return
-      const focusable = panelRef.current.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      )
-      if (focusable.length === 0) return
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open])
 
   if (!isDev) return null
 
@@ -165,261 +133,248 @@ export function DevToolsPanel(): React.JSX.Element | null {
   }
 
   return (
-    <>
-      {open && (
-        <div
-          className="fixed inset-0 z-[999] flex items-end justify-start bg-black/35 p-3.5"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setOpen(false)
-          }}
-        >
-          <div
-            ref={panelRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="devtools-panel-title"
-            tabIndex={-1}
-            className="flex max-h-[calc(100%-60px)] w-[380px] flex-col gap-3 overflow-y-auto rounded-[12px] border-[0.5px] border-[var(--border-strong)] bg-card p-4 shadow-[0_8px_30px_rgba(0,0,0,0.4)] outline-none [overscroll-behavior:contain]"
-          >
-            <div className="flex items-center justify-between">
-              <div
-                id="devtools-panel-title"
-                className="font-sans text-[13px] leading-[1.2] font-bold text-foreground"
-              >
-                Simulate a download
-              </div>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent
+        // showCloseButton={false}: this panel keeps its own close button inline in the header
+        // row below, not the default absolute-positioned one.
+        showCloseButton={false}
+        className="flex max-h-[calc(100%-4rem)] w-[380px] max-w-[380px] flex-col gap-3 overflow-y-auto rounded-[12px] border-[0.5px] border-[var(--border-strong)] bg-card p-4 [overscroll-behavior:contain] sm:max-w-[380px]"
+      >
+        <div className="flex items-center justify-between">
+          <DialogTitle className="font-sans text-[13px] leading-[1.2] font-bold text-foreground">
+            Simulate a download
+          </DialogTitle>
+          <DialogClose
+            render={
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-xs"
-                onClick={() => setOpen(false)}
                 aria-label="Close"
                 className="font-sans text-sm leading-none font-semibold text-muted-foreground"
               >
                 ×
               </Button>
-            </div>
-            <div className="font-sans text-[11.5px] leading-[1.4] text-muted-foreground">
-              Pick a file already on disk to &quot;download&quot; it through the real pipeline —
-              chunking, the block grid, pause/resume, retries, assembling — against fake networks
-              you control.
-            </div>
+            }
+          />
+        </div>
+        <div className="font-sans text-[11.5px] leading-[1.4] text-muted-foreground">
+          Pick a file already on disk to “download” it through the real pipeline — chunking, the
+          block grid, pause/resume, retries, assembling — against fake networks you control.
+        </div>
 
-            <div className="flex flex-col gap-[5px]">
-              <div className={fieldLabelClass}>SOURCE FILE</div>
-              <div className="flex gap-1.5">
-                <div
-                  className={`${rowInputClass} min-w-0 flex-1 ${
-                    sourceFilePath ? 'text-foreground' : 'text-muted-foreground'
-                  }`}
+        <div className="flex flex-col gap-[5px]">
+          <div className={fieldLabelClass}>SOURCE FILE</div>
+          <div className="flex gap-1.5">
+            <div
+              className={`${rowInputClass} min-w-0 flex-1 ${
+                sourceFilePath ? 'text-foreground' : 'text-muted-foreground'
+              }`}
+            >
+              <TruncatedText
+                text={sourceFilePath ? toDisplayPath(sourceFilePath, homeDir) : 'No file chosen'}
+                tooltipText={sourceFilePath ?? 'No file chosen'}
+              />
+            </div>
+            <Button type="button" variant="secondary" onClick={handleChooseFile}>
+              Choose…
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-[5px]">
+          <div className={fieldLabelClass}>DESTINATION</div>
+          <div className="flex gap-1.5">
+            <div className={`${rowInputClass} min-w-0 flex-1`}>
+              <TruncatedText
+                text={toDisplayPath(effectiveDestinationDir, homeDir)}
+                tooltipText={effectiveDestinationDir}
+              />
+            </div>
+            <Button type="button" variant="secondary" onClick={handleChooseDestination}>
+              Browse…
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-[7px]">
+          <div className="flex items-center justify-between">
+            <div className={fieldLabelClass}>SIMULATED NETWORKS</div>
+            <Button
+              type="button"
+              variant="link"
+              size="xs"
+              onClick={addNetwork}
+              disabled={networks.length >= MAX_SIM_NETWORKS}
+            >
+              + Add network
+            </Button>
+          </div>
+
+          {networks.map((network) => (
+            <div key={network.key} className={draftBoxClass}>
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={network.kind}
+                  onChange={(event) =>
+                    updateNetwork(network.key, {
+                      kind: event.target.value as NetworkInterfaceKind
+                    })
+                  }
+                  aria-label="Network kind"
+                  className={`${rowInputClass} shrink-0`}
                 >
-                  <TruncatedText
-                    text={
-                      sourceFilePath ? toDisplayPath(sourceFilePath, homeDir) : 'No file chosen'
-                    }
-                    tooltipText={sourceFilePath ?? 'No file chosen'}
-                  />
-                </div>
-                <Button type="button" variant="secondary" onClick={handleChooseFile}>
-                  Choose…
-                </Button>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-[5px]">
-              <div className={fieldLabelClass}>DESTINATION</div>
-              <div className="flex gap-1.5">
-                <div className={`${rowInputClass} min-w-0 flex-1`}>
-                  <TruncatedText
-                    text={toDisplayPath(effectiveDestinationDir, homeDir)}
-                    tooltipText={effectiveDestinationDir}
-                  />
-                </div>
-                <Button type="button" variant="secondary" onClick={handleChooseDestination}>
-                  Browse…
-                </Button>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-[7px]">
-              <div className="flex items-center justify-between">
-                <div className={fieldLabelClass}>SIMULATED NETWORKS</div>
-                <Button
-                  type="button"
-                  variant="link"
-                  size="xs"
-                  onClick={addNetwork}
-                  disabled={networks.length >= MAX_SIM_NETWORKS}
-                >
-                  + Add network
-                </Button>
-              </div>
-
-              {networks.map((network) => (
-                <div key={network.key} className={draftBoxClass}>
-                  <div className="flex items-center gap-1.5">
-                    <select
-                      value={network.kind}
-                      onChange={(event) =>
-                        updateNetwork(network.key, {
-                          kind: event.target.value as NetworkInterfaceKind
-                        })
-                      }
-                      aria-label="Network kind"
-                      className={`${rowInputClass} shrink-0`}
-                    >
-                      {KIND_OPTIONS.map((kind) => (
-                        <option key={kind} value={kind}>
-                          {kind}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="text"
-                      value={network.label}
-                      onChange={(event) =>
-                        updateNetwork(network.key, { label: event.target.value })
-                      }
-                      aria-label="Network name"
-                      className={`${rowInputClass} min-w-0 flex-1`}
-                    />
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={() => removeNetwork(network.key)}
-                            disabled={networks.length <= 1}
-                            aria-label="Remove network"
-                            className="text-destructive hover:text-destructive"
-                          >
-                            ×
-                          </Button>
-                        }
-                      />
-                      <TooltipContent>Remove network</TooltipContent>
-                    </Tooltip>
-                  </div>
-                  <div className="flex gap-2.5">
-                    <label className="flex flex-1 items-center gap-[5px] font-mono text-[10.5px] leading-none text-muted-foreground">
-                      Speed
-                      <input
-                        type="number"
-                        min={1}
-                        max={1000}
-                        value={network.speedMbps}
-                        onChange={(event) =>
-                          updateNetwork(network.key, {
-                            speedMbps: Number(event.target.value) || 1
-                          })
-                        }
-                        className={`${rowInputClass} w-14`}
-                      />
-                      Mbps
-                    </label>
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <label className="flex flex-1 items-center gap-[5px] font-mono text-[10.5px] leading-none text-muted-foreground">
-                            Faults
-                            <input
-                              type="number"
-                              min={0}
-                              max={100}
-                              value={network.faultRatePercent}
-                              onChange={(event) =>
-                                updateNetwork(network.key, {
-                                  faultRatePercent: Number(event.target.value) || 0
-                                })
-                              }
-                              className={`${rowInputClass} w-12`}
-                            />
-                            %
-                          </label>
-                        }
-                      />
-                      <TooltipContent>
-                        Chance a chunk attempt on this network fails outright, to exercise
-                        retry/error handling
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex flex-col gap-[5px]">
-              <div id="devtools-connections-label" className={fieldLabelClass}>
-                CONNECTIONS PER NETWORK
-              </div>
-              <ToggleGroup
-                value={[String(connectionsPerNetwork)]}
-                onValueChange={(values) => {
-                  if (values.length === 0) return
-                  setConnectionsPerNetwork(Number(values[0]))
-                }}
-                aria-labelledby="devtools-connections-label"
-                variant="pill"
-                size="xs"
-                spacing={1}
-              >
-                {PRESET_CONNECTIONS.map((preset) => (
-                  <ToggleGroupItem key={preset} value={String(preset)}>
-                    {preset}×
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            </div>
-
-            <div className={draftBoxClass}>
-              <label className="flex cursor-pointer items-center gap-[7px] font-sans text-[11px] leading-[1.3] text-foreground">
+                  {KIND_OPTIONS.map((kind) => (
+                    <option key={kind} value={kind}>
+                      {kind}
+                    </option>
+                  ))}
+                </select>
                 <input
-                  type="checkbox"
-                  checked={slowAssemble}
-                  onChange={(event) => setSlowAssemble(event.target.checked)}
+                  type="text"
+                  value={network.label}
+                  onChange={(event) => updateNetwork(network.key, { label: event.target.value })}
+                  aria-label="Network name"
+                  className={`${rowInputClass} min-w-0 flex-1`}
                 />
-                Simulate the assembling step
-              </label>
-              <div className="font-sans text-[10.5px] leading-[1.4] text-muted-foreground">
-                Reassembly normally finishes in a blink — this throttles it so the
-                &quot;assembling&quot; screen (the block grid sweep, the pulsing combine line) stays
-                on screen long enough to actually watch.
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => removeNetwork(network.key)}
+                        disabled={networks.length <= 1}
+                        focusableWhenDisabled
+                        aria-label="Remove network"
+                        className="text-destructive hover:text-destructive"
+                      >
+                        ×
+                      </Button>
+                    }
+                  />
+                  <TooltipContent>Remove network</TooltipContent>
+                </Tooltip>
               </div>
-              {slowAssemble && (
-                <label className="flex items-center gap-[5px] font-mono text-[10.5px] leading-none text-muted-foreground">
-                  Assemble speed
+              <div className="flex gap-2.5">
+                <label className="flex flex-1 items-center gap-[5px] font-mono text-[10.5px] leading-none text-muted-foreground">
+                  Speed
                   <input
                     type="number"
                     min={1}
-                    max={500}
-                    value={assembleSpeedMBps}
-                    onChange={(event) => setAssembleSpeedMBps(Number(event.target.value) || 1)}
+                    max={1000}
+                    value={network.speedMbps}
+                    onChange={(event) =>
+                      updateNetwork(network.key, {
+                        speedMbps: Number(event.target.value) || 1
+                      })
+                    }
                     className={`${rowInputClass} w-14`}
                   />
-                  MB/s
+                  Mbps
                 </label>
-              )}
-            </div>
-
-            {error && (
-              <div className="font-sans text-[11.5px] leading-[1.4] text-destructive">
-                ⚠ {error}
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <label className="flex flex-1 items-center gap-[5px] font-mono text-[10.5px] leading-none text-muted-foreground">
+                        Faults
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={network.faultRatePercent}
+                          onChange={(event) =>
+                            updateNetwork(network.key, {
+                              faultRatePercent: Number(event.target.value) || 0
+                            })
+                          }
+                          className={`${rowInputClass} w-12`}
+                        />
+                        %
+                      </label>
+                    }
+                  />
+                  <TooltipContent>
+                    Chance a chunk attempt on this network fails outright, to exercise retry/error
+                    handling
+                  </TooltipContent>
+                </Tooltip>
               </div>
-            )}
+            </div>
+          ))}
+        </div>
 
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="destructive" onClick={() => setOpen(false)}>
+        <div className="flex flex-col gap-[5px]">
+          <div id="devtools-connections-label" className={fieldLabelClass}>
+            CONNECTIONS PER NETWORK
+          </div>
+          <ToggleGroup
+            value={[String(connectionsPerNetwork)]}
+            onValueChange={(values) => {
+              if (values.length === 0) return
+              setConnectionsPerNetwork(Number(values[0]))
+            }}
+            aria-labelledby="devtools-connections-label"
+            variant="pill"
+            size="xs"
+            spacing={1}
+          >
+            {PRESET_CONNECTIONS.map((preset) => (
+              <ToggleGroupItem key={preset} value={String(preset)}>
+                {preset}×
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </div>
+
+        <div className={draftBoxClass}>
+          <label className="flex cursor-pointer items-center gap-[7px] font-sans text-[11px] leading-[1.3] text-foreground">
+            <input
+              type="checkbox"
+              checked={slowAssemble}
+              onChange={(event) => setSlowAssemble(event.target.checked)}
+            />
+            Simulate the assembling step
+          </label>
+          <div className="font-sans text-[10.5px] leading-[1.4] text-muted-foreground">
+            Reassembly normally finishes in a blink — this throttles it so the “assembling” screen
+            (the block grid sweep, the pulsing combine line) stays on screen long enough to actually
+            watch.
+          </div>
+          {slowAssemble && (
+            <label className="flex items-center gap-[5px] font-mono text-[10.5px] leading-none text-muted-foreground">
+              Assemble speed
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={assembleSpeedMBps}
+                onChange={(event) => setAssembleSpeedMBps(Number(event.target.value) || 1)}
+                className={`${rowInputClass} w-14`}
+              />
+              MB/s
+            </label>
+          )}
+        </div>
+
+        {error && (
+          <div className="font-sans text-[11.5px] leading-[1.4] text-destructive">⚠ {error}</div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <DialogClose
+            render={
+              <Button type="button" variant="destructive">
                 Cancel
               </Button>
-              <Button type="button" onClick={handleStart} disabled={!canStart}>
-                {starting ? 'Starting…' : 'Start simulated download'}
-              </Button>
-            </div>
-          </div>
+            }
+          />
+          <Button type="button" onClick={handleStart} disabled={!canStart}>
+            {starting ? 'Starting…' : 'Start simulated download'}
+          </Button>
         </div>
-      )}
-    </>
+      </DialogContent>
+    </Dialog>
   )
 }

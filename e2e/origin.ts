@@ -200,6 +200,12 @@ export class Origin {
       return
     }
 
+    // The app's 1-byte probes (bytes=0-0) are never held — only real transfers are.
+    const holdable = !(request.range?.start === 0 && request.range.end === 0)
+    if (holdable && this.holdAt !== null && request.range && request.range.start > this.holdAt) {
+      await this.releasePromise
+    }
+
     // Snapshot, so a setContent() mid-response doesn't splice two versions into one reply.
     const served = this.version(request)
     const content = served?.content ?? this.content
@@ -254,8 +260,6 @@ export class Origin {
       return
     }
 
-    // The app's 1-byte probes (bytes=0-0) are never held — only real transfers are.
-    const holdable = !(request.range?.start === 0 && request.range.end === 0)
     let position = start
     while (position < bodyEnd) {
       if (res.destroyed) return

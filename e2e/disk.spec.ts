@@ -80,11 +80,9 @@ test.describe('disk space @disk', () => {
     }
   })
 
-  test('a disk that fills up while assembling ends in an error, not a hang', async ({ serve }) => {
-    test.fail(
-      true,
-      'known bugs: the space check ignores the part files (needs ~2× the size), and appendFileToStream hangs forever on a write error'
-    )
+  test('a file that fits once but not twice (file + its parts) is refused upfront', async ({
+    serve
+  }) => {
     const volume = await smallVolume(12)
     test.skip(!volume, 'cannot create a small volume on this machine')
     // userData on the same small volume, so the part files and the final file compete for it.
@@ -97,18 +95,10 @@ test.describe('disk space @disk', () => {
       await mkdir(app.dirs.dest)
       await app.launch()
       const origin = await serve({ size: 112 * BLOCK }) // 7 MB: fits once, not twice
-      let refusedUpfront = false
-      try {
-        await app.start(origin.url(), origin.sha256)
-      } catch (error) {
-        refusedUpfront = /disk space/.test(String(error))
-        if (!refusedUpfront) throw error
-      }
-      if (!refusedUpfront) {
-        const state = await app.waitForStatus(['completed', 'error'], 20_000)
-        expect(state.status).toBe('error')
-        expect(existsSync(state.destinationPath)).toBe(false)
-      }
+      // Without counting the parts, this would start, fill the disk while assembling, and
+      // fail there — after downloading the whole file.
+      await expect(app.start(origin.url(), origin.sha256)).rejects.toThrow(/Not enough disk space/)
+      expect(await readdir(app.dirs.dest)).toEqual([])
     } finally {
       if (app.alive) await app.kill()
       await volume!.dispose()
@@ -117,15 +107,13 @@ test.describe('disk space @disk', () => {
 })
 
 test.describe('destination folder problems @smoke', () => {
+  // Also the test for assembly write errors: the output stream fails to open, and assembly must
+  // surface that instead of waiting forever for a 'drain' that never comes.
   test('destination folder deleted mid-download → error, nothing left', async ({
     plexo,
     serve,
     dirs
   }) => {
-    test.fail(
-      true,
-      'known bug: appendFileToStream never settles once the output stream errors — stuck in assembling'
-    )
     const origin = await serve({ size: 24 * BLOCK })
     const reached = origin.hold(10 * BLOCK)
     await plexo.start(origin.url(), origin.sha256)

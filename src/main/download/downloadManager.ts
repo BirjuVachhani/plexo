@@ -12,7 +12,7 @@ import {
   writeFile
 } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { finished } from 'node:stream/promises'
+import { finished, pipeline } from 'node:stream/promises'
 import type { BrowserWindow } from 'electron'
 import { app } from 'electron'
 import { IpcChannels } from '../../shared/ipc-channels'
@@ -196,34 +196,34 @@ function formatGigabytes(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(2)} GB`
 }
 
-/** Throws if the destination volume doesn't have room for the download — a full disk should
- * fail upfront with a clear reason, not partway through as a confusing ENOSPC write error. */
-async function ensureDiskSpace(destinationDir: string, requiredBytes: number): Promise<void> {
+/** Throws if there isn't room for the download — a full disk should fail upfront with a clear
+ * reason, not partway through as a confusing ENOSPC write error. The part files and the assembled
+ * file both exist until assembly finishes, so when they share a volume it needs room for both. */
+async function ensureDiskSpace(
+  destinationDir: string,
+  partsRoot: string,
+  requiredBytes: number
+): Promise<void> {
   if (requiredBytes <= 0) return // unknown size — nothing to check against
 
-  const stats = await statfs(destinationDir)
-  const availableBytes = stats.bavail * stats.bsize
-  if (availableBytes < requiredBytes) {
-    throw new Error(
-      `Not enough disk space: this download needs ${formatGigabytes(requiredBytes)} but only ${formatGigabytes(availableBytes)} is free`
-    )
-  }
-}
+  const [destination, parts] = await Promise.all([stat(destinationDir), stat(partsRoot)])
+  const needs: [string, number][] =
+    destination.dev === parts.dev
+      ? [[destinationDir, requiredBytes * 2]]
+      : [
+          [destinationDir, requiredBytes],
+          [partsRoot, requiredBytes]
+        ]
 
-/** Appends one file's bytes onto an already-open writable, without ending it. */
-function appendFileToStream(sourcePath: string, output: NodeJS.WritableStream): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const input = createReadStream(sourcePath)
-    input.on('error', reject)
-    input.on('data', (chunk) => {
-      const canContinue = output.write(chunk)
-      if (!canContinue) {
-        input.pause()
-        output.once('drain', () => input.resume())
-      }
-    })
-    input.on('close', resolve)
-  })
+  for (const [dir, bytes] of needs) {
+    const stats = await statfs(dir)
+    const availableBytes = stats.bavail * stats.bsize
+    if (availableBytes < bytes) {
+      throw new Error(
+        `Not enough disk space: this download needs ${formatGigabytes(bytes)} (the file plus its temporary parts) but only ${formatGigabytes(availableBytes)} is free`
+      )
+    }
+  }
 }
 
 export class DownloadManager {
@@ -416,7 +416,12 @@ export class DownloadManager {
     requestPayload: StartDownloadRequest,
     interfaces: NetworkInterfaceInfo[]
   ): Promise<string> {
-    await ensureDiskSpace(requestPayload.destinationDir, requestPayload.totalBytes)
+    await mkdir(this.downloadsRoot(), { recursive: true })
+    await ensureDiskSpace(
+      requestPayload.destinationDir,
+      this.downloadsRoot(),
+      requestPayload.totalBytes
+    )
 
     const id = randomUUID()
     const tempDir = join(this.downloadDir(id), 'parts')
@@ -1034,7 +1039,9 @@ export class DownloadManager {
           )
         }
 
-        await appendFileToStream(partPath, output)
+        // pipeline rejects on an error from either side; a hand-rolled pause/'drain' loop here
+        // would wait forever for a 'drain' that an errored output never emits.
+        await pipeline(createReadStream(partPath), output, { end: false })
         if (outputErrors.length > 0) throw outputErrors[0]
         bytesWritten += actualBytes
 

@@ -27,13 +27,17 @@ function isNewer(latest: string, current: string): boolean {
 }
 
 /** Checks the repo's latest GitHub release against the running app version. Same data source the
- * landing page's downloads list already reads, so there's no separate update feed to stand up. */
+ * landing page's downloads list already reads, so there's no separate update feed to stand up.
+ *
+ * Uses the releases list rather than the `/releases/latest` endpoint: every release here ships
+ * as a pre-release, and GitHub's "latest" endpoint only ever considers non-prerelease releases —
+ * it 404s when there isn't one, so it would never surface an update. */
 export async function checkForUpdate(currentVersion: string): Promise<ReleaseInfo | null> {
   try {
-    const response = await net.fetch(`https://api.github.com/repos/${REPO}/releases/latest`)
+    const response = await net.fetch(`https://api.github.com/repos/${REPO}/releases?per_page=1`)
     if (!response.ok) return null
-    const data = (await response.json()) as { tag_name?: string }
-    if (!data.tag_name) return null
+    const [data] = (await response.json()) as { tag_name?: string }[]
+    if (!data?.tag_name) return null
     const version = data.tag_name.replace(/^v/, '')
     if (!isNewer(version, currentVersion)) return null
     return { version, url: UPDATE_PAGE_URL }

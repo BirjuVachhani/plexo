@@ -1,80 +1,44 @@
-import { electronAPI } from '@electron-toolkit/preload'
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { IpcChannels } from '../shared/ipc-channels'
-import type {
-  DownloadState,
-  NetworkInterfaceInfo,
-  NetworkPreference,
-  NetworkPreferences,
-  ProbeResult,
-  StartDownloadRequest,
-  StartSimulatedDownloadRequest,
-  ThemeSource
-} from '../shared/types'
+import type { IpcContract } from '../shared/ipc-contract'
+import type { DownloadState, NetworkPreference, ThemeSource } from '../shared/types'
 
-export interface InitialPaths {
-  homeDir: string
-  downloadsDir: string
-  /** True in electron-vite's dev server, false in a packaged build — gates the dev tools panel. */
-  isDev: boolean
+/** Typed wrapper around ipcRenderer.invoke — the channel name picks its args/result shape out of
+ * IpcContract, so a call here that doesn't match what registerIpcHandlers (main) actually handles
+ * is a compile error instead of a silent runtime mismatch. */
+function invoke<K extends keyof IpcContract>(
+  channel: K,
+  ...args: IpcContract[K]['args']
+): Promise<IpcContract[K]['result']> {
+  return ipcRenderer.invoke(IpcChannels[channel], ...args)
 }
 
 const plexoApi = {
   platform: process.platform,
 
-  listInterfaces: (): Promise<NetworkInterfaceInfo[]> =>
-    ipcRenderer.invoke(IpcChannels.listInterfaces),
-
-  pingInterfaces: (): Promise<Record<string, number | null>> =>
-    ipcRenderer.invoke(IpcChannels.pingInterfaces),
-
-  openNetworkSettings: (): Promise<void> => ipcRenderer.invoke(IpcChannels.openNetworkSettings),
-
-  getNetworkPreferences: (): Promise<NetworkPreferences> =>
-    ipcRenderer.invoke(IpcChannels.getNetworkPreferences),
-
-  setNetworkPreference: (id: string, patch: NetworkPreference): Promise<NetworkPreferences> =>
-    ipcRenderer.invoke(IpcChannels.setNetworkPreference, id, patch),
-
-  getThemeSource: (): Promise<ThemeSource> => ipcRenderer.invoke(IpcChannels.getThemeSource),
-
-  setThemeSource: (source: ThemeSource): Promise<ThemeSource> =>
-    ipcRenderer.invoke(IpcChannels.setThemeSource, source),
-
-  probeUrl: (url: string): Promise<ProbeResult> => ipcRenderer.invoke(IpcChannels.probeUrl, url),
-
-  getInitialPaths: (): Promise<InitialPaths> => ipcRenderer.invoke(IpcChannels.getInitialPaths),
-
-  chooseDestinationFolder: (defaultPath: string): Promise<string | null> =>
-    ipcRenderer.invoke(IpcChannels.chooseDestinationFolder, defaultPath),
-
-  chooseSourceFile: (): Promise<string | null> => ipcRenderer.invoke(IpcChannels.chooseSourceFile),
-
-  readClipboardText: (): Promise<string> => ipcRenderer.invoke(IpcChannels.readClipboardText),
-
-  revealInFolder: (filePath: string): Promise<void> =>
-    ipcRenderer.invoke(IpcChannels.revealInFolder, filePath),
-
-  startDownload: (request: StartDownloadRequest): Promise<string> =>
-    ipcRenderer.invoke(IpcChannels.startDownload, request),
-
-  startSimulatedDownload: (request: StartSimulatedDownloadRequest): Promise<string> =>
-    ipcRenderer.invoke(IpcChannels.startSimulatedDownload, request),
-
-  getCurrentDownload: (): Promise<DownloadState | null> =>
-    ipcRenderer.invoke(IpcChannels.getCurrentDownload),
-
-  pauseDownload: (downloadId: string): Promise<void> =>
-    ipcRenderer.invoke(IpcChannels.pauseDownload, downloadId),
-
-  resumeDownload: (downloadId: string): Promise<void> =>
-    ipcRenderer.invoke(IpcChannels.resumeDownload, downloadId),
-
-  cancelDownload: (downloadId: string): Promise<void> =>
-    ipcRenderer.invoke(IpcChannels.cancelDownload, downloadId),
-
-  removeDownload: (downloadId: string): Promise<void> =>
-    ipcRenderer.invoke(IpcChannels.removeDownload, downloadId),
+  listInterfaces: () => invoke('listInterfaces'),
+  pingInterfaces: () => invoke('pingInterfaces'),
+  openNetworkSettings: () => invoke('openNetworkSettings'),
+  getNetworkPreferences: () => invoke('getNetworkPreferences'),
+  setNetworkPreference: (id: string, patch: NetworkPreference) =>
+    invoke('setNetworkPreference', id, patch),
+  getThemeSource: () => invoke('getThemeSource'),
+  setThemeSource: (source: ThemeSource) => invoke('setThemeSource', source),
+  probeUrl: (url: string) => invoke('probeUrl', url),
+  getInitialPaths: () => invoke('getInitialPaths'),
+  chooseDestinationFolder: (defaultPath: string) => invoke('chooseDestinationFolder', defaultPath),
+  chooseSourceFile: () => invoke('chooseSourceFile'),
+  readClipboardText: () => invoke('readClipboardText'),
+  revealInFolder: (filePath: string) => invoke('revealInFolder', filePath),
+  startDownload: (request: IpcContract['startDownload']['args'][0]) =>
+    invoke('startDownload', request),
+  startSimulatedDownload: (request: IpcContract['startSimulatedDownload']['args'][0]) =>
+    invoke('startSimulatedDownload', request),
+  getCurrentDownload: () => invoke('getCurrentDownload'),
+  pauseDownload: (downloadId: string) => invoke('pauseDownload', downloadId),
+  resumeDownload: (downloadId: string) => invoke('resumeDownload', downloadId),
+  cancelDownload: (downloadId: string) => invoke('cancelDownload', downloadId),
+  removeDownload: (downloadId: string) => invoke('removeDownload', downloadId),
 
   onDownloadUpdated: (callback: (state: DownloadState) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, state: DownloadState): void => callback(state)
@@ -91,16 +55,16 @@ const plexoApi = {
 
 export type PlexoApi = typeof plexoApi
 
+// Nothing in the renderer needs raw Electron/Node access — only the typed plexoApi above is
+// exposed. The @electron-toolkit/preload electronAPI (which hands the renderer an unrestricted
+// ipcRenderer.invoke/send/on on any channel) is deliberately not bridged.
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('plexo', plexoApi)
   } catch (error) {
     console.error(error)
   }
 } else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
   // @ts-ignore (define in dts)
   window.plexo = plexoApi
 }

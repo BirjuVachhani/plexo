@@ -134,6 +134,13 @@ export interface StartSimulatedDownloadRequest {
   assembleSpeedBytesPerSec?: number
 }
 
+export interface InitialPaths {
+  homeDir: string
+  downloadsDir: string
+  /** True in electron-vite's dev server, false in a packaged build — gates the dev tools panel. */
+  isDev: boolean
+}
+
 export interface StartDownloadRequest {
   url: string
   destinationDir: string

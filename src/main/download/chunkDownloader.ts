@@ -113,10 +113,26 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
     let settled = false
     let currentReq: ClientRequest | null = null
     let currentFileStream: WriteStream | null = null
+    let stallWatchdog: NodeJS.Timeout | null = null
+
+    const clearWatchdog = (): void => {
+      if (stallWatchdog) {
+        clearTimeout(stallWatchdog)
+        stallWatchdog = null
+      }
+    }
+
+    const resetWatchdog = (): void => {
+      clearWatchdog()
+      stallWatchdog = setTimeout(() => {
+        fail(new Error('Connection stalled: no response from server'))
+      }, STALL_TIMEOUT_MS)
+    }
 
     const finish = (fn: () => void): void => {
       if (settled) return
       settled = true
+      clearWatchdog()
       signal.removeEventListener('abort', onAbort)
       fn()
     }
@@ -240,11 +256,16 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
           res.on('error', fail)
           fileStream.on('error', fail)
 
+          // Arm watchdog for incoming body bytes — drops and retries if the server sends
+          // headers then freezes, or goes silent mid-stream.
+          resetWatchdog()
+
           // Written by hand rather than piped so an overlong body can be cut off
           // at the range boundary: a part file longer than its block would push
           // every byte after it out of place at reassembly time.
           res.on('data', (chunk: Buffer) => {
             if (settled) return
+            resetWatchdog()
 
             const remaining =
               expectedBytes === null ? chunk.length : expectedBytes - bytesDownloaded
@@ -256,7 +277,10 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
               onProgress(bytesDownloaded)
               if (!fileStream.write(usable)) {
                 res.pause()
-                fileStream.once('drain', () => res.resume())
+                fileStream.once('drain', () => {
+                  resetWatchdog()
+                  res.resume()
+                })
               }
             }
 
@@ -267,6 +291,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
 
           res.on('end', () => {
             if (settled) return
+            clearWatchdog()
             if (expectedBytes !== null && bytesDownloaded !== expectedBytes) {
               fail(
                 new Error(

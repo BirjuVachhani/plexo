@@ -14,7 +14,7 @@ import {
 import { basename, join } from 'node:path'
 import { finished, pipeline } from 'node:stream/promises'
 import type { BrowserWindow } from 'electron'
-import { app } from 'electron'
+import { app, Notification } from 'electron'
 import { IpcChannels } from '../../shared/ipc-channels'
 import type {
   BlockState,
@@ -793,14 +793,34 @@ export class DownloadManager {
       runtime.state.status = 'completed'
       runtime.state.completedAt = Date.now()
       runtime.state.bytesDownloaded = runtime.state.totalBytes || runtime.state.bytesDownloaded
+      this.notify('Download Complete', `${runtime.state.fileName} has finished downloading.`)
     } catch (error) {
       runtime.state.status = 'error'
       runtime.state.error = error instanceof Error ? error.message : String(error)
+      this.notify('Download Failed', `${runtime.state.fileName}: ${runtime.state.error}`)
     }
 
     this.pushUpdate(runtime)
     await this.cleanupTempDir(runtime)
     await this.discardUnfinishedDestination(runtime)
+  }
+
+  private notify(title: string, body: string): void {
+    if (testKnobs.userDataDir || !Notification.isSupported()) return
+    try {
+      const notification = new Notification({ title, body })
+      notification.on('click', () => {
+        const window = this.getWindow()
+        if (window && !window.isDestroyed()) {
+          if (window.isMinimized()) window.restore()
+          window.show()
+          window.focus()
+        }
+      })
+      notification.show()
+    } catch {
+      // Best-effort notification
+    }
   }
 
   private async runWorker(runtime: DownloadRuntime, chunk: ChunkState): Promise<void> {
@@ -982,6 +1002,7 @@ export class DownloadManager {
           if (allErrored && (runtime.state.status as DownloadStatus) === 'downloading') {
             runtime.state.status = 'error'
             runtime.state.error = message
+            this.notify('Download Failed', `${runtime.state.fileName}: ${message}`)
             for (const cr of runtime.chunkRuntimes.values()) {
               cr.controller.abort()
             }
@@ -1141,7 +1162,10 @@ export class DownloadManager {
       )
     }
 
-    const output = createWriteStream(runtime.state.destinationPath)
+    const ASSEMBLE_STREAM_BUFFER_BYTES = 1024 * 1024 // 1 MB buffer for fast sequential disk assembly
+    const output = createWriteStream(runtime.state.destinationPath, {
+      highWaterMark: ASSEMBLE_STREAM_BUFFER_BYTES
+    })
     let bytesWritten = 0
 
     // Set only for a dev-tool simulated download that asked for a slowed-down assemble — real
@@ -1171,7 +1195,11 @@ export class DownloadManager {
 
         // pipeline rejects on an error from either side; a hand-rolled pause/'drain' loop here
         // would wait forever for a 'drain' that an errored output never emits.
-        await pipeline(createReadStream(partPath), output, { end: false })
+        await pipeline(
+          createReadStream(partPath, { highWaterMark: ASSEMBLE_STREAM_BUFFER_BYTES }),
+          output,
+          { end: false }
+        )
         if (outputErrors.length > 0) throw outputErrors[0]
         bytesWritten += actualBytes
 

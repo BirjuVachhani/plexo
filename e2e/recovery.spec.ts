@@ -169,10 +169,6 @@ test.describe('persisted state on disk @smoke', () => {
     serve,
     dirs
   }) => {
-    test.fail(
-      true,
-      'known gap: resume trusts the manifest, never recreates parts/, and fails with ENOENT instead of re-fetching the missing blocks'
-    )
     const { id } = await pausedDownload(plexo, serve)
     await plexo.quit()
     await rm(join(dirs.userData, 'downloads', id, 'parts'), { recursive: true, force: true })

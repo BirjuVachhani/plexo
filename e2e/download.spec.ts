@@ -123,7 +123,6 @@ test.describe('file names @smoke', () => {
   })
 
   test('a malformed %-escape in the URL path still downloads', async ({ plexo, serve }) => {
-    test.fail(true, 'known bug: probe.ts decodeURIComponent(url.pathname) throws a URIError')
     const origin = await serve({ size: 2 * BLOCK })
     await plexo.start(origin.url('/files/100%25%E0%A4%A.bin'), origin.sha256)
     await plexo.waitForStatus('completed')
@@ -132,10 +131,6 @@ test.describe('file names @smoke', () => {
 
 test.describe('edge cases', () => {
   test('a 0-byte file @smoke', async ({ plexo, serve }) => {
-    test.fail(
-      true,
-      'known bug: the probe asks for bytes=0-0, an empty file answers 416, probe throws'
-    )
     const origin = await serve({ size: 0 })
     await plexo.start(origin.url(), origin.sha256)
     await plexo.waitForStatus('completed', 5000)

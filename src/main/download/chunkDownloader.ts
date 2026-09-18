@@ -159,8 +159,13 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
     const onAbort = (): void => fail(new DOMException('Aborted', 'AbortError'))
     signal.addEventListener('abort', onAbort)
 
-    const rangeHeader =
-      rangeEnd === null ? `bytes=${rangeStart}-` : `bytes=${rangeStart}-${rangeEnd}`
+    // The whole file from the start needs no Range at all — and an empty file would answer
+    // `bytes=0-` with 416, since it has no byte 0 to start from.
+    const headers: Record<string, string> = { 'User-Agent': 'Plexo/1.0' }
+    if (rangeStart > 0 || rangeEnd !== null) {
+      headers['Range'] =
+        rangeEnd === null ? `bytes=${rangeStart}-` : `bytes=${rangeStart}-${rangeEnd}`
+    }
 
     const attempt = (targetUrl: URL, redirectsLeft: number): void => {
       const requester = targetUrl.protocol === 'https:' ? httpsRequest : httpRequest
@@ -176,7 +181,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
           // host to resolve to IPv4 too, or binding fails with EINVAL when DNS
           // hands back an IPv6 address for it instead.
           family: 4,
-          headers: { 'User-Agent': 'Plexo/1.0', Range: rangeHeader }
+          headers
         },
         (res: IncomingMessage) => {
           const status = res.statusCode ?? 0

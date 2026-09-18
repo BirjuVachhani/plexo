@@ -130,10 +130,6 @@ test.describe('destination folder problems @smoke', () => {
     dirs
   }) => {
     test.skip(process.platform === 'win32', 'chmod does not make a folder read-only on Windows')
-    test.fail(
-      true,
-      'known bug: parts/ is created before the destination name is reserved, and never removed when that fails'
-    )
     const origin = await serve({ size: 4 * BLOCK })
     await chmod(dirs.dest, 0o555)
     try {

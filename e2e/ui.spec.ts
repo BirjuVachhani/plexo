@@ -62,10 +62,6 @@ test.describe('UI journeys @smoke', () => {
     serve,
     dirs
   }) => {
-    test.fail(
-      true,
-      'known bug: remove() does not stop the cancelled run from pushing more updates, so a late "cancelled" event brings the removed download back on screen'
-    )
     const origin = await serve({ size: SIZE })
     await stubNativeUi(plexo, dirs.dest)
     const page = plexo.page

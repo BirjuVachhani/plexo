@@ -423,16 +423,23 @@ export class DownloadManager {
       requestPayload.totalBytes
     )
 
-    const id = randomUUID()
-    const tempDir = join(this.downloadDir(id), 'parts')
-    await mkdir(tempDir, { recursive: true })
-
     // Claimed on disk, not just picked, so a second download of the same file
-    // name can't pick it too and overwrite this one at reassembly time.
+    // name can't pick it too and overwrite this one at reassembly time. Done
+    // before anything else is created, so a destination we can't write to
+    // leaves nothing behind.
     const destinationPath = await reserveDestinationPath(
       requestPayload.destinationDir,
       requestPayload.suggestedFileName
     )
+
+    const id = randomUUID()
+    const tempDir = join(this.downloadDir(id), 'parts')
+    try {
+      await mkdir(tempDir, { recursive: true })
+    } catch (error) {
+      await rm(destinationPath, { force: true })
+      throw error
+    }
 
     const connectionsPerNetwork = Math.max(
       1,
@@ -645,6 +652,23 @@ export class DownloadManager {
       return
     }
 
+    // The part files are the real record of what's downloaded, not the manifest. If one went
+    // missing or came up short while paused (userData cleaned out, a crash before a write hit
+    // the disk), fetch that block again instead of failing at assembly.
+    await mkdir(runtime.tempDir, { recursive: true })
+    await Promise.all(
+      runtime.blocks.map(async (block) => {
+        if (block.status !== 'completed' || block.rangeEnd === null) return
+        const partPath = join(runtime.tempDir, `part-${block.index}`)
+        const size = await stat(partPath).then(
+          (stats) => stats.size,
+          () => -1
+        )
+        if (size !== block.rangeEnd - block.rangeStart + 1) block.status = 'pending'
+      })
+    )
+    if (runtime.state.status !== 'paused') return
+
     for (let index = 0; index < runtime.state.chunks.length; index++) {
       const chunk = runtime.state.chunks[index]
       const iface =
@@ -815,7 +839,12 @@ export class DownloadManager {
         chunkRuntime.partPath = partPath
       }
 
-      const resumeOffset = await reconcilePartFileSize(partPath, block.bytesDownloaded)
+      // Without range support the server can only send the file from the start, so a retry or
+      // resume begins again at byte 0 rather than asking for a Range it will ignore.
+      const resumeOffset = await reconcilePartFileSize(
+        partPath,
+        runtime.requestPayload.supportsRanges ? block.bytesDownloaded : 0
+      )
       if (resumeOffset !== block.bytesDownloaded) {
         block.bytesDownloaded = resumeOffset
         trimBlockAttribution(block, resumeOffset, previousWriter)
@@ -986,6 +1015,9 @@ export class DownloadManager {
   }
 
   private pushUpdate(runtime: DownloadRuntime, persist = true): void {
+    // A removed download can still be winding down (workers finishing, cleanup). Its updates
+    // would put it back on screen after the renderer has already moved on.
+    if (this.runtimes.get(runtime.state.id) !== runtime) return
     if (persist) this.schedulePersistence(runtime)
     const window = this.getWindow()
     if (!window || window.isDestroyed()) return

@@ -167,10 +167,6 @@ test.describe('resume safety checks @smoke', () => {
   })
 
   test('resume against a server without range support', async ({ plexo, serve }) => {
-    test.fail(
-      true,
-      'known bug: resumes with Range: bytes=N-, the server answers 200, every retry fails'
-    )
     const origin = await serve({ size: SIZE, ranges: false })
     const reached = origin.hold(5 * BLOCK)
     const id = await plexo.start(origin.url(), origin.sha256)
@@ -183,7 +179,6 @@ test.describe('resume safety checks @smoke', () => {
   })
 
   test('resume while the server hangs on the check request', async ({ plexo, serve }) => {
-    test.fail(true, 'known bug: probe.ts has no timeout, so resume waits forever')
     const origin = await serve({ size: SIZE })
     const reached = origin.hold(5 * BLOCK)
     const id = await plexo.start(origin.url(), origin.sha256)

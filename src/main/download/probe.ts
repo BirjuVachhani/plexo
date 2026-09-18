@@ -2,9 +2,13 @@ import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { URL } from 'node:url'
 import type { ProbeResult } from '../../shared/types'
+import { testKnobs } from '../testKnobs'
 
 const MAX_REDIRECTS = 5
 const USER_AGENT = 'Plexo/1.0'
+// A server that accepts the connection and never answers would otherwise hang the probe — and
+// with it resume, which re-probes before continuing — forever. Same budget as a stalled chunk.
+const PROBE_TIMEOUT_MS = testKnobs.stallTimeoutMs
 
 type Headers = Record<string, string | string[] | undefined>
 
@@ -37,6 +41,9 @@ function requestOneByte(url: URL): Promise<ProbeResponse> {
       }
     )
     req.on('error', reject)
+    req.setTimeout(PROBE_TIMEOUT_MS, () =>
+      req.destroy(new Error('The server did not respond — check the link and try again'))
+    )
     req.end()
   })
 }
@@ -53,7 +60,12 @@ function fileNameFromHeaders(headers: Headers, url: URL): string {
       }
     }
   }
-  const pathname = decodeURIComponent(url.pathname)
+  let pathname = url.pathname
+  try {
+    pathname = decodeURIComponent(pathname)
+  } catch {
+    // A malformed %-escape: the raw path still names the file well enough.
+  }
   const base = pathname.split('/').filter(Boolean).pop()
   return base && base.length > 0 ? base : 'download'
 }
@@ -110,6 +122,24 @@ export async function isResourceUnchanged(
 
 export async function probeUrl(rawUrl: string): Promise<ProbeResult> {
   const { current, response } = await requestFollowingRedirects(rawUrl)
+
+  // An empty file can't satisfy a request for its first byte: the server answers 416 and gives
+  // the size as `bytes */0`. That's a valid, empty download, not an error.
+  if (
+    response?.statusCode === 416 &&
+    /^\s*bytes\s+\*\/0\s*$/i.test(headerValue(response.headers, 'content-range') ?? '')
+  ) {
+    return {
+      requestedUrl: rawUrl,
+      finalUrl: current.toString(),
+      supportsRanges: false,
+      totalBytes: 0,
+      suggestedFileName: fileNameFromHeaders(response.headers, current),
+      contentType: headerValue(response.headers, 'content-type') ?? null,
+      etag: headerValue(response.headers, 'etag') ?? null,
+      lastModified: headerValue(response.headers, 'last-modified') ?? null
+    }
+  }
 
   if (!response || response.statusCode === 0 || response.statusCode >= 400) {
     throw new Error(`Server responded with status ${response?.statusCode || 'unknown'}`)

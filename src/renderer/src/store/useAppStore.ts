@@ -83,7 +83,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   draftDestinationDir: '',
 
   loadInterfaces: async () => {
-    set({ interfacesStatus: 'loading', interfacesError: null })
+    // A re-scan keeps showing the last result. Dropping back to 'loading' would swap App off the
+    // no-connections screen, and every screen re-scans on mount — so with zero networks the
+    // two screens would remount each other in an endless loop.
+    if (get().interfacesStatus !== 'ready') set({ interfacesStatus: 'loading' })
+    set({ interfacesError: null })
     try {
       const interfaces = await window.plexo.listInterfaces()
       set({ interfaces, interfacesStatus: 'ready' })

@@ -1,6 +1,6 @@
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { BLOCK, expect, test } from './fixtures'
+import { BLOCK, expect, interfacesEnv, NETWORKS, test } from './fixtures'
 
 // G. A handful of journeys through the real UI, to prove the screens are wired to the main
 // process. Download correctness is covered far more thoroughly by the API-level specs; these
@@ -144,10 +144,6 @@ test.describe('no networks', () => {
   test.use({ appEnv: { PLEXO_E2E_INTERFACES: '' } })
 
   test('shows the no-connections screen, and settles on it @smoke', async ({ plexo }) => {
-    test.fail(
-      true,
-      'known bug: Idle and NoConnections screens each re-scan on mount, the scan flips interfacesStatus to "loading", which swaps the screen back — an endless loop (~4000 scans/s) that freezes the renderer'
-    )
     await plexo.evaluateMain(({ ipcMain }) => {
       const g = globalThis as unknown as Record<string, number>
       g.__scans = 0
@@ -165,5 +161,17 @@ test.describe('no networks', () => {
     // The screen polls every 5 s; a couple of scans in 2 s is normal, thousands is the loop.
     expect(scans).toBeLessThan(10)
     await expect(plexo.page.getByText('No networks to combine')).toBeVisible({ timeout: 5000 })
+  })
+
+  test('a network appearing takes you back to the start screen @smoke', async ({ plexo }) => {
+    await expect(plexo.page.getByText('No networks to combine')).toBeVisible()
+    await plexo.evaluateMain(
+      (_electron, value) => {
+        process.env['PLEXO_E2E_INTERFACES'] = value
+      },
+      interfacesEnv({ a: NETWORKS['a'] })
+    )
+    await plexo.page.getByRole('button', { name: 'Scan Again' }).click()
+    await expect(plexo.page.getByRole('textbox', { name: 'LINK' })).toBeVisible()
   })
 })

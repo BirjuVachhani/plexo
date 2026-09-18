@@ -142,7 +142,7 @@ export function NetworkRow({
             aria-expanded={expanded}
             className="h-auto cursor-pointer rounded-[4px] border-[0.5px] bg-card px-[7px] py-[3px] font-mono text-[10.5px] leading-none font-medium text-[var(--text-secondary)] aria-expanded:bg-secondary dark:bg-card"
           >
-            {group.chunks.length} streams
+            {group.chunks.length} {group.chunks.length === 1 ? 'stream' : 'streams'}
             <span aria-hidden className="text-[7.5px] opacity-75">
               {expanded ? '▲' : '▼'}
             </span>

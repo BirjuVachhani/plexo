@@ -299,7 +299,7 @@ export function IdleScreen(): React.JSX.Element {
                   <>
                     {' · '}
                     <span className="font-semibold text-foreground">{totalChunks}</span> total
-                    parallel streams
+                    parallel {totalChunks === 1 ? 'stream' : 'streams'}
                   </>
                 )}
               </>

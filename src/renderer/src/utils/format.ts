@@ -4,8 +4,12 @@ const UNITS = ['B', 'KB', 'MB', 'GB', 'TB']
 
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), UNITS.length - 1)
-  const value = bytes / 1024 ** exponent
+  let exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), UNITS.length - 1)
+  let value = bytes / 1024 ** exponent
+  if (exponent < UNITS.length - 1 && Number(value.toFixed(exponent === 0 ? 0 : 1)) >= 1024) {
+    exponent += 1
+    value = bytes / 1024 ** exponent
+  }
   return `${value.toFixed(exponent === 0 ? 0 : 1)} ${UNITS[exponent]}`
 }
 
@@ -17,11 +21,14 @@ export function formatEta(remainingBytes: number, bytesPerSec: number): string {
   if (bytesPerSec <= 0 || remainingBytes <= 0) return '—'
   const seconds = remainingBytes / bytesPerSec
   if (!Number.isFinite(seconds)) return '—'
-  if (seconds < 60) return `${Math.ceil(seconds)}s`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ${Math.round(seconds % 60)}s`
-  const hours = Math.floor(minutes / 60)
-  return `${hours}h ${minutes % 60}m`
+  if (seconds < 60) return `${Math.max(1, Math.ceil(seconds))}s`
+  const totalSec = Math.round(seconds)
+  const mins = Math.floor(totalSec / 60)
+  const secs = totalSec % 60
+  if (mins < 60) return `${mins}m ${secs}s`
+  const hrs = Math.floor(mins / 60)
+  const remMins = mins % 60
+  return `${hrs}h ${remMins}m`
 }
 
 export function formatPercent(bytesDownloaded: number, totalBytes: number): number {
@@ -33,15 +40,16 @@ export function fileNameFromPath(path: string): string {
   return path.split(/[\\/]/).pop() ?? path
 }
 
-/** Short uppercase file-type badge from a name's extension, e.g. "Xcode_16.2.xip" -> "XIP". */
+/** Short uppercase file-type badge from a name's extension, e.g. "Xcode_16.2.xip" -> "XIP", "photo.jpeg" -> "JPEG". */
 export function fileExtensionBadge(fileName: string): string {
   const dotIndex = fileName.lastIndexOf('.')
   if (dotIndex <= 0 || dotIndex === fileName.length - 1) return 'FILE'
-  return fileName.slice(dotIndex + 1, dotIndex + 4).toUpperCase()
+  return fileName.slice(dotIndex + 1, dotIndex + 5).toUpperCase()
 }
 
 /** m:ss, or h:mm:ss past an hour. */
 export function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '0:00'
   const total = Math.max(0, Math.round(seconds))
   const hrs = Math.floor(total / 3600)
   const mins = Math.floor((total % 3600) / 60)

@@ -82,7 +82,21 @@ const SPEED_WINDOW_MS = 3000
 
 // Appends a sample and returns the average byte rate over SPEED_WINDOW_MS.
 function pushSpeedSample(samples: SpeedSample[], bytes: number, time: number): number {
+  if (samples.length > 0 && time - samples[samples.length - 1].time > SPEED_WINDOW_MS) {
+    samples.length = 0
+  }
   samples.push({ bytes, time })
+
+  return calculateCurrentSpeed(samples, time)
+}
+
+function calculateCurrentSpeed(samples: SpeedSample[] | undefined, time: number): number {
+  if (!samples || samples.length === 0) return 0
+
+  const latest = samples[samples.length - 1]
+  if (time - latest.time > SPEED_WINDOW_MS) {
+    return 0
+  }
 
   const cutoff = time - SPEED_WINDOW_MS
   while (samples.length > 2 && samples[1].time <= cutoff) {
@@ -91,7 +105,7 @@ function pushSpeedSample(samples: SpeedSample[], bytes: number, time: number): n
 
   const oldest = samples[0]
   const deltaSeconds = (time - oldest.time) / 1000
-  return deltaSeconds > 0 ? (bytes - oldest.bytes) / deltaSeconds : 0
+  return deltaSeconds > 0 ? (latest.bytes - oldest.bytes) / deltaSeconds : 0
 }
 
 // Defensive cap independent of whatever the renderer sends — chunks are
@@ -140,9 +154,13 @@ function trimBlockAttribution(block: BlockState, keepBytes: number, lastWriter?:
 }
 
 /** Total live speed across a download's worker connections (bounded by MAX_CHUNKS, unlike blocks). */
-function sumChunkSpeeds(runtime: DownloadRuntime): number {
+function sumChunkSpeeds(runtime: DownloadRuntime, now = Date.now()): number {
   let total = 0
   for (const chunk of runtime.state.chunks) {
+    if (chunk.status === 'downloading') {
+      const samples = runtime.speedSamplesByChunk.get(chunk.id)
+      chunk.speedBytesPerSec = calculateCurrentSpeed(samples, now)
+    }
     total += chunk.speedBytesPerSec
   }
   return total
@@ -768,9 +786,28 @@ export class DownloadManager {
       )
     }
 
-    while (active.size > 0) {
-      const finishedId = await Promise.race(active.values())
-      active.delete(finishedId)
+    const speedTicker = setInterval(() => {
+      // Only the `finally` below stops this ticker — self-clearing on status here would let a
+      // fast pause/resume start a second runChunksToCompletion (and ticker) while this one is
+      // still winding down, and it would never see 'downloading' flip back on its own.
+      if (runtime.state.status !== 'downloading') return
+      const now = Date.now()
+      const prevSpeed = runtime.state.speedBytesPerSec
+      const newSpeed = sumChunkSpeeds(runtime, now)
+      if (newSpeed !== prevSpeed) {
+        runtime.state.speedBytesPerSec = newSpeed
+        this.scheduleUpdate(runtime)
+      }
+    }, 500)
+    speedTicker.unref()
+
+    try {
+      while (active.size > 0) {
+        const finishedId = await Promise.race(active.values())
+        active.delete(finishedId)
+      }
+    } finally {
+      clearInterval(speedTicker)
     }
 
     if (runtime.state.status !== 'downloading') {
@@ -1011,6 +1048,7 @@ export class DownloadManager {
         }
 
         chunk.status = 'retrying'
+        chunk.speedBytesPerSec = 0
         this.scheduleUpdate(runtime)
         await delay(retryDelayMs(attempt), controller.signal).catch(() => {})
         const statusAfterDelay = runtime.state.status as DownloadStatus

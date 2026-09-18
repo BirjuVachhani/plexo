@@ -1,7 +1,6 @@
 import type { BlockState, ChunkState } from '@shared/types'
 import { useState } from 'react'
-import { useNetworkVisuals } from '../hooks/useNetworkVisuals'
-import { DANGER } from '../theme'
+import { DANGER, type NetworkVisual } from '../theme'
 import type { NetworkGroup } from '../utils/format'
 import { formatBytes, formatSpeed } from '../utils/format'
 import { ColorBadge } from './ColorBadge'
@@ -11,6 +10,7 @@ import { Button } from './ui/button'
 
 interface NetworkRowProps {
   group: NetworkGroup
+  visual: NetworkVisual
   sharePercent: number
   totalBytes?: number | null
   blocks?: BlockState[]
@@ -96,12 +96,12 @@ function describeStream(
 
 export function NetworkRow({
   group,
+  visual,
   sharePercent,
   totalBytes,
   blocks
 }: NetworkRowProps): React.JSX.Element {
   const [expanded, setExpanded] = useState(false)
-  const visual = useNetworkVisuals()(group.interfaceId, group.interfaceKind, group.interfaceLabel)
   const hasError = group.chunks.some((chunk) => chunk.status === 'error')
   const isActive = group.chunks.some((chunk) => chunk.status === 'downloading')
 
@@ -116,6 +116,7 @@ export function NetworkRow({
       >
         <div
           role="cell"
+          aria-label={hasError ? 'Error' : isActive ? 'Active' : 'Idle'}
           className="ml-5 size-2 rounded-full"
           style={{
             background: hasError ? DANGER : visual.solid,

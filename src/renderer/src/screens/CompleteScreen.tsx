@@ -92,6 +92,9 @@ export function CompleteScreen({
 
   return (
     <div className="flex h-full flex-col bg-background">
+      <div role="status" className="sr-only">
+        Download complete: {download.fileName}
+      </div>
       <HeroBand>
         <div className="flex items-center gap-[18px]">
           <div className="flex size-11 shrink-0 items-center justify-center rounded-full border border-[var(--color-wifi-border)] bg-[var(--color-wifi-bg)]">
@@ -167,7 +170,7 @@ export function CompleteScreen({
       </div>
 
       <div className="mx-5 mb-4 flex flex-col gap-2">
-        <div className={sectionHeaderClass}>Speed over the download</div>
+        <h2 className={sectionHeaderClass}>Speed over the download</h2>
         <ThroughputChart
           order={groups.map((g, i) => ({ interfaceId: g.interfaceId, solid: visuals[i].solid }))}
           historyByInterface={speedHistoryByInterface}
@@ -175,7 +178,7 @@ export function CompleteScreen({
       </div>
 
       <div className="mx-5 mb-5 flex flex-1 flex-col gap-[9px]">
-        <div className={sectionHeaderClass}>Contribution by network</div>
+        <h2 className={sectionHeaderClass}>Contribution by network</h2>
         <div className="flex h-2.5 gap-0.5 overflow-hidden rounded-full bg-muted">
           {groups.map((group, index) => (
             <div

@@ -385,10 +385,11 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
               Downloaded
             </div>
           </div>
-          {groups.map((group) => (
+          {groups.map((group, index) => (
             <NetworkRow
               key={group.interfaceId}
               group={group}
+              visual={visuals[index]}
               sharePercent={
                 totalDownloadedByNetworks > 0
                   ? (group.bytesDownloaded / totalDownloadedByNetworks) * 100
@@ -430,6 +431,9 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             variant={isPaused ? 'default' : 'secondary'}
             onClick={handlePauseResume}
             disabled={isAssembling || resuming}
+            // Disabled natively means unhoverable/unfocusable, which would silence this button's
+            // own explanatory tooltip exactly when it's needed — keep it reachable instead.
+            focusableWhenDisabled
           >
             {pauseResumeLabel}
           </Button>
@@ -438,7 +442,12 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
           <WhileAssembling active={isAssembling} text="Can’t cancel while assembling the file">
             <AlertDialogTrigger
               render={
-                <Button type="button" variant="destructive" disabled={isAssembling}>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={isAssembling}
+                  focusableWhenDisabled
+                >
                   Cancel
                 </Button>
               }

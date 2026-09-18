@@ -112,20 +112,26 @@ export function NetworkEditPopover({
                 <Tooltip key={swatch.id}>
                   <TooltipTrigger
                     render={
+                      // The 24px button is the WCAG 2.5.8 hit target; the visible 20px dot lives
+                      // in the padding-shrunk inner span so the swatch itself doesn't grow.
                       <button
                         type="button"
                         onClick={() => setDraftColorId(swatch.id)}
                         aria-label={swatch.label}
                         aria-pressed={isSelected}
-                        className="size-5 shrink-0 rounded-full border-none p-0"
-                        style={{
-                          background: swatch.solid,
-                          // Popover-colored gap, then a ring in the swatch's own hue — reads in both themes.
-                          boxShadow: isSelected
-                            ? `0 0 0 2px var(--color-popover), 0 0 0 4px ${swatch.solid}`
-                            : undefined
-                        }}
-                      />
+                        className="size-6 shrink-0 rounded-full border-none p-[2px]"
+                      >
+                        <span
+                          className="block size-full rounded-full"
+                          style={{
+                            background: swatch.solid,
+                            // Popover-colored gap, then a ring in the swatch's own hue — reads in both themes.
+                            boxShadow: isSelected
+                              ? `0 0 0 2px var(--color-popover), 0 0 0 4px ${swatch.solid}`
+                              : undefined
+                          }}
+                        />
+                      </button>
                     }
                   />
                   <TooltipContent>{swatch.label}</TooltipContent>

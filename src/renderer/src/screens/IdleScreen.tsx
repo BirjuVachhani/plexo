@@ -1,4 +1,5 @@
 import type { ProbeResult } from '@shared/types'
+import { cn } from 'cn'
 import { AlertTriangle, ClipboardPaste } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { NetworkCard } from '../components/NetworkCard'
@@ -7,7 +8,6 @@ import { Alert, AlertDescription } from '../components/ui/alert'
 import { Button } from '../components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group'
 import { useNetworkPolling } from '../hooks/useNetworkPolling'
-import { cn } from '../lib/utils'
 import { useAppStore } from '../store/useAppStore'
 import { describeError, formatBytes, toDisplayPath } from '../utils/format'
 
@@ -275,7 +275,9 @@ export function IdleScreen(): React.JSX.Element {
               spacing={1}
             >
               {PRESET_STREAMS.map((preset) => (
-                <ToggleGroupItem key={preset} value={String(preset)}>
+                // h-6/min-w-6: WCAG 2.5.8's 24px floor — the xs toggle size is 20px, and this is
+                // the primary "how many parallel connections" control.
+                <ToggleGroupItem key={preset} value={String(preset)} className="h-6 min-w-6">
                   {preset}×
                 </ToggleGroupItem>
               ))}
@@ -307,7 +309,7 @@ export function IdleScreen(): React.JSX.Element {
 
         {isSingleStreamOnly && (
           <div className="text-[11.5px] text-muted-foreground">
-            This server doesn&apos;t support multi-chunk downloads for this file — using a single
+            This server doesn’t support multi-chunk downloads for this file — using a single
             network.
           </div>
         )}
@@ -316,9 +318,9 @@ export function IdleScreen(): React.JSX.Element {
 
       <div className="flex-1 overflow-y-auto px-5 pb-3.5">
         <div className="flex items-baseline justify-between border-b border-border pb-2">
-          <div className="font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">
+          <h2 className="font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">
             Connected Networks
-          </div>
+          </h2>
           <div className="shrink-0 font-mono text-[10.5px] text-muted-foreground">
             {interfaces.length} detected · {selectedInterfaceIds.length} selected
           </div>

@@ -58,7 +58,9 @@ export function NetworkCard({
             role="checkbox"
             aria-checked={selected}
             onClick={onToggle}
-            className="flex min-w-0 shrink items-center gap-[9px] border-none bg-transparent p-0 text-left [font:inherit] text-inherit"
+            // min-h-6: WCAG 2.5.8's 24px floor — this is the primary "select this network" control
+            // and previously sized to its ~15px content (the checkbox glyph + name text).
+            className="flex min-h-6 min-w-0 shrink items-center gap-[9px] border-none bg-transparent p-0 text-left [font:inherit] text-inherit"
           >
             <Checkbox checked={selected} color={visual.solid} onColor={visual.onSolid} />
             <div

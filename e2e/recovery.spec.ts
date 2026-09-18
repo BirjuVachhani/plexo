@@ -1,4 +1,4 @@
-import { cp, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, readFile, rm, truncate, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { BLOCK, expect, test } from './fixtures'
@@ -43,9 +43,10 @@ test.describe('restart @smoke', () => {
 })
 
 test.describe('crash (SIGKILL) and recover @smoke', () => {
-  // Offsets chosen to land in different places: first block, mid-block, a block boundary,
-  // and the tail — each one leaves different part-file and manifest states behind.
-  for (const offset of [100, 3 * BLOCK + 777, 12 * BLOCK, 20 * BLOCK + 1, SIZE - 10]) {
+  // Offsets chosen to land in different places: so early no progress has been saved yet,
+  // mid-block, a block boundary, and the tail — each leaves different part-file and manifest
+  // states behind. Chaos covers the moments in between.
+  for (const offset of [100, 3 * BLOCK + 777, 12 * BLOCK, SIZE - 10]) {
     test(`killed with a response held at byte ${offset}`, async ({ plexo, serve }) => {
       const origin = await serve({ size: SIZE, seed: offset })
       const reached = origin.hold(offset)
@@ -176,5 +177,23 @@ test.describe('persisted state on disk @smoke', () => {
     await plexo.api.resumeDownload(id)
     const state = await plexo.waitForStatus(['completed', 'error'])
     expect(state.error).toBeUndefined()
+  })
+
+  test('a finished part file cut short while the app was closed is fetched again', async ({
+    plexo,
+    serve,
+    dirs
+  }) => {
+    // What a power cut can do: the manifest says a block is done, but its data never all
+    // reached the disk.
+    const { id } = await pausedDownload(plexo, serve)
+    const done = (await plexo.current())!.blocks!.find((block) => block.status === 'completed')!
+    await plexo.quit()
+    const part = join(dirs.userData, 'downloads', id, 'parts', `part-${done.index}`)
+    await truncate(part, 1000)
+
+    await plexo.launch()
+    await plexo.api.resumeDownload(id)
+    await plexo.waitForStatus('completed')
   })
 })

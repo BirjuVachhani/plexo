@@ -1,4 +1,4 @@
-import { BLOCK, expect, test } from './fixtures'
+import { BLOCK, expect, LAN_ADDRESS, test } from './fixtures'
 import { seededBytes, type Fault } from './origin'
 
 // B. A misbehaving server or network. The rule every case here must satisfy — enforced by the
@@ -15,7 +15,6 @@ const TRANSIENT: [string, Fault][] = [
   ['200 (whole file) for a range that does not start at 0', 'ignoreRange'],
   ['416 Range Not Satisfiable', { status: 416 }],
   ['500 Internal Server Error', { status: 500 }],
-  ['503 Service Unavailable', { status: 503 }],
   ['short body, then a clean end', { endAfter: 1000 }],
   ['connection reset partway through the body', { cutAfter: 5000 }],
   ['connection reset before any body', { cutAfter: 0 }],
@@ -47,6 +46,53 @@ test.describe('transient server faults are retried to a correct file @smoke', ()
     await plexo.start(origin.url(), origin.sha256, { connections: 4 })
     await plexo.waitForStatus('completed')
   })
+})
+
+test.describe('servers without range support @smoke', () => {
+  // With no ranges the only way to recover a dropped connection is to start the file over.
+  for (const [label, contentLength] of [
+    ['known size', true],
+    ['unknown size', false]
+  ] as const) {
+    test(`a dropped connection restarts from the beginning (${label})`, async ({
+      plexo,
+      serve
+    }) => {
+      const origin = await serve({ size: 20 * BLOCK, ranges: false, contentLength })
+      let transfers = 0
+      origin.setRule(({ range }) =>
+        range?.start === 0 && range.end === 0
+          ? 'ok'
+          : transfers++ === 0
+            ? { cutAfter: 7 * BLOCK + 3 }
+            : 'ok'
+      )
+      await plexo.start(origin.url(), origin.sha256)
+      await plexo.waitForStatus('completed')
+      expect(transfers, 'the second attempt fetched the whole file again').toBe(2)
+    })
+  }
+})
+
+test('one network dies for good mid-download; the other finishes it @smoke', async ({
+  plexo,
+  serve
+}) => {
+  test.skip(!LAN_ADDRESS, 'needs a LAN address to act as the second network')
+  const origin = await serve({ size: 40 * BLOCK })
+  let fromB = 0
+  // Network b serves two blocks, then every request over it fails.
+  origin.setRule(({ from, range }) =>
+    from !== '127.0.0.1' && range && !(range.start === 0 && range.end === 0) && fromB++ >= 2
+      ? { status: 503 }
+      : 'ok'
+  )
+  await plexo.start(origin.url(), origin.sha256, { networks: ['a', 'b'], connections: 2 })
+  await plexo.waitForStatus('completed')
+  const failedOverB = origin.log.filter(
+    (entry) => entry.from !== '127.0.0.1' && entry.status === 503
+  )
+  expect(failedOverB.length, 'network b really did fail').toBeGreaterThan(0)
 })
 
 test.describe('permanent faults end in a clean error @smoke', () => {

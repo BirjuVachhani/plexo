@@ -1,6 +1,4 @@
-import { useState } from 'react'
 import type { DownloadState } from '@shared/types'
-import { CyclableChip } from '../components/CyclableChip'
 import { HeroBand } from '../components/HeroBand'
 import { ScreenFooter } from '../components/ScreenFooter'
 import { ThroughputChart } from '../components/ThroughputChart'
@@ -26,7 +24,6 @@ export function CompleteScreen({
   download: DownloadState
   onNewDownload: () => void
 }): React.JSX.Element {
-  const [chipModeIndex, setChipModeIndex] = useState(0)
   const homeDir = useAppStore((store) => store.homeDir)
   const peakSpeedBytesPerSec = useAppStore((store) => store.peakSpeedBytesPerSec)
   const speedHistoryByInterface = useAppStore((store) => store.speedHistoryByInterface)
@@ -48,45 +45,6 @@ export function CompleteScreen({
   // parallel connections — "chunks" in this app's own vocabulary (see BlockGrid) means the byte
   // range unit, so this footer's number needs to match that, not `download.chunks.length`.
   const totalChunkCount = download.totalBlocks ?? download.blocks?.length ?? 1
-
-  // "Time saved" vs. what the download would have taken over its single best-performing
-  // network alone, using that network's own realized average rate as the baseline.
-  const fastestIndex = groups.reduce<number>(
-    (fastest, group, idx) =>
-      fastest === -1 || group.bytesDownloaded > groups[fastest].bytesDownloaded ? idx : fastest,
-    -1
-  )
-  const fastestGroup = fastestIndex === -1 ? null : groups[fastestIndex]
-  const fastestAvgSpeed =
-    fastestGroup && elapsedSeconds > 0 ? fastestGroup.bytesDownloaded / elapsedSeconds : 0
-  const soloBaselineSeconds = fastestAvgSpeed > 0 ? finalSize / fastestAvgSpeed : 0
-  const secondsSaved = soloBaselineSeconds - elapsedSeconds
-
-  const chipOptions: { label: string; tooltip: string }[] = []
-  if (groups.length > 1) {
-    if (secondsSaved > 1) {
-      chipOptions.push({
-        label: `SAVED ${formatDuration(secondsSaved)}`,
-        tooltip: `Saved ~${formatDuration(secondsSaved)} vs fastest network alone`
-      })
-    }
-    if (fastestIndex !== -1 && fastestAvgSpeed > 0 && avgSpeed > fastestAvgSpeed) {
-      const ratio = avgSpeed / fastestAvgSpeed
-      const name = visuals[fastestIndex].name.toUpperCase()
-      chipOptions.push({
-        label: `${ratio.toFixed(1)}× ${name} ALONE`,
-        tooltip: `${ratio.toFixed(1)}× faster than ${visuals[fastestIndex].name} alone`
-      })
-      const pct = Math.round(((avgSpeed - fastestAvgSpeed) / fastestAvgSpeed) * 100)
-      chipOptions.push({
-        label: `+${pct}% VS ${name}`,
-        tooltip: `+${pct}% throughput gain vs ${visuals[fastestIndex].name} alone`
-      })
-    }
-  }
-
-  const activeChipOption =
-    chipOptions.length > 0 ? chipOptions[chipModeIndex % chipOptions.length] : null
 
   const handleReveal = (): void => void window.plexo.revealInFolder(download.destinationPath)
 
@@ -130,17 +88,6 @@ export function CompleteScreen({
                 MB/s
               </div>
             </div>
-            {activeChipOption && (
-              <CyclableChip
-                label={activeChipOption.label}
-                tooltip={`${activeChipOption.tooltip} (click to toggle)`}
-                bg="var(--color-usb-bg)"
-                border="var(--color-usb-border)"
-                color="var(--color-usb-text)"
-                cyclable
-                onClick={() => setChipModeIndex((i) => (i + 1) % chipOptions.length)}
-              />
-            )}
           </div>
         </div>
       </HeroBand>

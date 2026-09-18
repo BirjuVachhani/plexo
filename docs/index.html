@@ -302,18 +302,21 @@
       .asset-row {
         display: grid;
         grid-template-columns: minmax(150px, 1fr) minmax(0, 2fr) 110px;
+        grid-template-areas: 'platform file dl';
         gap: 16px;
         align-items: center;
         padding: 15px 18px;
         border-bottom: 1px solid #23262a;
       }
       .asset-row .platform {
+        grid-area: platform;
         font:
           600 13.5px/1.35 Manrope,
           sans-serif;
         color: #eae7e2;
       }
       .asset-row .file {
+        grid-area: file;
         font:
           400 11.5px/1.4 'Roboto Mono',
           monospace;
@@ -324,6 +327,7 @@
         color: #5d6165;
       }
       .asset-row .dl {
+        grid-area: dl;
         justify-self: end;
         padding: 9px 15px;
         border-radius: 8px;
@@ -377,10 +381,10 @@
       @media (max-width: 700px) {
         .asset-row {
           grid-template-columns: 1fr auto;
+          grid-template-areas:
+            'platform dl'
+            'file file';
           gap: 6px 14px;
-        }
-        .asset-row .file {
-          grid-column: 1 / -1;
         }
       }
     </style>
@@ -634,8 +638,7 @@
             version +
             ' · ' +
             (release.prerelease ? 'pre-release' : 'stable') +
-            (date ? ' · ' + date : '') +
-            ' · resumable · free while in beta'
+            (date ? ' · ' + date : '')
 
           var primary =
             assets.filter(function (a) {

@@ -1,6 +1,6 @@
 # Plexo
 
-A fast download manager for Windows and macOS that speeds up downloads by pulling chunks in parallel across **multiple network connections at the same time**.
+A fast download manager for Windows, macOS, and Linux that speeds up downloads by pulling chunks in parallel across **multiple network connections at the same time**.
 
 For example, if your computer has:
 
@@ -51,17 +51,18 @@ File ──→ Split ─────┼── Ethernet (IP: 10.0.0.12) ───
 - 🚀 **Multi-interface, multi-connection downloads** — splits files into fixed 8 MB chunks and fans them out across worker connections bound to specific network interfaces (up to 8 parallel connections per interface, 32 total).
 - 🔌 **Hardware interface detection** — queries Windows adapters via PowerShell `Get-NetAdapter` and macOS hardware ports via `networksetup` so Wi-Fi, Ethernet, tethered iPhones, and Thunderbolt bridges are labeled by real device names instead of bare BSD names (`en0`, `en6`).
 - ⚖️ **Dynamic work-stealing queue** — chunks are leased from a shared pending queue; faster networks pull more chunks instead of waiting for slower connections to finish.
-- ⏸️ **Resumable downloads** — pausing cleanly aborts in-flight socket connections while preserving downloaded `part-N` chunk files on disk.
+- ⏸️ **Resumable downloads** — cleanly pause or retry failed downloads without losing progress, preserving completed `part-N` chunk files on disk.
 - 💾 **Relaunch recovery** — interrupted downloads are restored as paused after Plexo restarts, with progress and part files preserved in application data.
 - 🛡️ **Safe, integrity-checked resume** — re-verifies remote `ETag` and `Last-Modified` validators before resuming, refusing to resume (rather than corrupting the file) if the server-side file has changed.
 - 🔁 **Automatic retry with backoff** — failed chunks are automatically returned to the queue and retried with exponential backoff (up to 5 retries, 1s–15s backoff).
-- 💤 **Stall detection** — automatically drops and re-queues connections that remain open but silent (>20s without incoming data).
+- 💤 **Stall detection & watchdog** — automatically drops and re-queues connections that remain open but silent (>20s without incoming data).
+- 🔔 **Desktop notifications** — native desktop alerts when downloads complete or encounter errors.
 - 💾 **Upfront disk-space verification** — verifies free disk space before writing any temporary part files.
 - 🔀 **Mid-download redirect handling** — transparently follows 3xx HTTP redirects (up to 5 hops) during probing and individual chunk downloads.
 - 📊 **Real-time telemetry** — live throughput graphs, rolling-window ETA calculation, and per-connection transfer stats.
 - 🗺️ **Interactive progress grid** — 1:1 visual map of individual 8 MB chunks, color-coded by the network interface that fetched each chunk with accurate per-network byte attribution.
 - 🎨 **Network customization** — rename and recolor physical network interfaces with persistent user preferences.
-- 🌙 **Dark mode**
+- 🌓 **Light & Dark modes** — full theme support with an instant toggle between light and dark modes.
 
 ---
 
@@ -209,7 +210,7 @@ Plexo currently doesn't have pre-built releases, so you'll need to run it from s
 
 ## Requirements
 
-- **Windows 10/11 or macOS**: Windows uses its built-in Windows PowerShell for adapter metadata; macOS uses `networksetup`. If metadata is unavailable, Plexo falls back to interface names.
+- **Windows 10/11, macOS, or Linux**: Windows uses its built-in Windows PowerShell for adapter metadata; macOS uses `networksetup`; Linux provides fallback interface detection and desktop network settings integration.
 - **Node.js**: 22.12+ (Node 22 LTS recommended).
 - **npm**: v9+ recommended.
 
@@ -235,6 +236,19 @@ Start the application in development mode:
 ```bash
 npm run dev
 ```
+
+---
+
+## Running tests
+
+Plexo includes an automated end-to-end test suite driven by Playwright:
+
+```bash
+npm run test:e2e:smoke          # quick smoke tests
+npm run test:e2e                # full E2E test suite (including integrity and chaos tests)
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md#end-to-end-tests) for testing options and debugging flags.
 
 ---
 
@@ -281,7 +295,19 @@ Adapter detection does not guarantee Internet access: VPN, virtual, and isolated
 also appear. Check per-network latency and transfer stats. Combined throughput depends on the
 networks, Windows routing, and the server; it needs testing with your particular connections.
 
-Linux packaging remains available but has not been validated.
+Linux packaging remains available via `npm run build:linux` (see [Build the Linux app](#build-the-linux-app)).
+
+---
+
+## Build the Linux app
+
+To package Plexo for Linux:
+
+```bash
+npm run build:linux
+```
+
+The package will be generated in `dist/`.
 
 ---
 
@@ -333,10 +359,13 @@ Plexo is built with:
 
 - **Electron** — desktop runtime
 - **React 19** — declarative UI
+- **Tailwind CSS v4** & **Base UI** — modern styling and accessible component primitives
 - **TypeScript** — end-to-end type safety
 - **Zustand** — lightweight client state management
+- **Lucide React** — icons
+- **Playwright** — end-to-end testing suite
 - **electron-vite** — fast HMR and build tooling
-- **electron-builder** — macOS packaging
+- **electron-builder** — multi-platform packaging (macOS, Windows, Linux)
 
 ---
 

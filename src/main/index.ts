@@ -1,8 +1,7 @@
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
-import { app, BrowserWindow, Menu, nativeImage, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, Menu, nativeTheme, shell } from 'electron'
 import { join } from 'path'
-import iconDark from '../../resources/icon-dark.png?asset'
-import iconLight from '../../resources/icon-light.png?asset'
+import icon from '../../resources/icon-dark.png?asset'
 import { registerIpcHandlers } from './ipc/handlers'
 import { loadThemeSource } from './settings'
 import { testKnobs } from './testKnobs'
@@ -20,21 +19,6 @@ if (testKnobs.userDataDir) app.setPath('userData', testKnobs.userDataDir)
 let mainWindow: BrowserWindow | null = null
 let downloadManager: DownloadManager | null = null
 let quitAfterSuspending = false
-
-// The bundled app icon (build/icon.*) is fixed at build time, but the dock/taskbar icon
-// can still be swapped at runtime so it matches the OS's light/dark appearance live.
-function currentIconPath(): string {
-  return nativeTheme.shouldUseDarkColors ? iconDark : iconLight
-}
-
-function applyThemedIcon(): void {
-  const image = nativeImage.createFromPath(currentIconPath())
-  if (process.platform === 'darwin') {
-    app.dock?.setIcon(image)
-  } else {
-    mainWindow?.setIcon(image)
-  }
-}
 
 // Only wired in dev — mirrors the default Electron menu (app/edit/view/window) plus one item to
 // toggle the renderer's floating simulate-download panel, which itself only renders in dev.
@@ -71,7 +55,7 @@ function createWindow(): void {
     // Matches the renderer's dark-mode background so a live window resize
     // (which briefly exposes the raw window background) doesn't flash white.
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#ffffff',
-    ...(process.platform !== 'darwin' ? { icon: currentIconPath() } : {}),
+    ...(process.platform !== 'darwin' ? { icon } : {}),
     // Design v2 draws its own logo + status readout where the title normally sits — on macOS,
     // keep the real traffic lights (still native, still draggable) but let the renderer's own
     // title bar occupy the rest of the strip instead of an OS-drawn title.
@@ -123,14 +107,12 @@ app.whenReady().then(async () => {
 
   nativeTheme.on('updated', () => {
     mainWindow?.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#1c1c1e' : '#ffffff')
-    applyThemedIcon()
   })
 
   if (is.dev) installDevMenu()
 
   createWindow()
   if (testKnobs.hideWindow) app.dock?.hide()
-  else applyThemedIcon()
 
   app.on('activate', function () {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

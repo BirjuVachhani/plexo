@@ -116,9 +116,10 @@ export async function probeUrl(rawUrl: string): Promise<ProbeResult> {
   }
 
   const contentRange = headerValue(response.headers, 'content-range')
-  const acceptRanges = headerValue(response.headers, 'accept-ranges')
-  const supportsRanges =
-    response.statusCode === 206 || (acceptRanges != null && acceptRanges !== 'none')
+  // A server that supports range requests must answer our 1-byte range GET with 206 Partial Content.
+  // If it returned 200 OK, it ignored the Range header and sent the whole file — even if its headers
+  // statically claim `Accept-Ranges: bytes`.
+  const supportsRanges = response.statusCode === 206
 
   let totalBytes: number | null = null
   if (contentRange) {

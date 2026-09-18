@@ -616,7 +616,7 @@ export class DownloadManager {
 
   resume(id: string): void {
     const runtime = this.runtimes.get(id)
-    if (!runtime || runtime.state.status !== 'paused') return
+    if (!runtime || (runtime.state.status !== 'paused' && runtime.state.status !== 'error')) return
 
     void this.resumeAfterVerifying(runtime)
   }
@@ -641,7 +641,7 @@ export class DownloadManager {
         return
       }
     }
-    if (runtime.state.status !== 'paused') return
+    if (runtime.state.status !== 'paused' && runtime.state.status !== 'error') return
 
     const selectedIds = new Set(runtime.requestPayload.interfaceIds)
     runtime.activeInterfaces = availableInterfaces.filter((iface) => selectedIds.has(iface.id))
@@ -667,7 +667,7 @@ export class DownloadManager {
         if (size !== block.rangeEnd - block.rangeStart + 1) block.status = 'pending'
       })
     )
-    if (runtime.state.status !== 'paused') return
+    if (runtime.state.status !== 'paused' && runtime.state.status !== 'error') return
 
     for (let index = 0; index < runtime.state.chunks.length; index++) {
       const chunk = runtime.state.chunks[index]
@@ -706,7 +706,12 @@ export class DownloadManager {
 
   cancel(id: string): void {
     const runtime = this.runtimes.get(id)
-    if (!runtime || (runtime.state.status !== 'downloading' && runtime.state.status !== 'paused'))
+    if (
+      !runtime ||
+      (runtime.state.status !== 'downloading' &&
+        runtime.state.status !== 'paused' &&
+        runtime.state.status !== 'error')
+    )
       return
 
     runtime.state.status = 'cancelled'
@@ -726,7 +731,12 @@ export class DownloadManager {
 
   remove(id: string): void {
     const runtime = this.runtimes.get(id)
-    if (runtime && (runtime.state.status === 'downloading' || runtime.state.status === 'paused')) {
+    if (
+      runtime &&
+      (runtime.state.status === 'downloading' ||
+        runtime.state.status === 'paused' ||
+        runtime.state.status === 'error')
+    ) {
       this.cancel(id)
     }
     this.runtimes.delete(id)
@@ -795,7 +805,15 @@ export class DownloadManager {
   private async runWorker(runtime: DownloadRuntime, chunk: ChunkState): Promise<void> {
     const iface =
       runtime.activeInterfaces.find((i) => i.id === chunk.interfaceId) ??
-      runtime.activeInterfaces[chunk.id]
+      runtime.activeInterfaces[chunk.id % runtime.activeInterfaces.length] ??
+      runtime.activeInterfaces[0]
+
+    if (!iface) {
+      chunk.status = 'error'
+      chunk.error = 'No active network interface available'
+      this.scheduleUpdate(runtime)
+      return
+    }
 
     const controller = new AbortController()
     runtime.chunkRuntimes.set(chunk.id, { controller, partPath: '' })

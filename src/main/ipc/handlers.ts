@@ -1,5 +1,6 @@
 import { is } from '@electron-toolkit/utils'
 import {
+  app,
   clipboard,
   dialog,
   ipcMain,
@@ -17,7 +18,13 @@ import { probeUrl } from '../download/probe'
 import { measureLatencies } from '../network/latency'
 import { listActiveInterfaces } from '../network/interfaces'
 import { loadNetworkPreferences, saveNetworkPreference } from '../network/preferences'
-import { saveThemeSource } from '../settings'
+import {
+  loadDismissedUpdateVersion,
+  saveDismissedUpdateVersion,
+  saveThemeSource
+} from '../settings'
+import { testKnobs } from '../testKnobs'
+import { checkForUpdate, UPDATE_PAGE_URL } from '../updateCheck'
 
 async function openNetworkSettings(): Promise<void> {
   if (process.platform === 'win32') {
@@ -143,6 +150,23 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
 
   handle('removeDownload', async (_event, id) => {
     manager.remove(id)
+  })
+
+  // Kicked off once at startup, not per-call — later renderer calls (e.g. a remount) just await
+  // the same in-flight/settled check instead of re-hitting the GitHub API.
+  const updateCheckPromise = (async () => {
+    const info = testKnobs.forceUpdateVersion
+      ? { version: testKnobs.forceUpdateVersion, url: UPDATE_PAGE_URL }
+      : await checkForUpdate(app.getVersion())
+    if (!info) return null
+    const dismissedVersion = await loadDismissedUpdateVersion()
+    return { ...info, dismissed: info.version === dismissedVersion }
+  })()
+
+  handle('checkForUpdate', async () => updateCheckPromise)
+
+  handle('dismissUpdate', async (_event, version) => {
+    await saveDismissedUpdateVersion(version)
   })
 
   return manager

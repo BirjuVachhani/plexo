@@ -1,5 +1,6 @@
 import { ColorBadge } from './ColorBadge'
 import { ThemeToggle } from './ThemeToggle'
+import { UpdateIndicator } from './UpdateIndicator'
 
 export type TitleBarStatus =
   | { kind: 'none' }
@@ -82,6 +83,7 @@ export function TitleBar({ status }: { status: TitleBarStatus }): React.JSX.Elem
           Offline
         </ColorBadge>
       )}
+      <UpdateIndicator />
       <ThemeToggle />
     </div>
   )

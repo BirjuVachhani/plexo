@@ -2,6 +2,7 @@ import type { DownloadState } from '@shared/types'
 import { useEffect } from 'react'
 import { DevToolsPanel } from './components/DevToolsPanel'
 import { TitleBar, type TitleBarStatus } from './components/TitleBar'
+import { UpdateDialog } from './components/UpdateDialog'
 import { TooltipProvider } from './components/ui/tooltip'
 import { useDownloadEvents } from './hooks/useDownloadEvents'
 import { CompleteScreen } from './screens/CompleteScreen'
@@ -76,12 +77,14 @@ function App(): React.JSX.Element {
   const loadNetworkPreferences = useAppStore((store) => store.loadNetworkPreferences)
   const loadThemeSource = useAppStore((store) => store.loadThemeSource)
   const loadInitialPaths = useAppStore((store) => store.loadInitialPaths)
+  const checkForUpdate = useAppStore((store) => store.checkForUpdate)
 
   useEffect(() => {
     loadNetworkPreferences()
     loadThemeSource()
     loadInitialPaths()
-  }, [loadNetworkPreferences, loadThemeSource, loadInitialPaths])
+    checkForUpdate()
+  }, [loadNetworkPreferences, loadThemeSource, loadInitialPaths, checkForUpdate])
 
   const handleNewDownload = (): void => {
     if (currentDownload) void window.plexo.removeDownload(currentDownload.id)
@@ -120,6 +123,7 @@ function App(): React.JSX.Element {
         <TitleBar status={titleBarStatus} />
         <div className="min-h-0 flex-1">{screen}</div>
         <DevToolsPanel />
+        <UpdateDialog />
       </div>
     </TooltipProvider>
   )

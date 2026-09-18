@@ -39,6 +39,8 @@ const plexoApi = {
   resumeDownload: (downloadId: string) => invoke('resumeDownload', downloadId),
   cancelDownload: (downloadId: string) => invoke('cancelDownload', downloadId),
   removeDownload: (downloadId: string) => invoke('removeDownload', downloadId),
+  checkForUpdate: () => invoke('checkForUpdate'),
+  dismissUpdate: (version: string) => invoke('dismissUpdate', version),
 
   onDownloadUpdated: (callback: (state: DownloadState) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, state: DownloadState): void => callback(state)

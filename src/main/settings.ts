@@ -9,6 +9,7 @@ function settingsPath(): string {
 
 interface AppSettings {
   themeSource?: ThemeSource
+  dismissedUpdateVersion?: string
 }
 
 async function loadSettings(): Promise<AppSettings> {
@@ -34,4 +35,18 @@ export async function loadThemeSource(): Promise<ThemeSource> {
 export async function saveThemeSource(themeSource: ThemeSource): Promise<void> {
   const settings = await loadSettings()
   await writeFile(settingsPath(), JSON.stringify({ ...settings, themeSource }, null, 2), 'utf-8')
+}
+
+export async function loadDismissedUpdateVersion(): Promise<string | undefined> {
+  const settings = await loadSettings()
+  return settings.dismissedUpdateVersion
+}
+
+export async function saveDismissedUpdateVersion(version: string): Promise<void> {
+  const settings = await loadSettings()
+  await writeFile(
+    settingsPath(),
+    JSON.stringify({ ...settings, dismissedUpdateVersion: version }, null, 2),
+    'utf-8'
+  )
 }

@@ -16,7 +16,10 @@ export const testKnobs = {
   hideWindow: env['PLEXO_E2E_HIDE_WINDOW'] === '1',
   blockBytes: positiveNumber('PLEXO_E2E_BLOCK_BYTES', 8 * 1024 * 1024),
   retryBaseDelayMs: positiveNumber('PLEXO_E2E_RETRY_BASE_MS', 1000),
-  stallTimeoutMs: positiveNumber('PLEXO_E2E_STALL_MS', 20_000)
+  stallTimeoutMs: positiveNumber('PLEXO_E2E_STALL_MS', 20_000),
+  /** Skips the real GitHub check and pretends this version is available, for exercising the
+   * update banner without needing an actual newer release published. */
+  forceUpdateVersion: env['PLEXO_FORCE_UPDATE_VERSION']
 }
 
 /** `PLEXO_E2E_INTERFACES=a=127.0.0.1,b=192.168.1.5` replaces the real interface list. Read on

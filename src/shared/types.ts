@@ -134,6 +134,15 @@ export interface StartSimulatedDownloadRequest {
   assembleSpeedBytesPerSec?: number
 }
 
+export interface UpdateInfo {
+  version: string
+  /** Where clicking the notification should take the user — the landing page's downloads. */
+  url: string
+  /** True once the user has dismissed the banner for this exact version (persisted, so it stays
+   * dismissed across relaunches) — the app then falls back to a quiet titlebar icon instead. */
+  dismissed: boolean
+}
+
 export interface InitialPaths {
   homeDir: string
   downloadsDir: string

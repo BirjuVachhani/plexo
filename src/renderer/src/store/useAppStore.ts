@@ -3,7 +3,8 @@ import type {
   NetworkInterfaceInfo,
   NetworkPreference,
   NetworkPreferences,
-  ThemeSource
+  ThemeSource,
+  UpdateInfo
 } from '@shared/types'
 import { create } from 'zustand'
 import { groupChunksByInterface } from '../utils/format'
@@ -27,6 +28,10 @@ interface AppStore {
 
   /** Persisted in the main process alongside nativeTheme.themeSource. */
   themeSource: ThemeSource
+
+  /** Null until the one-time startup check resolves, or if it found nothing worth showing
+   * (already up to date, already dismissed, or the check failed). */
+  availableUpdate: UpdateInfo | null
 
   homeDir: string
   downloadsDir: string
@@ -55,6 +60,8 @@ interface AppStore {
   setNetworkPreference: (id: string, patch: NetworkPreference) => Promise<void>
   loadThemeSource: () => Promise<void>
   setThemeSource: (source: ThemeSource) => Promise<void>
+  checkForUpdate: () => Promise<void>
+  dismissUpdate: () => void
   setCurrentDownload: (state: DownloadState) => void
   clearCurrentDownload: () => void
   setDraftUrl: (url: string) => void
@@ -68,6 +75,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   latencies: {},
   networkPreferences: {},
   themeSource: 'light',
+  availableUpdate: null,
 
   homeDir: '',
   downloadsDir: '',
@@ -161,6 +169,23 @@ export const useAppStore = create<AppStore>((set, get) => ({
     } catch {
       // Leave the optimistic value in place — not persisted to disk, but still usable this session.
     }
+  },
+
+  checkForUpdate: async () => {
+    try {
+      const availableUpdate = await window.plexo.checkForUpdate()
+      set({ availableUpdate })
+    } catch {
+      // Best-effort — a failed check just leaves the banner hidden.
+    }
+  },
+
+  dismissUpdate: () => {
+    const update = get().availableUpdate
+    if (!update) return
+    // Keeps the update visible as a quiet titlebar icon rather than clearing it outright.
+    set({ availableUpdate: { ...update, dismissed: true } })
+    void window.plexo.dismissUpdate(update.version)
   },
 
   setCurrentDownload: (download) => {

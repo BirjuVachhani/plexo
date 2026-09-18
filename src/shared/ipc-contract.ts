@@ -7,7 +7,8 @@ import type {
   ProbeResult,
   StartDownloadRequest,
   StartSimulatedDownloadRequest,
-  ThemeSource
+  ThemeSource,
+  UpdateInfo
 } from './types'
 
 /** The request/response half of the IPC surface (every IpcChannels entry except the two
@@ -38,4 +39,6 @@ export interface IpcContract {
   resumeDownload: { args: [id: string]; result: void }
   cancelDownload: { args: [id: string]; result: void }
   removeDownload: { args: [id: string]; result: void }
+  checkForUpdate: { args: []; result: UpdateInfo | null }
+  dismissUpdate: { args: [version: string]; result: void }
 }

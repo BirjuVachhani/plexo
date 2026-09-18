@@ -20,5 +20,7 @@ export const IpcChannels = {
   cancelDownload: 'download:cancel',
   removeDownload: 'download:remove',
   downloadUpdated: 'download:updated',
-  toggleDevToolsPanel: 'dev:toggle-panel'
+  toggleDevToolsPanel: 'dev:toggle-panel',
+  checkForUpdate: 'update:check',
+  dismissUpdate: 'update:dismiss'
 } as const

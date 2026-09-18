@@ -1,6 +1,6 @@
 import type { BlockState, BlockStatus } from '@shared/types'
 import { useCallback, useRef, useState } from 'react'
-import { FONT_MONO, type NetworkVisual } from '../theme'
+import type { NetworkVisual } from '../theme'
 import { formatBytes, type NetworkGroup } from '../utils/format'
 
 // The grid is a byte-space map of the file: one square per chunk, running left-to-right,
@@ -223,8 +223,7 @@ export function BlockGrid({
         (hoveredCell.status === 'pending' ? 'queued' : '—')
       readout = `Chunk #${hoveredCell.chunkNumber} · ${formatBytes(hoveredCell.bytesDownloaded)} / ${formatBytes(hoveredCell.totalBytes)} · ${where}`
     } else {
-      const scrollHint = rows > MAX_VISIBLE_ROWS ? ' · scroll' : ''
-      readout = `${blocks.length} chunks · ${formatBytes(chunkBytes)} each${scrollHint}`
+      readout = `${blocks.length} chunks · ${formatBytes(chunkBytes)} each`
     }
 
     // Cumulative byte offset per cell, in the exact order reassemble() appends part files —
@@ -240,85 +239,31 @@ export function BlockGrid({
     ).offsets
 
     return (
-      <div
-        style={{
-          background: 'var(--bg-secondary)',
-          border: '0.5px solid var(--border)',
-          borderRadius: 9,
-          padding: '10px 14px 11px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 9
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 14,
-            flexWrap: 'wrap'
-          }}
-        >
+      <div className="flex flex-col gap-[9px] rounded-[9px] border-[0.5px] border-border bg-card px-[14px] pt-[10px] pb-[11px]">
+        <div className="flex flex-wrap items-center gap-[14px]">
           {groups.map((group, idx) => {
             const visual = visuals[idx]
             return (
               <div
                 key={group.interfaceId}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5.5,
-                  font: `500 10.5px/1 ${FONT_MONO}`,
-                  color: 'var(--text-secondary)'
-                }}
+                className="flex items-center gap-[5.5px] font-mono text-[10.5px] leading-none font-medium text-[var(--text-secondary)]"
               >
                 <span
-                  style={{
-                    width: 7,
-                    height: 7,
-                    borderRadius: '50%',
-                    background: visual.solid,
-                    flexShrink: 0
-                  }}
+                  className="size-[7px] shrink-0 rounded-full"
+                  style={{ background: visual.solid }}
                 />
-                <span style={{ color: 'var(--text)', fontWeight: 600 }}>{visual.name}</span>
+                <span className="font-semibold text-foreground">{visual.name}</span>
               </div>
             )
           })}
           {assembling && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5.5,
-                font: `500 10.5px/1 ${FONT_MONO}`,
-                color: 'var(--text-secondary)'
-              }}
-            >
-              <span
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: '50%',
-                  background: ASSEMBLED_SOLID,
-                  flexShrink: 0
-                }}
-              />
-              <span style={{ color: 'var(--text)', fontWeight: 600 }}>Assembled</span>
+            <div className="flex items-center gap-[5.5px] font-mono text-[10.5px] leading-none font-medium text-[var(--text-secondary)]">
+              <span className="size-[7px] shrink-0 rounded-full bg-[var(--text)]" />
+              <span className="font-semibold text-foreground">Assembled</span>
             </div>
           )}
           {cells.length > 0 && chunkBytes > 0 && (
-            <div
-              style={{
-                marginLeft: 'auto',
-                font: `500 10px/1 ${FONT_MONO}`,
-                color: 'var(--text-tertiary)',
-                fontVariantNumeric: 'tabular-nums'
-              }}
-              title={`This file downloads as ${blocks.length} chunks of ${formatBytes(chunkBytes)}, one per square.${
-                rows > MAX_VISIBLE_ROWS ? ' Scroll the grid to see the rest.' : ''
-              }`}
-            >
+            <div className="ml-auto font-mono text-[10px] leading-none font-medium tabular-nums text-muted-foreground">
               {readout}
             </div>
           )}
@@ -403,20 +348,6 @@ export function BlockGrid({
                 }
               }
 
-              const networkName =
-                describeContributors(cell, visualByInterfaceId) ||
-                (cell.interfaceId ? 'Assigned' : 'Pending')
-              // Numbered to match the "Chunk #N" badges the streams table shows for each active
-              // connection, so a hovered square maps onto a specific stream's work.
-              const title = assembling
-                ? `Chunk #${cell.chunkNumber} · ${
-                    assembleOffsets[index] + cell.totalBytes <= assembledBytes
-                      ? 'written to file'
-                      : assembleOffsets[index] < assembledBytes
-                        ? 'writing to file…'
-                        : 'queued to write'
-                  }`
-                : `Chunk #${cell.chunkNumber} · ${formatBytes(cell.bytesDownloaded)} / ${formatBytes(cell.totalBytes)} · ${networkName} · ${cell.status}`
               const rawFillPercent = Math.min(1, Math.max(0, cell.fillRatio)) * 100
               // A square is only ~12px wide, so the first bytes of a chunk round to nothing —
               // floor a started chunk to a visible sliver rather than 0 width.
@@ -425,7 +356,6 @@ export function BlockGrid({
               return (
                 <div
                   key={index}
-                  title={title}
                   onMouseEnter={() => setHoveredIndex(index)}
                   style={{
                     position: 'relative',
@@ -439,7 +369,12 @@ export function BlockGrid({
                     outline: hoveredIndex === index ? '1.5px solid var(--text-secondary)' : 'none',
                     outlineOffset: 1,
                     overflow: 'hidden',
-                    transition: 'opacity 0.3s, box-shadow 0.15s'
+                    transition: 'opacity 0.3s, box-shadow 0.15s',
+                    // A multi-GB file can mean thousands of cells; skip layout/paint work for the
+                    // ones scrolled out of view (MAX_VISIBLE_ROWS caps what's visible, not what's
+                    // rendered) rather than hand-rolling a virtualized list for a fixed-size grid.
+                    contentVisibility: 'auto',
+                    containIntrinsicSize: `${TARGET_CELL_PX}px ${CELL_HEIGHT_PX}px`
                   }}
                 >
                   {/* One square, one color: the network that actually delivered most of this
@@ -468,17 +403,7 @@ export function BlockGrid({
 
   // Fallback for single stream / non-splittable download: clean horizontal bar
   return (
-    <div
-      style={{
-        height: 10,
-        borderRadius: 5,
-        background: 'var(--track-bg)',
-        overflow: 'hidden',
-        display: 'flex',
-        gap: 2,
-        border: '0.5px solid var(--border-strong)'
-      }}
-    >
+    <div className="flex h-2.5 gap-0.5 overflow-hidden rounded-[5px] border-[0.5px] border-[var(--border-strong)] bg-[var(--track-bg)]">
       {knownSize ? (
         <>
           {groups.map((group, index) => (
@@ -493,7 +418,7 @@ export function BlockGrid({
           <div style={{ flex: remainingBytes || 0.0001 }} />
         </>
       ) : (
-        <div style={{ width: '100%', background: 'var(--color-accent)' }} />
+        <div className="w-full bg-primary" />
       )}
     </div>
   )

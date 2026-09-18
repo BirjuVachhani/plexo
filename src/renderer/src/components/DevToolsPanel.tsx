@@ -1,16 +1,12 @@
 import type { NetworkInterfaceKind, SimulatedNetworkConfig } from '@shared/types'
 import { useEffect, useState } from 'react'
 import { useAppStore } from '../store/useAppStore'
-import {
-  DANGER,
-  FONT_MONO,
-  FONT_UI,
-  dangerButtonStyle,
-  disabledPrimaryButtonStyle,
-  primaryButtonStyle,
-  secondaryButtonStyle
-} from '../theme'
 import { describeError, toDisplayPath } from '../utils/format'
+import { TruncatedText } from './TruncatedText'
+import { Button } from './ui/button'
+import { Dialog, DialogClose, DialogContent, DialogTitle } from './ui/dialog'
+import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 const KIND_OPTIONS: NetworkInterfaceKind[] = ['wifi', 'usb', 'ethernet', 'bridge', 'other']
 const PRESET_CONNECTIONS = [1, 2, 4, 8] as const
@@ -37,20 +33,14 @@ const DEFAULT_NETWORKS: SimNetworkDraft[] = [
   makeDraft('usb', 'Simulated USB', 12)
 ]
 
-const fieldLabelStyle: React.CSSProperties = {
-  font: `500 9.5px/1 ${FONT_MONO}`,
-  letterSpacing: '0.12em',
-  color: 'var(--text-tertiary)'
-}
+const fieldLabelClass =
+  'font-mono text-[9.5px] leading-none font-medium tracking-[0.12em] text-muted-foreground'
 
-const rowInputStyle: React.CSSProperties = {
-  border: '0.5px solid var(--border-strong)',
-  borderRadius: 6,
-  background: 'var(--input-bg)',
-  color: 'var(--text)',
-  font: `12px/1.3 ${FONT_MONO}`,
-  padding: '5px 7px'
-}
+const rowInputClass =
+  'rounded-[6px] border-[0.5px] border-[var(--border-strong)] bg-[var(--input-bg)] px-[7px] py-[5px] font-mono text-[12px] leading-[1.3] text-foreground'
+
+const draftBoxClass =
+  'flex flex-col gap-1.5 rounded-lg border-[0.5px] border-border bg-background p-2'
 
 /**
  * Dev-only panel that exercises the whole download pipeline against a file already on disk —
@@ -143,356 +133,248 @@ export function DevToolsPanel(): React.JSX.Element | null {
   }
 
   return (
-    <>
-      {open && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 999,
-            background: 'rgba(0,0,0,0.35)',
-            display: 'flex',
-            alignItems: 'flex-end',
-            justifyContent: 'flex-start',
-            padding: 14
-          }}
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setOpen(false)
-          }}
-        >
-          <div
-            style={{
-              width: 380,
-              maxHeight: 'calc(100% - 60px)',
-              overflowY: 'auto',
-              background: 'var(--bg-secondary)',
-              border: '0.5px solid var(--border-strong)',
-              borderRadius: 12,
-              padding: 16,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-              boxShadow: '0 8px 30px rgba(0,0,0,0.4)'
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between'
-              }}
-            >
-              <div style={{ font: `700 13px/1.2 ${FONT_UI}`, color: 'var(--text)' }}>
-                Simulate a download
-              </div>
-              <button
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent
+        // showCloseButton={false}: this panel keeps its own close button inline in the header
+        // row below, not the default absolute-positioned one.
+        showCloseButton={false}
+        className="flex max-h-[calc(100%-4rem)] w-[380px] max-w-[380px] flex-col gap-3 overflow-y-auto rounded-[12px] border-[0.5px] border-[var(--border-strong)] bg-card p-4 [overscroll-behavior:contain] sm:max-w-[380px]"
+      >
+        <div className="flex items-center justify-between">
+          <DialogTitle className="font-sans text-[13px] leading-[1.2] font-bold text-foreground">
+            Simulate a download
+          </DialogTitle>
+          <DialogClose
+            render={
+              <Button
                 type="button"
-                onClick={() => setOpen(false)}
-                style={{
-                  border: 'none',
-                  background: 'none',
-                  color: 'var(--text-tertiary)',
-                  cursor: 'pointer',
-                  font: `600 14px/1 ${FONT_UI}`
-                }}
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Close"
+                className="font-sans text-sm leading-none font-semibold text-muted-foreground"
               >
                 ×
-              </button>
-            </div>
-            <div style={{ font: `11.5px/1.4 ${FONT_UI}`, color: 'var(--text-tertiary)' }}>
-              Pick a file already on disk to &quot;download&quot; it through the real pipeline —
-              chunking, the block grid, pause/resume, retries, assembling — against fake networks
-              you control.
-            </div>
+              </Button>
+            }
+          />
+        </div>
+        <div className="font-sans text-[11.5px] leading-[1.4] text-muted-foreground">
+          Pick a file already on disk to “download” it through the real pipeline — chunking, the
+          block grid, pause/resume, retries, assembling — against fake networks you control.
+        </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <div style={fieldLabelStyle}>SOURCE FILE</div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <div
-                  style={{
-                    ...rowInputStyle,
-                    flex: 1,
-                    minWidth: 0,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    color: sourceFilePath ? 'var(--text)' : 'var(--text-tertiary)'
-                  }}
-                  title={sourceFilePath ?? undefined}
-                >
-                  {sourceFilePath ? toDisplayPath(sourceFilePath, homeDir) : 'No file chosen'}
-                </div>
-                <button type="button" onClick={handleChooseFile} style={secondaryButtonStyle}>
-                  Choose…
-                </button>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <div style={fieldLabelStyle}>DESTINATION</div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <div
-                  style={{
-                    ...rowInputStyle,
-                    flex: 1,
-                    minWidth: 0,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}
-                  title={effectiveDestinationDir}
-                >
-                  {toDisplayPath(effectiveDestinationDir, homeDir)}
-                </div>
-                <button
-                  type="button"
-                  onClick={handleChooseDestination}
-                  style={secondaryButtonStyle}
-                >
-                  Browse…
-                </button>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-              <div
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-              >
-                <div style={fieldLabelStyle}>SIMULATED NETWORKS</div>
-                <button
-                  type="button"
-                  onClick={addNetwork}
-                  disabled={networks.length >= MAX_SIM_NETWORKS}
-                  style={{
-                    border: 'none',
-                    background: 'none',
-                    color:
-                      networks.length >= MAX_SIM_NETWORKS
-                        ? 'var(--text-tertiary)'
-                        : 'var(--color-accent)',
-                    font: `600 10.5px/1 ${FONT_MONO}`,
-                    cursor: networks.length >= MAX_SIM_NETWORKS ? 'not-allowed' : 'pointer'
-                  }}
-                >
-                  + Add network
-                </button>
-              </div>
-
-              {networks.map((network) => (
-                <div
-                  key={network.key}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
-                    padding: 8,
-                    borderRadius: 8,
-                    border: '0.5px solid var(--border)',
-                    background: 'var(--bg)'
-                  }}
-                >
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <select
-                      value={network.kind}
-                      onChange={(event) =>
-                        updateNetwork(network.key, {
-                          kind: event.target.value as NetworkInterfaceKind
-                        })
-                      }
-                      style={{ ...rowInputStyle, flexShrink: 0 }}
-                    >
-                      {KIND_OPTIONS.map((kind) => (
-                        <option key={kind} value={kind}>
-                          {kind}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="text"
-                      value={network.label}
-                      onChange={(event) =>
-                        updateNetwork(network.key, { label: event.target.value })
-                      }
-                      style={{ ...rowInputStyle, flex: 1, minWidth: 0 }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeNetwork(network.key)}
-                      disabled={networks.length <= 1}
-                      title="Remove network"
-                      style={{
-                        border: 'none',
-                        background: 'none',
-                        color: networks.length <= 1 ? 'var(--text-tertiary)' : DANGER,
-                        cursor: networks.length <= 1 ? 'not-allowed' : 'pointer',
-                        font: `600 13px/1 ${FONT_UI}`,
-                        flexShrink: 0
-                      }}
-                    >
-                      ×
-                    </button>
-                  </div>
-                  <div style={{ display: 'flex', gap: 10 }}>
-                    <label
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 5,
-                        flex: 1,
-                        font: `10.5px/1 ${FONT_MONO}`,
-                        color: 'var(--text-tertiary)'
-                      }}
-                    >
-                      Speed
-                      <input
-                        type="number"
-                        min={1}
-                        max={1000}
-                        value={network.speedMbps}
-                        onChange={(event) =>
-                          updateNetwork(network.key, {
-                            speedMbps: Number(event.target.value) || 1
-                          })
-                        }
-                        style={{ ...rowInputStyle, width: 56 }}
-                      />
-                      Mbps
-                    </label>
-                    <label
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 5,
-                        flex: 1,
-                        font: `10.5px/1 ${FONT_MONO}`,
-                        color: 'var(--text-tertiary)'
-                      }}
-                      title="Chance a chunk attempt on this network fails outright, to exercise retry/error handling"
-                    >
-                      Faults
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={network.faultRatePercent}
-                        onChange={(event) =>
-                          updateNetwork(network.key, {
-                            faultRatePercent: Number(event.target.value) || 0
-                          })
-                        }
-                        style={{ ...rowInputStyle, width: 48 }}
-                      />
-                      %
-                    </label>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              <div style={fieldLabelStyle}>CONNECTIONS PER NETWORK</div>
-              <div style={{ display: 'flex', gap: 4 }}>
-                {PRESET_CONNECTIONS.map((preset) => {
-                  const isSelected = connectionsPerNetwork === preset
-                  return (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => setConnectionsPerNetwork(preset)}
-                      style={{
-                        border: isSelected
-                          ? '0.5px solid var(--color-accent)'
-                          : '0.5px solid var(--border)',
-                        borderRadius: 5,
-                        background: isSelected ? 'var(--color-usb-bg)' : 'var(--track-bg)',
-                        color: isSelected ? 'var(--color-usb-text)' : 'var(--text-secondary)',
-                        font: `600 10.5px/1 ${FONT_MONO}`,
-                        padding: '4px 8px',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {preset}×
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
+        <div className="flex flex-col gap-[5px]">
+          <div className={fieldLabelClass}>SOURCE FILE</div>
+          <div className="flex gap-1.5">
             <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-                padding: 8,
-                borderRadius: 8,
-                border: '0.5px solid var(--border)',
-                background: 'var(--bg)'
-              }}
+              className={`${rowInputClass} min-w-0 flex-1 ${
+                sourceFilePath ? 'text-foreground' : 'text-muted-foreground'
+              }`}
             >
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 7,
-                  font: `11px/1.3 ${FONT_UI}`,
-                  color: 'var(--text)',
-                  cursor: 'pointer'
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={slowAssemble}
-                  onChange={(event) => setSlowAssemble(event.target.checked)}
-                />
-                Simulate the assembling step
-              </label>
-              <div style={{ font: `10.5px/1.4 ${FONT_UI}`, color: 'var(--text-tertiary)' }}>
-                Reassembly normally finishes in a blink — this throttles it so the
-                &quot;assembling&quot; screen (the block grid sweep, the pulsing combine line) stays
-                on screen long enough to actually watch.
-              </div>
-              {slowAssemble && (
-                <label
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 5,
-                    font: `10.5px/1 ${FONT_MONO}`,
-                    color: 'var(--text-tertiary)'
-                  }}
+              <TruncatedText
+                text={sourceFilePath ? toDisplayPath(sourceFilePath, homeDir) : 'No file chosen'}
+                tooltipText={sourceFilePath ?? 'No file chosen'}
+              />
+            </div>
+            <Button type="button" variant="secondary" onClick={handleChooseFile}>
+              Choose…
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-[5px]">
+          <div className={fieldLabelClass}>DESTINATION</div>
+          <div className="flex gap-1.5">
+            <div className={`${rowInputClass} min-w-0 flex-1`}>
+              <TruncatedText
+                text={toDisplayPath(effectiveDestinationDir, homeDir)}
+                tooltipText={effectiveDestinationDir}
+              />
+            </div>
+            <Button type="button" variant="secondary" onClick={handleChooseDestination}>
+              Browse…
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-[7px]">
+          <div className="flex items-center justify-between">
+            <div className={fieldLabelClass}>SIMULATED NETWORKS</div>
+            <Button
+              type="button"
+              variant="link"
+              size="xs"
+              onClick={addNetwork}
+              disabled={networks.length >= MAX_SIM_NETWORKS}
+            >
+              + Add network
+            </Button>
+          </div>
+
+          {networks.map((network) => (
+            <div key={network.key} className={draftBoxClass}>
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={network.kind}
+                  onChange={(event) =>
+                    updateNetwork(network.key, {
+                      kind: event.target.value as NetworkInterfaceKind
+                    })
+                  }
+                  aria-label="Network kind"
+                  className={`${rowInputClass} shrink-0`}
                 >
-                  Assemble speed
+                  {KIND_OPTIONS.map((kind) => (
+                    <option key={kind} value={kind}>
+                      {kind}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  value={network.label}
+                  onChange={(event) => updateNetwork(network.key, { label: event.target.value })}
+                  aria-label="Network name"
+                  className={`${rowInputClass} min-w-0 flex-1`}
+                />
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => removeNetwork(network.key)}
+                        disabled={networks.length <= 1}
+                        focusableWhenDisabled
+                        aria-label="Remove network"
+                        className="text-destructive hover:text-destructive"
+                      >
+                        ×
+                      </Button>
+                    }
+                  />
+                  <TooltipContent>Remove network</TooltipContent>
+                </Tooltip>
+              </div>
+              <div className="flex gap-2.5">
+                <label className="flex flex-1 items-center gap-[5px] font-mono text-[10.5px] leading-none text-muted-foreground">
+                  Speed
                   <input
                     type="number"
                     min={1}
-                    max={500}
-                    value={assembleSpeedMBps}
-                    onChange={(event) => setAssembleSpeedMBps(Number(event.target.value) || 1)}
-                    style={{ ...rowInputStyle, width: 56 }}
+                    max={1000}
+                    value={network.speedMbps}
+                    onChange={(event) =>
+                      updateNetwork(network.key, {
+                        speedMbps: Number(event.target.value) || 1
+                      })
+                    }
+                    className={`${rowInputClass} w-14`}
                   />
-                  MB/s
+                  Mbps
                 </label>
-              )}
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <label className="flex flex-1 items-center gap-[5px] font-mono text-[10.5px] leading-none text-muted-foreground">
+                        Faults
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={network.faultRatePercent}
+                          onChange={(event) =>
+                            updateNetwork(network.key, {
+                              faultRatePercent: Number(event.target.value) || 0
+                            })
+                          }
+                          className={`${rowInputClass} w-12`}
+                        />
+                        %
+                      </label>
+                    }
+                  />
+                  <TooltipContent>
+                    Chance a chunk attempt on this network fails outright, to exercise retry/error
+                    handling
+                  </TooltipContent>
+                </Tooltip>
+              </div>
             </div>
-
-            {error && <div style={{ font: `11.5px/1.4 ${FONT_UI}`, color: DANGER }}>⚠ {error}</div>}
-
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button type="button" onClick={() => setOpen(false)} style={dangerButtonStyle}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleStart}
-                disabled={!canStart}
-                style={canStart ? primaryButtonStyle : disabledPrimaryButtonStyle}
-              >
-                {starting ? 'Starting…' : 'Start simulated download'}
-              </button>
-            </div>
-          </div>
+          ))}
         </div>
-      )}
-    </>
+
+        <div className="flex flex-col gap-[5px]">
+          <div id="devtools-connections-label" className={fieldLabelClass}>
+            CONNECTIONS PER NETWORK
+          </div>
+          <ToggleGroup
+            value={[String(connectionsPerNetwork)]}
+            onValueChange={(values) => {
+              if (values.length === 0) return
+              setConnectionsPerNetwork(Number(values[0]))
+            }}
+            aria-labelledby="devtools-connections-label"
+            variant="pill"
+            size="xs"
+            spacing={1}
+          >
+            {PRESET_CONNECTIONS.map((preset) => (
+              <ToggleGroupItem key={preset} value={String(preset)}>
+                {preset}×
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </div>
+
+        <div className={draftBoxClass}>
+          <label className="flex cursor-pointer items-center gap-[7px] font-sans text-[11px] leading-[1.3] text-foreground">
+            <input
+              type="checkbox"
+              checked={slowAssemble}
+              onChange={(event) => setSlowAssemble(event.target.checked)}
+            />
+            Simulate the assembling step
+          </label>
+          <div className="font-sans text-[10.5px] leading-[1.4] text-muted-foreground">
+            Reassembly normally finishes in a blink — this throttles it so the “assembling” screen
+            (the block grid sweep, the pulsing combine line) stays on screen long enough to actually
+            watch.
+          </div>
+          {slowAssemble && (
+            <label className="flex items-center gap-[5px] font-mono text-[10.5px] leading-none text-muted-foreground">
+              Assemble speed
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={assembleSpeedMBps}
+                onChange={(event) => setAssembleSpeedMBps(Number(event.target.value) || 1)}
+                className={`${rowInputClass} w-14`}
+              />
+              MB/s
+            </label>
+          )}
+        </div>
+
+        {error && (
+          <div className="font-sans text-[11.5px] leading-[1.4] text-destructive">⚠ {error}</div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <DialogClose
+            render={
+              <Button type="button" variant="destructive">
+                Cancel
+              </Button>
+            }
+          />
+          <Button type="button" onClick={handleStart} disabled={!canStart}>
+            {starting ? 'Starting…' : 'Start simulated download'}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }

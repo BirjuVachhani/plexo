@@ -12,9 +12,9 @@ import {
   writeFile
 } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { finished } from 'node:stream/promises'
+import { finished, pipeline } from 'node:stream/promises'
 import type { BrowserWindow } from 'electron'
-import { app } from 'electron'
+import { app, Notification } from 'electron'
 import { IpcChannels } from '../../shared/ipc-channels'
 import type {
   BlockState,
@@ -25,9 +25,10 @@ import type {
   StartDownloadRequest,
   StartSimulatedDownloadRequest
 } from '../../shared/types'
-import { downloadChunk } from './chunkDownloader'
+import { downloadChunk, fetchRange, RemoteChangedError } from './chunkDownloader'
+import { compareVersion, type FileVersion } from './fileVersion'
+import { testKnobs } from '../testKnobs'
 import { reserveDestinationPath } from './paths'
-import { isResourceUnchanged } from './probe'
 import {
   createSimSession,
   downloadChunkSimulated,
@@ -59,6 +60,9 @@ interface DownloadRuntime {
   persistenceTimer?: NodeJS.Timeout
   persistenceChain: Promise<void>
   removed: boolean
+  /** The version this download started on, plus any since confirmed to serve identical bytes
+   * (see confirmSameBytes). Not persisted: after a restart, a confirmation is simply redone. */
+  acceptedVersions: FileVersion[]
 }
 
 interface PersistedDownload {
@@ -95,7 +99,7 @@ function pushSpeedSample(samples: SpeedSample[], bytes: number, time: number): n
 const MAX_CHUNKS = 32
 
 const MAX_CHUNK_RETRIES = 5
-const RETRY_BASE_DELAY_MS = 1000
+const RETRY_BASE_DELAY_MS = testKnobs.retryBaseDelayMs
 const RETRY_MAX_DELAY_MS = 15_000
 
 function retryDelayMs(attempt: number): number {
@@ -191,38 +195,50 @@ async function reconcilePartFileSize(partPath: string, expectedBytes: number): P
   return safeBytes
 }
 
+function requestedVersion(request: StartDownloadRequest): FileVersion {
+  return { etag: request.etag, lastModified: request.lastModified, totalBytes: request.totalBytes }
+}
+
+// How much of the already-downloaded file to re-fetch and compare when a server labels a
+// response with an ETag or Last-Modified this download hasn't seen before.
+const SAMPLE_BYTES = 16 * 1024
+const MAX_SAMPLES = 8
+/** A sample must come from a server presenting the new label; behind a load balancer the next
+ * request may land on another one, so take a few tries at reaching it. */
+const SAMPLE_TRIES = 4
+
 function formatGigabytes(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(2)} GB`
 }
 
-/** Throws if the destination volume doesn't have room for the download — a full disk should
- * fail upfront with a clear reason, not partway through as a confusing ENOSPC write error. */
-async function ensureDiskSpace(destinationDir: string, requiredBytes: number): Promise<void> {
+/** Throws if there isn't room for the download — a full disk should fail upfront with a clear
+ * reason, not partway through as a confusing ENOSPC write error. The part files and the assembled
+ * file both exist until assembly finishes, so when they share a volume it needs room for both. */
+async function ensureDiskSpace(
+  destinationDir: string,
+  partsRoot: string,
+  requiredBytes: number
+): Promise<void> {
   if (requiredBytes <= 0) return // unknown size — nothing to check against
 
-  const stats = await statfs(destinationDir)
-  const availableBytes = stats.bavail * stats.bsize
-  if (availableBytes < requiredBytes) {
-    throw new Error(
-      `Not enough disk space: this download needs ${formatGigabytes(requiredBytes)} but only ${formatGigabytes(availableBytes)} is free`
-    )
-  }
-}
+  const [destination, parts] = await Promise.all([stat(destinationDir), stat(partsRoot)])
+  const needs: [string, number][] =
+    destination.dev === parts.dev
+      ? [[destinationDir, requiredBytes * 2]]
+      : [
+          [destinationDir, requiredBytes],
+          [partsRoot, requiredBytes]
+        ]
 
-/** Appends one file's bytes onto an already-open writable, without ending it. */
-function appendFileToStream(sourcePath: string, output: NodeJS.WritableStream): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const input = createReadStream(sourcePath)
-    input.on('error', reject)
-    input.on('data', (chunk) => {
-      const canContinue = output.write(chunk)
-      if (!canContinue) {
-        input.pause()
-        output.once('drain', () => input.resume())
-      }
-    })
-    input.on('close', resolve)
-  })
+  for (const [dir, bytes] of needs) {
+    const stats = await statfs(dir)
+    const availableBytes = stats.bavail * stats.bsize
+    if (availableBytes < bytes) {
+      throw new Error(
+        `Not enough disk space: this download needs ${formatGigabytes(bytes)} (the file plus its temporary parts) but only ${formatGigabytes(availableBytes)} is free`
+      )
+    }
+  }
 }
 
 export class DownloadManager {
@@ -307,7 +323,8 @@ export class DownloadManager {
             blocks,
             totalBlocks: state.totalBlocks ?? blocks.length,
             persistenceChain: Promise.resolve(),
-            removed: false
+            removed: false,
+            acceptedVersions: [requestedVersion(persisted.requestPayload)]
           })
         } catch {
           // Ignore incomplete or corrupt manifests; other downloads can still be restored.
@@ -415,18 +432,31 @@ export class DownloadManager {
     requestPayload: StartDownloadRequest,
     interfaces: NetworkInterfaceInfo[]
   ): Promise<string> {
-    await ensureDiskSpace(requestPayload.destinationDir, requestPayload.totalBytes)
-
-    const id = randomUUID()
-    const tempDir = join(this.downloadDir(id), 'parts')
-    await mkdir(tempDir, { recursive: true })
+    await mkdir(this.downloadsRoot(), { recursive: true })
+    await mkdir(requestPayload.destinationDir, { recursive: true })
+    await ensureDiskSpace(
+      requestPayload.destinationDir,
+      this.downloadsRoot(),
+      requestPayload.totalBytes
+    )
 
     // Claimed on disk, not just picked, so a second download of the same file
-    // name can't pick it too and overwrite this one at reassembly time.
+    // name can't pick it too and overwrite this one at reassembly time. Done
+    // before anything else is created, so a destination we can't write to
+    // leaves nothing behind.
     const destinationPath = await reserveDestinationPath(
       requestPayload.destinationDir,
       requestPayload.suggestedFileName
     )
+
+    const id = randomUUID()
+    const tempDir = join(this.downloadDir(id), 'parts')
+    try {
+      await mkdir(tempDir, { recursive: true })
+    } catch (error) {
+      await rm(destinationPath, { force: true })
+      throw error
+    }
 
     const connectionsPerNetwork = Math.max(
       1,
@@ -445,7 +475,7 @@ export class DownloadManager {
     // block size instead of the count once a file is big enough to hit it.
     // The UI caps how many cells it renders separately (see BlockGrid), by
     // bucketing these blocks rather than by shrinking their count here.
-    const BASE_BLOCK_BYTES = 8 * 1024 * 1024 // 8 MB
+    const BASE_BLOCK_BYTES = testKnobs.blockBytes // 8 MB outside tests
     const MAX_REAL_BLOCKS = 4096
 
     let blockSizeBytes = 0
@@ -548,7 +578,8 @@ export class DownloadManager {
       blocks,
       totalBlocks: blocks.length,
       persistenceChain: Promise.resolve(),
-      removed: false
+      removed: false,
+      acceptedVersions: [requestedVersion(requestPayload)]
     }
     this.runtimes.set(id, runtime)
     await this.persistNow(runtime)
@@ -586,33 +617,16 @@ export class DownloadManager {
 
   resume(id: string): void {
     const runtime = this.runtimes.get(id)
-    if (!runtime || runtime.state.status !== 'paused') return
+    if (!runtime || (runtime.state.status !== 'paused' && runtime.state.status !== 'error')) return
 
     void this.resumeAfterVerifying(runtime)
   }
 
-  // Appending onto part files assumes the remote file hasn't changed since
-  // it was probed — if the server's ETag/Last-Modified moved on while this
-  // download sat paused, resuming would silently stitch old and new bytes
-  // together. Check first, and refuse to resume rather than corrupt the
-  // output (the user can always start the download over from scratch).
+  // A file that changed on the server while this download was paused is caught by the first
+  // chunk request after resuming: its response is checked against the version the download
+  // started on (see runWorker), which can tell a real change from a relabelled server.
   private async resumeAfterVerifying(runtime: DownloadRuntime): Promise<void> {
-    const { url, etag, lastModified } = runtime.requestPayload
-    // A simulated download has no server to re-probe — the source file sitting on disk is
-    // exactly what it was when the sim session was created, so there's nothing to verify.
-    const unchanged = isSimulatedUrl(url) || (await isResourceUnchanged(url, etag, lastModified))
-
-    if (runtime.state.status !== 'paused') return // cancelled while we were checking
-
-    if (!unchanged) {
-      runtime.state.status = 'error'
-      runtime.state.error =
-        'The remote file changed while this download was paused, so resuming would corrupt it. Start the download over instead.'
-      this.pushUpdate(runtime)
-      await this.cleanupTempDir(runtime)
-      await this.discardUnfinishedDestination(runtime)
-      return
-    }
+    const { url } = runtime.requestPayload
 
     let availableInterfaces: NetworkInterfaceInfo[]
     if (isSimulatedUrl(url)) {
@@ -628,7 +642,7 @@ export class DownloadManager {
         return
       }
     }
-    if (runtime.state.status !== 'paused') return
+    if (runtime.state.status !== 'paused' && runtime.state.status !== 'error') return
 
     const selectedIds = new Set(runtime.requestPayload.interfaceIds)
     runtime.activeInterfaces = availableInterfaces.filter((iface) => selectedIds.has(iface.id))
@@ -638,6 +652,23 @@ export class DownloadManager {
       this.pushUpdate(runtime)
       return
     }
+
+    // The part files are the real record of what's downloaded, not the manifest. If one went
+    // missing or came up short while paused (userData cleaned out, a crash before a write hit
+    // the disk), fetch that block again instead of failing at assembly.
+    await mkdir(runtime.tempDir, { recursive: true })
+    await Promise.all(
+      runtime.blocks.map(async (block) => {
+        if (block.status !== 'completed' || block.rangeEnd === null) return
+        const partPath = join(runtime.tempDir, `part-${block.index}`)
+        const size = await stat(partPath).then(
+          (stats) => stats.size,
+          () => -1
+        )
+        if (size !== block.rangeEnd - block.rangeStart + 1) block.status = 'pending'
+      })
+    )
+    if (runtime.state.status !== 'paused' && runtime.state.status !== 'error') return
 
     for (let index = 0; index < runtime.state.chunks.length; index++) {
       const chunk = runtime.state.chunks[index]
@@ -676,7 +707,12 @@ export class DownloadManager {
 
   cancel(id: string): void {
     const runtime = this.runtimes.get(id)
-    if (!runtime || (runtime.state.status !== 'downloading' && runtime.state.status !== 'paused'))
+    if (
+      !runtime ||
+      (runtime.state.status !== 'downloading' &&
+        runtime.state.status !== 'paused' &&
+        runtime.state.status !== 'error')
+    )
       return
 
     runtime.state.status = 'cancelled'
@@ -696,7 +732,12 @@ export class DownloadManager {
 
   remove(id: string): void {
     const runtime = this.runtimes.get(id)
-    if (runtime && (runtime.state.status === 'downloading' || runtime.state.status === 'paused')) {
+    if (
+      runtime &&
+      (runtime.state.status === 'downloading' ||
+        runtime.state.status === 'paused' ||
+        runtime.state.status === 'error')
+    ) {
       this.cancel(id)
     }
     this.runtimes.delete(id)
@@ -752,9 +793,11 @@ export class DownloadManager {
       runtime.state.status = 'completed'
       runtime.state.completedAt = Date.now()
       runtime.state.bytesDownloaded = runtime.state.totalBytes || runtime.state.bytesDownloaded
+      this.notify('Download Complete', `${runtime.state.fileName} has finished downloading.`)
     } catch (error) {
       runtime.state.status = 'error'
       runtime.state.error = error instanceof Error ? error.message : String(error)
+      this.notify('Download Failed', `${runtime.state.fileName}: ${runtime.state.error}`)
     }
 
     this.pushUpdate(runtime)
@@ -762,10 +805,36 @@ export class DownloadManager {
     await this.discardUnfinishedDestination(runtime)
   }
 
+  private notify(title: string, body: string): void {
+    if (testKnobs.userDataDir || !Notification.isSupported()) return
+    try {
+      const notification = new Notification({ title, body })
+      notification.on('click', () => {
+        const window = this.getWindow()
+        if (window && !window.isDestroyed()) {
+          if (window.isMinimized()) window.restore()
+          window.show()
+          window.focus()
+        }
+      })
+      notification.show()
+    } catch {
+      // Best-effort notification
+    }
+  }
+
   private async runWorker(runtime: DownloadRuntime, chunk: ChunkState): Promise<void> {
     const iface =
       runtime.activeInterfaces.find((i) => i.id === chunk.interfaceId) ??
-      runtime.activeInterfaces[chunk.id]
+      runtime.activeInterfaces[chunk.id % runtime.activeInterfaces.length] ??
+      runtime.activeInterfaces[0]
+
+    if (!iface) {
+      chunk.status = 'error'
+      chunk.error = 'No active network interface available'
+      this.scheduleUpdate(runtime)
+      return
+    }
 
     const controller = new AbortController()
     runtime.chunkRuntimes.set(chunk.id, { controller, partPath: '' })
@@ -809,7 +878,12 @@ export class DownloadManager {
         chunkRuntime.partPath = partPath
       }
 
-      const resumeOffset = await reconcilePartFileSize(partPath, block.bytesDownloaded)
+      // Without range support the server can only send the file from the start, so a retry or
+      // resume begins again at byte 0 rather than asking for a Range it will ignore.
+      const resumeOffset = await reconcilePartFileSize(
+        partPath,
+        runtime.requestPayload.supportsRanges ? block.bytesDownloaded : 0
+      )
       if (resumeOffset !== block.bytesDownloaded) {
         block.bytesDownloaded = resumeOffset
         trimBlockAttribution(block, resumeOffset, previousWriter)
@@ -838,6 +912,7 @@ export class DownloadManager {
           destinationPath: partPath,
           append: resumeOffset > 0,
           signal: controller.signal,
+          acceptedVersions: runtime.acceptedVersions,
           onProgress: (bytesThisRun) => {
             const delta = bytesThisRun - lastReportedThisRun
             lastReportedThisRun = bytesThisRun
@@ -875,6 +950,45 @@ export class DownloadManager {
 
         const message = error instanceof Error ? error.message : String(error)
         chunk.error = message
+
+        if (error instanceof RemoteChangedError) {
+          const verdict =
+            error.check.kind === 'size'
+              ? 'different'
+              : await this.confirmSameBytes(runtime, iface, error.seen)
+          // The check takes a moment; the download may have been paused or stopped meanwhile.
+          const statusNow = runtime.state.status as DownloadStatus
+          if (statusNow !== 'downloading') {
+            block.status = 'pending'
+            chunk.status = statusNow === 'paused' ? 'paused' : 'cancelled'
+            chunk.speedBytesPerSec = 0
+            break
+          }
+          if (verdict === 'same') {
+            // Same bytes under another label — accept it and fetch this block again straight
+            // away; nothing from the rejected response was written.
+            if (compareVersion(runtime.acceptedVersions, error.seen).kind !== 'same') {
+              runtime.acceptedVersions.push(error.seen)
+            }
+            chunk.error = undefined
+            block.status = 'pending'
+            continue
+          }
+          if (verdict === 'different') {
+            // Every other worker would hit the same new version, so stop them all now rather
+            // than let each burn through its retries first.
+            block.status = 'pending'
+            chunk.status = 'error'
+            chunk.speedBytesPerSec = 0
+            runtime.state.status = 'error'
+            runtime.state.error = message
+            for (const cr of runtime.chunkRuntimes.values()) cr.controller.abort()
+            break
+          }
+          // 'unknown' — nothing to compare yet, or the check itself failed: retry like any
+          // other failed request. Nothing wrong was written either way.
+        }
+
         attempt += 1
         chunk.retryCount += 1
 
@@ -888,6 +1002,7 @@ export class DownloadManager {
           if (allErrored && (runtime.state.status as DownloadStatus) === 'downloading') {
             runtime.state.status = 'error'
             runtime.state.error = message
+            this.notify('Download Failed', `${runtime.state.fileName}: ${message}`)
             for (const cr of runtime.chunkRuntimes.values()) {
               cr.controller.abort()
             }
@@ -944,6 +1059,63 @@ export class DownloadManager {
     this.scheduleUpdate(runtime)
   }
 
+  /**
+   * Settles whether a server labelling the file differently (new ETag or Last-Modified, same
+   * size) is serving the same bytes — load-balanced servers often disagree on labels for
+   * identical files — or a new version. Re-fetches a spread of bytes this download already has
+   * on disk, from a server presenting the new label, and compares them.
+   *
+   * 'unknown' when there's nothing on disk to compare yet or the samples couldn't be fetched;
+   * the caller then treats the response as an ordinary failed request and retries.
+   */
+  private async confirmSameBytes(
+    runtime: DownloadRuntime,
+    iface: NetworkInterfaceInfo,
+    seen: FileVersion
+  ): Promise<'same' | 'different' | 'unknown'> {
+    if (compareVersion(runtime.acceptedVersions, seen).kind === 'same') return 'same'
+
+    // Every byte on disk came from an accepted version: mismatched responses are rejected
+    // before anything is written.
+    const withData = runtime.blocks.filter((block) => block.bytesDownloaded > 0)
+    const step = Math.max(1, withData.length / MAX_SAMPLES)
+    const picks = Array.from(
+      { length: Math.min(MAX_SAMPLES, withData.length) },
+      (_, i) => withData[Math.floor(i * step)]
+    )
+
+    let compared = 0
+    for (const block of picks) {
+      const partPath = join(runtime.tempDir, `part-${block.index}`)
+      let local: Buffer
+      try {
+        local = (await readFile(partPath)).subarray(0, SAMPLE_BYTES)
+      } catch {
+        continue
+      }
+      if (local.length === 0) continue
+
+      for (let tries = 0; tries < SAMPLE_TRIES; tries++) {
+        try {
+          const remote = await fetchRange(
+            runtime.requestPayload.url,
+            block.rangeStart,
+            block.rangeStart + local.length - 1,
+            iface.address
+          )
+          // A reply from a server still presenting an accepted label proves nothing here.
+          if (compareVersion([seen], remote.version).kind !== 'same') continue
+          if (!remote.body.equals(local)) return 'different'
+          compared += 1
+          break
+        } catch {
+          return 'unknown'
+        }
+      }
+    }
+    return compared > 0 ? 'same' : 'unknown'
+  }
+
   private recomputeAggregates(runtime: DownloadRuntime): void {
     runtime.state.bytesDownloaded = runtime.blocks.reduce(
       (sum, entry) => sum + entry.bytesDownloaded,
@@ -962,6 +1134,9 @@ export class DownloadManager {
   }
 
   private pushUpdate(runtime: DownloadRuntime, persist = true): void {
+    // A removed download can still be winding down (workers finishing, cleanup). Its updates
+    // would put it back on screen after the renderer has already moved on.
+    if (this.runtimes.get(runtime.state.id) !== runtime) return
     if (persist) this.schedulePersistence(runtime)
     const window = this.getWindow()
     if (!window || window.isDestroyed()) return
@@ -987,7 +1162,10 @@ export class DownloadManager {
       )
     }
 
-    const output = createWriteStream(runtime.state.destinationPath)
+    const ASSEMBLE_STREAM_BUFFER_BYTES = 1024 * 1024 // 1 MB buffer for fast sequential disk assembly
+    const output = createWriteStream(runtime.state.destinationPath, {
+      highWaterMark: ASSEMBLE_STREAM_BUFFER_BYTES
+    })
     let bytesWritten = 0
 
     // Set only for a dev-tool simulated download that asked for a slowed-down assemble — real
@@ -1015,7 +1193,13 @@ export class DownloadManager {
           )
         }
 
-        await appendFileToStream(partPath, output)
+        // pipeline rejects on an error from either side; a hand-rolled pause/'drain' loop here
+        // would wait forever for a 'drain' that an errored output never emits.
+        await pipeline(
+          createReadStream(partPath, { highWaterMark: ASSEMBLE_STREAM_BUFFER_BYTES }),
+          output,
+          { end: false }
+        )
         if (outputErrors.length > 0) throw outputErrors[0]
         bytesWritten += actualBytes
 

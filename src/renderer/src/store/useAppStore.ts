@@ -25,7 +25,7 @@ interface AppStore {
   /** User customizations (name/color) per network interface id — persisted in the main process. */
   networkPreferences: NetworkPreferences
 
-  /** 'system' by default — persisted in the main process alongside nativeTheme.themeSource. */
+  /** Persisted in the main process alongside nativeTheme.themeSource. */
   themeSource: ThemeSource
 
   homeDir: string
@@ -67,7 +67,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   interfacesError: null,
   latencies: {},
   networkPreferences: {},
-  themeSource: 'system',
+  themeSource: 'light',
 
   homeDir: '',
   downloadsDir: '',
@@ -83,7 +83,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   draftDestinationDir: '',
 
   loadInterfaces: async () => {
-    set({ interfacesStatus: 'loading', interfacesError: null })
+    // A re-scan keeps showing the last result. Dropping back to 'loading' would swap App off the
+    // no-connections screen, and every screen re-scans on mount — so with zero networks the
+    // two screens would remount each other in an endless loop.
+    if (get().interfacesStatus !== 'ready') set({ interfacesStatus: 'loading' })
+    set({ interfacesError: null })
     try {
       const interfaces = await window.plexo.listInterfaces()
       set({ interfaces, interfacesStatus: 'ready' })
@@ -145,7 +149,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const themeSource = await window.plexo.getThemeSource()
       set({ themeSource })
     } catch {
-      // Best-effort — a failed read just leaves the toggle showing the 'system' default.
+      // Best-effort — a failed read just leaves the toggle showing the 'light' default.
     }
   },
 

@@ -1,4 +1,3 @@
-import { FONT_MONO } from '../theme'
 import { formatSpeed } from '../utils/format'
 
 const ROW_HEIGHT = 36
@@ -58,7 +57,8 @@ export function CombineDiagram({
   return (
     <svg
       viewBox={`0 0 ${WIDTH} ${height}`}
-      style={{ width: WIDTH, height, display: 'block', flexShrink: 0 }}
+      className="block shrink-0"
+      style={{ width: WIDTH, height }}
     >
       <g fill="none" strokeWidth={3} strokeLinecap="round">
         {networks.map((network, index) => {
@@ -137,7 +137,7 @@ export function CombineDiagram({
               y={y - 5.5}
               textAnchor="end"
               fill={muted ? 'var(--icon-muted)' : 'var(--text-tertiary)'}
-              style={{ font: `500 8.5px ${FONT_MONO}`, letterSpacing: '0.08em' }}
+              className="font-mono text-[8.5px] font-medium tracking-[0.08em]"
             >
               <title>{network.label}</title>
               {label}
@@ -148,10 +148,7 @@ export function CombineDiagram({
                 y={y + 7.5}
                 textAnchor="end"
                 fill={hasSpeed ? network.solid : 'var(--text-tertiary)'}
-                style={{
-                  font: `600 11px ${FONT_MONO}`,
-                  fontVariantNumeric: 'tabular-nums'
-                }}
+                className="font-mono text-[11px] font-semibold tabular-nums"
               >
                 {speedText}
               </text>
@@ -159,18 +156,15 @@ export function CombineDiagram({
           </g>
         )
       })}
-      {!muted && !assembling && (
+      {!muted && !assembling && !paused && (
         <text
           x={STREAM_END_X + 2}
           y={midY - 11}
           textAnchor="end"
-          fill={paused ? 'var(--color-usb)' : 'var(--text-tertiary)'}
-          style={{
-            font: `${paused ? '600' : '500'} 8.5px ${FONT_MONO}`,
-            letterSpacing: '0.12em'
-          }}
+          fill="var(--text-tertiary)"
+          className="font-mono text-[8.5px] tracking-[0.12em] font-medium"
         >
-          {paused ? 'PAUSED' : 'COMBINED'}
+          COMBINED
         </text>
       )}
     </svg>

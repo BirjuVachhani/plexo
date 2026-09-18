@@ -1,7 +1,6 @@
 export type NetworkInterfaceKind = 'wifi' | 'usb' | 'ethernet' | 'bridge' | 'other'
 
-/** 'system' follows the OS appearance; 'light'/'dark' pin it regardless of the OS setting. */
-export type ThemeSource = 'system' | 'light' | 'dark'
+export type ThemeSource = 'light' | 'dark'
 
 export interface NetworkInterfaceInfo {
   /** Stable identifier for this interface (currently the OS device name, e.g. "en0"). */
@@ -133,6 +132,13 @@ export interface StartSimulatedDownloadRequest {
    * file that would otherwise reassemble in a single tick. Omitted or 0 assembles at full disk
    * speed, same as a real download. */
   assembleSpeedBytesPerSec?: number
+}
+
+export interface InitialPaths {
+  homeDir: string
+  downloadsDir: string
+  /** True in electron-vite's dev server, false in a packaged build — gates the dev tools panel. */
+  isDev: boolean
 }
 
 export interface StartDownloadRequest {

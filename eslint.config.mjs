@@ -28,5 +28,11 @@ export default defineConfig(
       ...eslintPluginReactRefresh.configs.vite.rules
     }
   },
+  {
+    // Playwright fixtures call a parameter named `use`, which the React hooks rule mistakes for
+    // React's use() hook.
+    files: ['e2e/**'],
+    rules: { 'react-hooks/rules-of-hooks': 'off' }
+  },
   eslintConfigPrettier
 )

@@ -1,13 +1,16 @@
 import { is } from '@electron-toolkit/utils'
-import { clipboard, dialog, ipcMain, nativeTheme, shell, type BrowserWindow } from 'electron'
+import {
+  clipboard,
+  dialog,
+  ipcMain,
+  nativeTheme,
+  shell,
+  type BrowserWindow,
+  type IpcMainInvokeEvent
+} from 'electron'
 import { IpcChannels } from '../../shared/ipc-channels'
-import type {
-  NetworkInterfaceInfo,
-  NetworkPreference,
-  StartDownloadRequest,
-  StartSimulatedDownloadRequest,
-  ThemeSource
-} from '../../shared/types'
+import type { IpcContract } from '../../shared/ipc-contract'
+import type { NetworkInterfaceInfo, ThemeSource } from '../../shared/types'
 import { DownloadManager } from '../download/downloadManager'
 import { getDefaultDownloadsDir, getHomeDir } from '../download/paths'
 import { probeUrl } from '../download/probe'
@@ -16,10 +19,36 @@ import { listActiveInterfaces } from '../network/interfaces'
 import { loadNetworkPreferences, saveNetworkPreference } from '../network/preferences'
 import { saveThemeSource } from '../settings'
 
-const NETWORK_SETTINGS_URL =
-  process.platform === 'win32'
-    ? 'ms-settings:network-status'
-    : 'x-apple.systempreferences:com.apple.preference.network'
+async function openNetworkSettings(): Promise<void> {
+  if (process.platform === 'win32') {
+    await shell.openExternal('ms-settings:network-status')
+  } else if (process.platform === 'darwin') {
+    await shell.openExternal('x-apple.systempreferences:com.apple.preference.network')
+  } else if (process.platform === 'linux') {
+    try {
+      const { exec } = await import('node:child_process')
+      exec('gnome-control-center network || nm-connection-editor || true')
+    } catch {
+      // Best-effort
+    }
+  }
+}
+
+/** Typed wrapper around ipcMain.handle — the channel name picks its args/result shape out of
+ * IpcContract, so a handler here that doesn't match what plexoApi (preload) actually calls is a
+ * compile error instead of a silent runtime mismatch. */
+function handle<K extends keyof IpcContract>(
+  channel: K,
+  listener: (
+    event: IpcMainInvokeEvent,
+    ...args: IpcContract[K]['args']
+  ) => IpcContract[K]['result'] | Promise<IpcContract[K]['result']>
+): void {
+  ipcMain.handle(
+    IpcChannels[channel],
+    listener as (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
+  )
+}
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): DownloadManager {
   let cachedInterfaces: NetworkInterfaceInfo[] = []
@@ -35,38 +64,41 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
     refreshInterfaces
   )
 
-  ipcMain.handle(IpcChannels.listInterfaces, refreshInterfaces)
+  handle('listInterfaces', refreshInterfaces)
 
-  ipcMain.handle(IpcChannels.pingInterfaces, async () => measureLatencies(cachedInterfaces))
+  handle('pingInterfaces', async () => measureLatencies(cachedInterfaces))
 
-  ipcMain.handle(IpcChannels.getNetworkPreferences, async () => loadNetworkPreferences())
+  handle('getNetworkPreferences', async () => loadNetworkPreferences())
 
-  ipcMain.handle(
-    IpcChannels.setNetworkPreference,
-    async (_event, id: string, patch: NetworkPreference) => saveNetworkPreference(id, patch)
-  )
+  handle('setNetworkPreference', async (_event, id, patch) => saveNetworkPreference(id, patch))
 
-  ipcMain.handle(IpcChannels.getThemeSource, async () => nativeTheme.themeSource)
+  // The app only ever assigns 'light'/'dark' to nativeTheme.themeSource (main/index.ts's startup
+  // call to loadThemeSource() never resolves to 'system') — narrow Electron's wider type here
+  // rather than widening our own ThemeSource just to match it.
+  const currentThemeSource = (): ThemeSource =>
+    nativeTheme.themeSource === 'dark' ? 'dark' : 'light'
 
-  ipcMain.handle(IpcChannels.setThemeSource, async (_event, source: ThemeSource) => {
+  handle('getThemeSource', async () => currentThemeSource())
+
+  handle('setThemeSource', async (_event, source) => {
     nativeTheme.themeSource = source
     await saveThemeSource(source)
-    return nativeTheme.themeSource
+    return currentThemeSource()
   })
 
-  ipcMain.handle(IpcChannels.openNetworkSettings, async () => {
-    await shell.openExternal(NETWORK_SETTINGS_URL)
+  handle('openNetworkSettings', async () => {
+    await openNetworkSettings()
   })
 
-  ipcMain.handle(IpcChannels.probeUrl, async (_event, url: string) => probeUrl(url))
+  handle('probeUrl', async (_event, url) => probeUrl(url))
 
-  ipcMain.handle(IpcChannels.getInitialPaths, async () => ({
+  handle('getInitialPaths', async () => ({
     homeDir: getHomeDir(),
     downloadsDir: getDefaultDownloadsDir(),
     isDev: is.dev
   }))
 
-  ipcMain.handle(IpcChannels.chooseDestinationFolder, async (_event, defaultPath: string) => {
+  handle('chooseDestinationFolder', async (_event, defaultPath) => {
     const window = getWindow()
     if (!window) return null
     const result = await dialog.showOpenDialog(window, {
@@ -77,7 +109,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
     return result.filePaths[0]
   })
 
-  ipcMain.handle(IpcChannels.chooseSourceFile, async () => {
+  handle('chooseSourceFile', async () => {
     const window = getWindow()
     if (!window) return null
     const result = await dialog.showOpenDialog(window, { properties: ['openFile'] })
@@ -85,36 +117,31 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
     return result.filePaths[0]
   })
 
-  ipcMain.handle(IpcChannels.readClipboardText, async () => clipboard.readText())
+  handle('readClipboardText', async () => clipboard.readText())
 
-  ipcMain.handle(IpcChannels.revealInFolder, async (_event, filePath: string) => {
+  handle('revealInFolder', async (_event, filePath) => {
     shell.showItemInFolder(filePath)
   })
 
-  ipcMain.handle(IpcChannels.startDownload, async (_event, request: StartDownloadRequest) =>
-    manager.start(request)
-  )
+  handle('startDownload', async (_event, request) => manager.start(request))
 
-  ipcMain.handle(
-    IpcChannels.startSimulatedDownload,
-    async (_event, request: StartSimulatedDownloadRequest) => manager.startSimulated(request)
-  )
+  handle('startSimulatedDownload', async (_event, request) => manager.startSimulated(request))
 
-  ipcMain.handle(IpcChannels.getCurrentDownload, async () => manager.getCurrentDownload())
+  handle('getCurrentDownload', async () => manager.getCurrentDownload())
 
-  ipcMain.handle(IpcChannels.pauseDownload, async (_event, id: string) => {
+  handle('pauseDownload', async (_event, id) => {
     await manager.pause(id)
   })
 
-  ipcMain.handle(IpcChannels.resumeDownload, async (_event, id: string) => {
+  handle('resumeDownload', async (_event, id) => {
     manager.resume(id)
   })
 
-  ipcMain.handle(IpcChannels.cancelDownload, async (_event, id: string) => {
+  handle('cancelDownload', async (_event, id) => {
     manager.cancel(id)
   })
 
-  ipcMain.handle(IpcChannels.removeDownload, async (_event, id: string) => {
+  handle('removeDownload', async (_event, id) => {
     manager.remove(id)
   })
 

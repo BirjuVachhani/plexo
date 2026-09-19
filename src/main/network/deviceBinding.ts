@@ -64,7 +64,10 @@ export function deviceBindingSupported(): Promise<boolean> {
   return support
 }
 
-function deviceFor(localAddress: string): string | undefined {
+/** The interface to pin a connection to `host` to, if any. Loopback traffic never touches a
+ * network, and a socket pinned to one can't reach it. */
+function deviceFor(localAddress: string, host: string): string | undefined {
+  if (host === 'localhost' || host.startsWith('127.')) return undefined
   for (const [device, addresses] of Object.entries(networkInterfaces())) {
     if (addresses?.some((addr) => addr.address === localAddress)) return device
   }
@@ -73,7 +76,7 @@ function deviceFor(localAddress: string): string | undefined {
 
 /** A TCP connection to host:port that leaves through the interface owning `localAddress`. */
 export function connectFrom(localAddress: string, host: string, port: number): Socket {
-  const device = libc && deviceFor(localAddress)
+  const device = libc && deviceFor(localAddress, host)
   if (!libc || !device) return connect({ host, port, localAddress, family: 4 })
 
   let fd: number
@@ -105,7 +108,7 @@ export function routeFrom(
 > {
   // localAddress is always an IPv4 interface address, so the remote host has to resolve to
   // IPv4 too, or binding fails with EINVAL when DNS hands back an IPv6 address instead.
-  if (!libc || !deviceFor(localAddress)) return { localAddress, family: 4 }
+  if (!libc || !deviceFor(localAddress, target.hostname)) return { localAddress, family: 4 }
 
   const secure = target.protocol === 'https:'
   const defaultPort = secure ? 443 : 80

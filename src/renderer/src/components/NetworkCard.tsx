@@ -64,7 +64,7 @@ export function NetworkCard({
           >
             <Checkbox checked={selected} color={visual.solid} onColor={visual.onSolid} />
             <div
-              className={`min-w-0 truncate font-sans text-[13px] leading-none font-semibold ${
+              className={`min-w-0 truncate font-sans text-[13px] leading-normal font-semibold ${
                 selected ? 'text-foreground' : 'text-[var(--text-secondary)]'
               }`}
             >
@@ -86,7 +86,7 @@ export function NetworkCard({
           {visual.label}
         </ColorBadge>
       </div>
-      <div className="truncate font-mono text-[10.5px] leading-none text-muted-foreground">
+      <div className="truncate font-mono text-[10.5px] leading-normal text-muted-foreground">
         {iface.device} · {iface.address}
       </div>
       <div className="flex items-end justify-between">

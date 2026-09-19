@@ -15,6 +15,7 @@ import type { NetworkInterfaceInfo, ThemeSource } from '../../shared/types'
 import { DownloadManager } from '../download/downloadManager'
 import { getDefaultDownloadsDir, getHomeDir } from '../download/paths'
 import { probeUrl } from '../download/probe'
+import { deviceBindingSupported } from '../network/deviceBinding'
 import { measureLatencies } from '../network/latency'
 import { listActiveInterfaces } from '../network/interfaces'
 import { loadNetworkPreferences, saveNetworkPreference } from '../network/preferences'
@@ -74,6 +75,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
   handle('listInterfaces', refreshInterfaces)
 
   handle('pingInterfaces', async () => measureLatencies(cachedInterfaces))
+
+  // Started now so it has settled before the first ping or download needs it.
+  const bindingSupport = deviceBindingSupported()
+  handle('deviceBindingSupported', async () => bindingSupport)
 
   handle('getNetworkPreferences', async () => loadNetworkPreferences())
 

@@ -2,6 +2,7 @@ import type { DownloadState } from '@shared/types'
 import { useEffect } from 'react'
 import { DevToolsPanel } from './components/DevToolsPanel'
 import { TitleBar, type TitleBarStatus } from './components/TitleBar'
+import { NetworkBindingDialog } from './components/NetworkBindingDialog'
 import { UpdateDialog } from './components/UpdateDialog'
 import { TooltipProvider } from './components/ui/tooltip'
 import { useDownloadEvents } from './hooks/useDownloadEvents'
@@ -124,6 +125,7 @@ function App(): React.JSX.Element {
         <div className="min-h-0 flex-1">{screen}</div>
         <DevToolsPanel />
         <UpdateDialog />
+        <NetworkBindingDialog />
       </div>
     </TooltipProvider>
   )

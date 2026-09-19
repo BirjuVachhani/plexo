@@ -18,6 +18,7 @@ const plexoApi = {
 
   listInterfaces: () => invoke('listInterfaces'),
   pingInterfaces: () => invoke('pingInterfaces'),
+  deviceBindingSupported: () => invoke('deviceBindingSupported'),
   openNetworkSettings: () => invoke('openNetworkSettings'),
   getNetworkPreferences: () => invoke('getNetworkPreferences'),
   setNetworkPreference: (id: string, patch: NetworkPreference) =>

@@ -29,6 +29,7 @@
     "@electron-toolkit/utils": "^4.0.0",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.3.0",
+    "koffi": "^2.16.3",
     "lucide-react": "^1.47.0",
     "zustand": "^5.0.15"
   },

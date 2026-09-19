@@ -81,7 +81,7 @@ async function getWindowsAdapters(): Promise<Map<string, WindowsAdapter>> {
 /**
  * Active non-loopback IPv4 interfaces. Each one has its
  * own local IP, which is what lets us bind a download's outgoing connection
- * to a specific interface (see chunkDownloader's `localAddress` option).
+ * to a specific interface (see deviceBinding's `routeFrom`).
  */
 export async function listActiveInterfaces(): Promise<NetworkInterfaceInfo[]> {
   const overridden = testInterfaces()

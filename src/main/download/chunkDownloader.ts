@@ -2,6 +2,7 @@ import { createWriteStream, type WriteStream } from 'node:fs'
 import { request as httpRequest, type ClientRequest, type IncomingMessage } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { URL } from 'node:url'
+import { routeFrom } from '../network/deviceBinding'
 import { testKnobs } from '../testKnobs'
 import { compareVersion, type FileVersion, type VersionCheck } from './fileVersion'
 
@@ -177,11 +178,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
           hostname: targetUrl.hostname,
           port: targetUrl.port || undefined,
           path: `${targetUrl.pathname}${targetUrl.search}`,
-          localAddress,
-          // localAddress is always an IPv4 interface address — force the remote
-          // host to resolve to IPv4 too, or binding fails with EINVAL when DNS
-          // hands back an IPv6 address for it instead.
-          family: 4,
+          ...routeFrom(localAddress, targetUrl),
           headers
         },
         (res: IncomingMessage) => {
@@ -336,8 +333,7 @@ export function fetchRange(
           hostname: target.hostname,
           port: target.port || undefined,
           path: `${target.pathname}${target.search}`,
-          localAddress,
-          family: 4,
+          ...routeFrom(localAddress, target),
           headers: { 'User-Agent': 'Plexo/1.0', Range: `bytes=${start}-${end}` }
         },
         (res) => {

@@ -1,5 +1,5 @@
-import { connect } from 'node:net'
 import type { NetworkInterfaceInfo } from '../../shared/types'
+import { connectFrom } from './deviceBinding'
 
 const PROBE_HOSTS = ['1.1.1.1', '8.8.8.8']
 const PROBE_PORT = 443
@@ -10,7 +10,7 @@ const TIMEOUT_MS = 2000
 function measureLatencyToHost(localAddress: string, host: string): Promise<number | null> {
   return new Promise((resolve) => {
     const start = Date.now()
-    const socket = connect({ host, port: PROBE_PORT, localAddress, family: 4 })
+    const socket = connectFrom(localAddress, host, PROBE_PORT)
     let settled = false
 
     const finish = (result: number | null): void => {

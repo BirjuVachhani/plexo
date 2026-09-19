@@ -18,6 +18,7 @@ import type {
 export interface IpcContract {
   listInterfaces: { args: []; result: NetworkInterfaceInfo[] }
   pingInterfaces: { args: []; result: Record<string, number | null> }
+  deviceBindingSupported: { args: []; result: boolean }
   openNetworkSettings: { args: []; result: void }
   getNetworkPreferences: { args: []; result: NetworkPreferences }
   setNetworkPreference: {

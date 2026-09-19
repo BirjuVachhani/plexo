@@ -29,6 +29,8 @@ export type Fault =
   | { cutAfter: number }
   /** Sends this many body bytes, then ends the response cleanly (a short body). */
   | { endAfter: number }
+  /** Trickles the body at this rate in small pieces — slow, but never silent long enough to stall. */
+  | { crawl: number }
   | { redirect: string }
 
 export interface OriginRequest {
@@ -245,6 +247,8 @@ export class Origin {
       bodyEnd = Math.min(bodyEnd, start + fault.endAfter)
     }
     const cutAfter = typeof fault === 'object' && 'cutAfter' in fault ? fault.cutAfter : null
+    const crawl = typeof fault === 'object' && 'crawl' in fault ? fault.crawl : null
+    const rate = crawl ?? this.options.bytesPerSecond
 
     if (this.options.contentLength !== false && cutAfter === null) {
       headers['Content-Length'] = bodyEnd - start
@@ -268,7 +272,7 @@ export class Origin {
         return
       }
 
-      let next = Math.min(bodyEnd, position + PIECE_BYTES)
+      let next = Math.min(bodyEnd, position + (crawl ? 256 : PIECE_BYTES))
       if (cutAfter !== null) next = Math.min(next, start + cutAfter)
       if (holdable && this.holdAt !== null) {
         if (position === this.holdAt) {
@@ -296,10 +300,8 @@ export class Origin {
         // Yield so other connections — and the app's pause/cancel — interleave with this one.
         await new Promise((resolve) => setImmediate(resolve))
       }
-      if (this.options.bytesPerSecond) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, (piece.length / this.options.bytesPerSecond!) * 1000)
-        )
+      if (rate) {
+        await new Promise((resolve) => setTimeout(resolve, (piece.length / rate) * 1000))
       }
     }
 

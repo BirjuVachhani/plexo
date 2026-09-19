@@ -40,6 +40,13 @@ import {
 interface ChunkRuntime {
   controller: AbortController
   partPath: string
+  /** Aborts only the in-flight block request, to reconnect a slow connection. Null between requests. */
+  refresh: AbortController | null
+  /** When this connection last (re)connected; it isn't judged until SLOW_WARMUP_MS after. */
+  warmSince: number
+  slowSince: number | null
+  /** Speed of its last finished block, start to end — 0 until it finishes one. */
+  lastBlockSpeed: number
 }
 
 interface SpeedSample {
@@ -63,6 +70,8 @@ interface DownloadRuntime {
   /** The version this download started on, plus any since confirmed to serve identical bytes
    * (see confirmSameBytes). Not persisted: after a restart, a confirmation is simply redone. */
   acceptedVersions: FileVersion[]
+  /** Slow-connection refreshes per block index, capped at MAX_REFRESHES_PER_BLOCK. */
+  refreshesByBlock: Map<number, number>
 }
 
 interface PersistedDownload {
@@ -118,6 +127,26 @@ const RETRY_MAX_DELAY_MS = 15_000
 
 function retryDelayMs(attempt: number): number {
   return Math.min(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), RETRY_MAX_DELAY_MS)
+}
+
+// A single TCP stream can get stuck at a crawl (loss-collapsed congestion window, a bad CDN node
+// or route) while its siblings on the same network run fine. It never goes silent, so the stall
+// watchdog can't catch it; a fresh connection usually lands somewhere healthy. Only relative
+// thresholds — nothing here knows how fast the network ought to be.
+const SLOW_RATIO = 0.1
+const SLOW_WARMUP_MS = testKnobs.slowWarmupMs
+const SLOW_FOR_MS = testKnobs.slowForMs
+// Bounds every case where refreshing can't help (the whole network got slower, a stale
+// reference): at worst a block pays for a couple of cheap reconnects, then is left alone.
+const MAX_REFRESHES_PER_BLOCK = 2
+// Idle connections look for work every 250 ms, so waiting a bit longer hands a refreshed block
+// to a connection that is already proven fast, if there is one.
+const REFRESH_HANDOFF_MS = 300
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = sorted.length >> 1
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 
 /** Records that `interfaceId` delivered `deltaBytes` of this block. Attribution is per-network
@@ -342,7 +371,8 @@ export class DownloadManager {
             totalBlocks: state.totalBlocks ?? blocks.length,
             persistenceChain: Promise.resolve(),
             removed: false,
-            acceptedVersions: [requestedVersion(persisted.requestPayload)]
+            acceptedVersions: [requestedVersion(persisted.requestPayload)],
+            refreshesByBlock: new Map()
           })
         } catch {
           // Ignore incomplete or corrupt manifests; other downloads can still be restored.
@@ -597,7 +627,8 @@ export class DownloadManager {
       totalBlocks: blocks.length,
       persistenceChain: Promise.resolve(),
       removed: false,
-      acceptedVersions: [requestedVersion(requestPayload)]
+      acceptedVersions: [requestedVersion(requestPayload)],
+      refreshesByBlock: new Map()
     }
     this.runtimes.set(id, runtime)
     await this.persistNow(runtime)
@@ -798,6 +829,7 @@ export class DownloadManager {
         runtime.state.speedBytesPerSec = newSpeed
         this.scheduleUpdate(runtime)
       }
+      this.refreshSlowConnections(runtime, now)
     }, 500)
     speedTicker.unref()
 
@@ -842,6 +874,47 @@ export class DownloadManager {
     await this.discardUnfinishedDestination(runtime)
   }
 
+  /**
+   * Reconnects a connection running under SLOW_RATIO of its network's reference speed for
+   * SLOW_FOR_MS. The reference is the median of what connections on the same network are doing
+   * now and did on their last finished block — its own included, which covers the tail (everyone
+   * else is done) and a network with a single connection. Networks are never compared with each
+   * other: cellular is expected to be slower than Wi-Fi.
+   */
+  private refreshSlowConnections(runtime: DownloadRuntime, now: number): void {
+    // Without ranges a reconnect restarts the whole file from byte 0.
+    if (!runtime.requestPayload.supportsRanges) return
+
+    const warm = (self: ChunkRuntime): boolean => now - self.warmSince >= SLOW_WARMUP_MS
+    for (const chunk of runtime.state.chunks) {
+      const self = runtime.chunkRuntimes.get(chunk.id)
+      const blockIndex = chunk.currentBlockIndex
+      if (!self?.refresh || !warm(self) || blockIndex === undefined) continue
+      const refreshes = runtime.refreshesByBlock.get(blockIndex) ?? 0
+      if (refreshes >= MAX_REFRESHES_PER_BLOCK) continue
+
+      const reference: number[] = []
+      for (const other of runtime.state.chunks) {
+        if (other.interfaceId !== chunk.interfaceId) continue
+        const peer = runtime.chunkRuntimes.get(other.id)
+        if (!peer) continue
+        if (peer.lastBlockSpeed > 0) reference.push(peer.lastBlockSpeed)
+        if (other !== chunk && peer.refresh && warm(peer)) reference.push(other.speedBytesPerSec)
+      }
+
+      if (reference.length === 0 || chunk.speedBytesPerSec >= median(reference) * SLOW_RATIO) {
+        self.slowSince = null
+        continue
+      }
+      self.slowSince ??= now
+      if (now - self.slowSince >= SLOW_FOR_MS) {
+        runtime.refreshesByBlock.set(blockIndex, refreshes + 1)
+        self.refresh.abort()
+        self.refresh = null
+      }
+    }
+  }
+
   private notify(title: string, body: string): void {
     if (testKnobs.userDataDir || !Notification.isSupported()) return
     try {
@@ -874,7 +947,15 @@ export class DownloadManager {
     }
 
     const controller = new AbortController()
-    runtime.chunkRuntimes.set(chunk.id, { controller, partPath: '' })
+    const self: ChunkRuntime = {
+      controller,
+      partPath: '',
+      refresh: null,
+      warmSince: Date.now(),
+      slowSince: null,
+      lastBlockSpeed: 0
+    }
+    runtime.chunkRuntimes.set(chunk.id, self)
 
     let attempt = 0
 
@@ -910,10 +991,7 @@ export class DownloadManager {
       this.scheduleUpdate(runtime)
 
       const partPath = join(runtime.tempDir, `part-${block.index}`)
-      const chunkRuntime = runtime.chunkRuntimes.get(chunk.id)
-      if (chunkRuntime) {
-        chunkRuntime.partPath = partPath
-      }
+      self.partPath = partPath
 
       // Without range support the server can only send the file from the start, so a retry or
       // resume begins again at byte 0 rather than asking for a Range it will ignore.
@@ -936,6 +1014,9 @@ export class DownloadManager {
       }
 
       let lastReportedThisRun = 0
+      const refresh = new AbortController()
+      self.refresh = refresh
+      const attemptStartedAt = Date.now()
 
       try {
         const runDownload = isSimulatedUrl(runtime.requestPayload.url)
@@ -948,7 +1029,7 @@ export class DownloadManager {
           localAddress: iface.address,
           destinationPath: partPath,
           append: resumeOffset > 0,
-          signal: controller.signal,
+          signal: AbortSignal.any([controller.signal, refresh.signal]),
           acceptedVersions: runtime.acceptedVersions,
           onProgress: (bytesThisRun) => {
             const delta = bytesThisRun - lastReportedThisRun
@@ -968,6 +1049,8 @@ export class DownloadManager {
           const blockBytes = block.rangeEnd - block.rangeStart + 1
           creditBlockBytes(block, iface.id, blockBytes - block.bytesDownloaded)
           block.bytesDownloaded = blockBytes
+          self.lastBlockSpeed =
+            ((blockBytes - resumeOffset) / Math.max(1, Date.now() - attemptStartedAt)) * 1000
         }
         attempt = 0
         this.recomputeAggregates(runtime)
@@ -983,6 +1066,16 @@ export class DownloadManager {
           }
           chunk.speedBytesPerSec = 0
           break
+        }
+
+        if (refresh.signal.aborted) {
+          // Not a failure: no retry counted, no backoff. Whoever leases the block next resumes
+          // it from its part file on a new connection.
+          block.status = 'pending'
+          await delay(REFRESH_HANDOFF_MS, controller.signal)
+          self.warmSince = Date.now()
+          self.slowSince = null
+          continue
         }
 
         const message = error instanceof Error ? error.message : String(error)
@@ -1058,6 +1151,10 @@ export class DownloadManager {
           break
         }
         chunk.status = 'downloading'
+        self.warmSince = Date.now()
+        self.slowSince = null
+      } finally {
+        self.refresh = null
       }
     }
 

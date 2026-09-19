@@ -17,6 +17,8 @@ export const testKnobs = {
   blockBytes: positiveNumber('PLEXO_E2E_BLOCK_BYTES', 8 * 1024 * 1024),
   retryBaseDelayMs: positiveNumber('PLEXO_E2E_RETRY_BASE_MS', 1000),
   stallTimeoutMs: positiveNumber('PLEXO_E2E_STALL_MS', 20_000),
+  slowWarmupMs: positiveNumber('PLEXO_E2E_SLOW_WARMUP_MS', 5_000),
+  slowForMs: positiveNumber('PLEXO_E2E_SLOW_FOR_MS', 10_000),
   /** Skips the real GitHub check and pretends this version is available, for exercising the
    * update banner without needing an actual newer release published. */
   forceUpdateVersion: env['PLEXO_FORCE_UPDATE_VERSION']

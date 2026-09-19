@@ -1,5 +1,5 @@
 import { BLOCK, expect, LAN_ADDRESS, test } from './fixtures'
-import { seededBytes, type Fault } from './origin'
+import { seededBytes, type Fault, type LoggedRequest } from './origin'
 
 // B. A misbehaving server or network. The rule every case here must satisfy — enforced by the
 // automatic checks in fixtures.ts — is that a download never ends `completed` with wrong bytes:
@@ -45,6 +45,61 @@ test.describe('transient server faults are retried to a correct file @smoke', ()
     )
     await plexo.start(origin.url(), origin.sha256, { connections: 4 })
     await plexo.waitForStatus('completed')
+  })
+})
+
+test.describe('a connection stuck at a crawl @smoke', () => {
+  test.use({ appEnv: { PLEXO_E2E_SLOW_WARMUP_MS: '500', PLEXO_E2E_SLOW_FOR_MS: '1500' } })
+
+  const BLOCKS = 48
+  const tookFullBlock = (entry: LoggedRequest): boolean =>
+    entry.bytesSent === entry.range!.end! - entry.range!.start + 1
+
+  for (const [label, crawlStart] of [
+    ['mid-download', BLOCK],
+    ['on the last block (the 99% case)', (BLOCKS - 1) * BLOCK]
+  ] as const) {
+    test(`${label}: reconnected and resumed`, async ({ plexo, serve }) => {
+      const origin = await serve({ size: BLOCKS * BLOCK, bytesPerSecond: 256 * 1024 })
+      let crawled = false
+      // 2 KB/s: this one block alone would take ~32 s.
+      origin.setRule(({ range }) =>
+        range?.start === crawlStart && !crawled ? ((crawled = true), { crawl: 2048 }) : 'ok'
+      )
+
+      await plexo.start(origin.url(), origin.sha256, { connections: 4 })
+      const state = await plexo.waitForStatus('completed', 15_000)
+
+      const requests = origin.chunkRequests()
+      const slow = requests.find((entry) => typeof entry.fault === 'object')!
+      expect(tookFullBlock(slow), 'the slow request was cut off').toBe(false)
+      const resumed = requests.find(
+        (entry) =>
+          entry.n > slow.n &&
+          entry.range!.start > slow.range!.start &&
+          entry.range!.start <= slow.range!.end!
+      )
+      expect(resumed, 'the block resumed from where the slow connection stopped').toBeTruthy()
+      expect(state.chunks.reduce((sum, chunk) => sum + chunk.retryCount, 0)).toBe(0)
+    })
+  }
+
+  test('connections that are all equally slow are left alone', async ({ plexo, serve }) => {
+    const origin = await serve({ size: BLOCKS * BLOCK, bytesPerSecond: 256 * 1024 })
+    await plexo.start(origin.url(), origin.sha256, { connections: 4 })
+    await plexo.waitForStatus('completed', 15_000)
+    expect(origin.chunkRequests().every(tookFullBlock), 'no request was cut off').toBe(true)
+  })
+
+  test('a block is refreshed at most twice, then left to finish', async ({ plexo, serve }) => {
+    const origin = await serve({ size: 3 * BLOCK })
+    // Two fast blocks set the reference; every request for the third crawls.
+    origin.setRule(({ range }) => (range && range.start >= 2 * BLOCK ? { crawl: 8192 } : 'ok'))
+
+    await plexo.start(origin.url(), origin.sha256, { connections: 1 })
+    await plexo.waitForStatus('completed', 30_000)
+    const lastBlock = origin.chunkRequests().filter((entry) => entry.range!.start >= 2 * BLOCK)
+    expect(lastBlock).toHaveLength(3)
   })
 })
 

@@ -112,9 +112,11 @@ function calculateCurrentSpeed(samples: SpeedSample[] | undefined, time: number)
     samples.shift()
   }
 
+  // At least a second: a fresh window can hold two samples ms apart, and one socket burst over a
+  // few ms reads as a speed the connection never had (and sticks as the UI's peak).
   const oldest = samples[0]
-  const deltaSeconds = (time - oldest.time) / 1000
-  return deltaSeconds > 0 ? (latest.bytes - oldest.bytes) / deltaSeconds : 0
+  const deltaSeconds = Math.max((time - oldest.time) / 1000, 1)
+  return (latest.bytes - oldest.bytes) / deltaSeconds
 }
 
 // Defensive cap independent of whatever the renderer sends — chunks are

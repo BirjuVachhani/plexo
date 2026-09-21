@@ -42,6 +42,42 @@ test.describe('simulated downloads @smoke', () => {
     expect(state.chunks.reduce((sum, chunk) => sum + chunk.retryCount, 0)).toBeGreaterThan(0)
   })
 
+  test('a file with fewer blocks than streams still gives every network work', async ({
+    plexo,
+    dirs
+  }) => {
+    // 7 blocks against 16 requested streams: the first network's streams used to claim every
+    // block before the second network's had started, leaving it idle for the whole download.
+    const bytes = seededBytes(7 * BLOCK, 3)
+    const path = join(dirs.userData, '..', 'source-small.bin')
+    await writeFile(path, bytes)
+    await plexo.startSimulated(
+      {
+        sourceFilePath: path,
+        networks: [network('one'), network('two')],
+        chunkCount: 16,
+        connectionsPerNetwork: 8
+      },
+      sha256(bytes)
+    )
+    const state = await plexo.waitForStatus('completed')
+
+    const delivered = new Map<string, number>()
+    for (const chunk of state.chunks) delivered.set(chunk.interfaceId, 0)
+    for (const block of state.blocks ?? []) {
+      for (const [id, size] of Object.entries(block.bytesByInterface)) {
+        delivered.set(id, (delivered.get(id) ?? 0) + size)
+      }
+    }
+    expect(delivered.size, 'both networks are listed').toBe(2)
+    for (const [id, size] of delivered) expect(size, `${id} delivered bytes`).toBeGreaterThan(0)
+    // 16 streams were asked for, but a stream with no block to claim would only idle: each
+    // network gets as many as its share of the 7 blocks (4).
+    for (const id of delivered.keys()) {
+      expect(state.chunks.filter((chunk) => chunk.interfaceId === id)).toHaveLength(4)
+    }
+  })
+
   test('a part that goes wrong during assembly fails the download and leaves nothing behind', async ({
     plexo,
     dirs

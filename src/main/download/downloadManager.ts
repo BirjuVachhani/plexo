@@ -26,6 +26,7 @@ import type {
   StartDownloadRequest,
   StartSimulatedDownloadRequest
 } from '../../shared/types'
+import { interleave, planDownload } from '../../shared/plan'
 import { downloadChunk, fetchRange, RemoteChangedError } from './chunkDownloader'
 import { compareVersion, type FileVersion } from './fileVersion'
 import { testKnobs } from '../testKnobs'
@@ -119,10 +120,6 @@ function calculateCurrentSpeed(samples: SpeedSample[] | undefined, time: number)
   const deltaSeconds = Math.max((time - oldest.time) / 1000, 1)
   return (latest.bytes - oldest.bytes) / deltaSeconds
 }
-
-// Defensive cap independent of whatever the renderer sends — chunks are
-// distributed round-robin across interfaces, not tied 1:1 to them anymore.
-const MAX_CHUNKS = 32
 
 const MAX_CHUNK_RETRIES = 5
 const RETRY_BASE_DELAY_MS = testKnobs.retryBaseDelayMs
@@ -509,98 +506,63 @@ export class DownloadManager {
       throw error
     }
 
-    const connectionsPerNetwork = Math.max(
-      1,
-      Math.min(
-        8,
+    const plan = planDownload({
+      totalBytes: requestPayload.totalBytes,
+      splittable: requestPayload.supportsRanges,
+      networkCount: interfaces.length,
+      streamsPerNetwork:
         requestPayload.connectionsPerNetwork ??
-          Math.max(1, Math.round(requestPayload.chunkCount / interfaces.length))
-      )
-    )
-    const canSplit = requestPayload.supportsRanges && requestPayload.totalBytes > 0
+        Math.round(requestPayload.chunkCount / interfaces.length),
+      maxBlockBytes: testKnobs.blockBytes // 8 MB outside tests
+    })
 
-    // Block size stays fixed regardless of file size, so work granularity — and
-    // therefore resumability and load-balancing across workers — doesn't degrade
-    // on huge files. MAX_REAL_BLOCKS is only a safety valve for pathologically
-    // large files (multi-TB) so the block array doesn't blow up; it grows the
-    // block size instead of the count once a file is big enough to hit it.
-    // The UI caps how many cells it renders separately (see BlockGrid), by
-    // bucketing these blocks rather than by shrinking their count here.
-    const BASE_BLOCK_BYTES = testKnobs.blockBytes // 8 MB outside tests
-    const MAX_REAL_BLOCKS = 4096
-
-    let blockSizeBytes = 0
+    // The UI caps how many cells it renders separately (see BlockGrid), by bucketing these
+    // blocks rather than by shrinking their count here.
     const blocks: BlockState[] = []
-
-    if (canSplit) {
-      blockSizeBytes = Math.max(
-        BASE_BLOCK_BYTES,
-        Math.ceil(requestPayload.totalBytes / MAX_REAL_BLOCKS)
-      )
-      let offset = 0
-      let bIdx = 0
-      while (offset < requestPayload.totalBytes) {
-        const bEnd = Math.min(offset + blockSizeBytes - 1, requestPayload.totalBytes - 1)
+    if (requestPayload.totalBytes > 0) {
+      const { blockSizeBytes } = plan
+      for (
+        let rangeStart = 0;
+        rangeStart < requestPayload.totalBytes;
+        rangeStart += blockSizeBytes
+      ) {
         blocks.push({
-          index: bIdx++,
-          rangeStart: offset,
-          rangeEnd: bEnd,
+          index: blocks.length,
+          rangeStart,
+          rangeEnd: Math.min(rangeStart + blockSizeBytes, requestPayload.totalBytes) - 1,
           status: 'pending',
           bytesDownloaded: 0,
           bytesByInterface: {}
         })
-        offset = bEnd + 1
       }
     } else {
-      blockSizeBytes = requestPayload.totalBytes > 0 ? requestPayload.totalBytes : 0
+      // Size unknown: one open-ended block, to end of file.
       blocks.push({
         index: 0,
         rangeStart: 0,
-        rangeEnd: requestPayload.totalBytes > 0 ? requestPayload.totalBytes - 1 : null,
+        rangeEnd: null,
         status: 'pending',
         bytesDownloaded: 0,
         bytesByInterface: {}
       })
     }
 
-    const chunks: ChunkState[] = []
-    const activeInterfaces: NetworkInterfaceInfo[] = []
-    let workerIdCounter = 0
-
-    if (canSplit) {
-      for (const iface of interfaces) {
-        for (let connIdx = 0; connIdx < connectionsPerNetwork; connIdx++) {
-          if (chunks.length >= MAX_CHUNKS) break
-          activeInterfaces.push(iface)
-          chunks.push({
-            id: workerIdCounter++,
-            interfaceId: iface.id,
-            interfaceLabel: iface.displayName,
-            interfaceKind: iface.kind,
-            rangeStart: 0,
-            rangeEnd: null,
-            bytesDownloaded: 0,
-            speedBytesPerSec: 0,
-            status: 'pending',
-            retryCount: 0
-          })
-        }
-      }
-    } else {
-      activeInterfaces.push(interfaces[0])
-      chunks.push({
-        id: 0,
-        interfaceId: interfaces[0].id,
-        interfaceLabel: interfaces[0].displayName,
-        interfaceKind: interfaces[0].kind,
+    const chunks: ChunkState[] = plan.streamNetworks.map((networkIndex, id) => {
+      const iface = interfaces[networkIndex]
+      return {
+        id,
+        interfaceId: iface.id,
+        interfaceLabel: iface.displayName,
+        interfaceKind: iface.kind,
         rangeStart: 0,
-        rangeEnd: requestPayload.totalBytes > 0 ? requestPayload.totalBytes - 1 : null,
+        rangeEnd: null,
         bytesDownloaded: 0,
         speedBytesPerSec: 0,
         status: 'pending',
         retryCount: 0
-      })
-    }
+      }
+    })
+    const activeInterfaces = [...new Set(plan.streamNetworks)].map((index) => interfaces[index])
 
     const state: DownloadState = {
       id,
@@ -614,7 +576,7 @@ export class DownloadManager {
       chunks,
       blocks,
       totalBlocks: blocks.length,
-      blockSizeBytes,
+      blockSizeBytes: plan.blockSizeBytes,
       startedAt: Date.now()
     }
 
@@ -753,8 +715,14 @@ export class DownloadManager {
     }
     this.pushUpdate(runtime)
 
+    // Streams start in the order given, and each claims a block on the spot: interleaved, so a
+    // paused download saved before that was the rule can't hand every block to one network.
     const pending = runtime.state.chunks.filter((chunk) => chunk.status !== 'completed')
-    void this.runChunksToCompletion(runtime, pending.length > 0 ? pending : runtime.state.chunks)
+    const toRun = pending.length > 0 ? pending : runtime.state.chunks
+    void this.runChunksToCompletion(
+      runtime,
+      interleave(toRun, (chunk) => chunk.interfaceId)
+    )
   }
 
   cancel(id: string): void {

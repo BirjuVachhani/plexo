@@ -1,3 +1,4 @@
+import { planDownload } from '@shared/plan'
 import type { ProbeResult } from '@shared/types'
 import { cn } from 'cn'
 import { AlertTriangle, ClipboardPaste } from 'lucide-react'
@@ -94,7 +95,17 @@ export function IdleScreen(): React.JSX.Element {
   const selectedInterfaceIds = isSingleStreamOnly ? enabledIds.slice(0, 1) : enabledIds
 
   const connectionsPerNetwork = isSingleStreamOnly ? 1 : chunksPerNetwork
-  const totalChunks = isSingleStreamOnly ? 1 : selectedInterfaceIds.length * chunksPerNetwork
+  // A small file gets fewer streams than asked for — one with no block to claim would only
+  // idle — so once the file's size is known the count comes from the same plan the download
+  // will use.
+  const totalChunks = ready
+    ? planDownload({
+        totalBytes: ready.totalBytes ?? 0,
+        splittable: multiChunkAllowed,
+        networkCount: selectedInterfaceIds.length,
+        streamsPerNetwork: chunksPerNetwork
+      }).streamNetworks.length
+    : selectedInterfaceIds.length * chunksPerNetwork
   const startLabel = starting ? 'Starting…' : probe.status === 'probing' ? 'Checking…' : 'Start'
   const canStart =
     probe.status === 'ready' &&

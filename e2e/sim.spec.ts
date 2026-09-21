@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises'
+import { truncate, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { SimulatedNetworkConfig } from '../src/shared/types'
 import { BLOCK, expect, test } from './fixtures'
@@ -40,6 +40,31 @@ test.describe('simulated downloads @smoke', () => {
     )
     const state = await plexo.waitForStatus('completed', 30_000)
     expect(state.chunks.reduce((sum, chunk) => sum + chunk.retryCount, 0)).toBeGreaterThan(0)
+  })
+
+  test('a part that goes wrong during assembly fails the download and leaves nothing behind', async ({
+    plexo,
+    dirs
+  }) => {
+    const source = await sourceFile(dirs.userData, 5)
+    const id = await plexo.startSimulated(
+      {
+        sourceFilePath: source.path,
+        networks: [network('one')],
+        chunkCount: 2,
+        connectionsPerNetwork: 2,
+        assembleSpeedBytesPerSec: SIZE / 2
+      },
+      source.sha
+    )
+    await plexo.waitForStatus('assembling')
+    // The last part is still waiting its turn; cut a byte off it.
+    const last = join(dirs.userData, 'downloads', id, 'parts', `part-${SIZE / BLOCK - 1}`)
+    await truncate(last, BLOCK - 1)
+
+    const state = await plexo.waitForStatus('error')
+    expect(state.error).toMatch(/refusing to write a corrupt file/)
+    // (the automatic checks then confirm there is no file at the destination and no parts left)
   })
 
   test('pause and cancel are ignored while assembling', async ({ plexo, dirs }) => {

@@ -12,6 +12,7 @@ import {
   writeFile
 } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import { Readable } from 'node:stream'
 import { finished, pipeline } from 'node:stream/promises'
 import type { BrowserWindow } from 'electron'
 import { app, Notification } from 'electron'
@@ -1303,57 +1304,30 @@ export class DownloadManager {
     const output = createWriteStream(runtime.state.destinationPath, {
       highWaterMark: ASSEMBLE_STREAM_BUFFER_BYTES
     })
+    // pipeline reports a failure by rejecting, but only listens while it runs: destroying the
+    // output afterwards can still surface an in-flight write as an 'error' event, and an
+    // unhandled 'error' on a stream takes down the main process rather than failing this one
+    // download. So one listener stays for the stream's whole life.
+    output.on('error', () => {})
+
     let bytesWritten = 0
-
-    // Set only for a dev-tool simulated download that asked for a slowed-down assemble — real
-    // downloads always reassemble at full disk speed. Throttling here (rather than faking it in
-    // the renderer) exercises the exact same assembledBytes/IPC path a real assemble uses.
-    const assembleSpeedBytesPerSec = getSimAssembleSpeed(runtime.requestPayload.url)
-
-    // Attached before the first write, and kept for the stream's whole life:
-    // destroying the output after a failed check can surface an in-flight
-    // write as an 'error' event, and an unhandled 'error' on a stream takes
-    // down the main process rather than failing this one download.
-    const outputErrors: Error[] = []
-    output.on('error', (error: Error) => outputErrors.push(error))
-
-    try {
-      for (let i = 0; i < runtime.totalBlocks; i++) {
-        const partPath = join(runtime.tempDir, `part-${i}`)
-        const block = runtime.blocks[i]
-        const expectedBytes = block.rangeEnd === null ? null : block.rangeEnd - block.rangeStart + 1
-        const actualBytes = (await stat(partPath)).size
-
-        if (expectedBytes !== null && actualBytes !== expectedBytes) {
-          throw new Error(
-            `Part ${i} is ${actualBytes} bytes but should be ${expectedBytes} — refusing to write a corrupt file`
-          )
-        }
-
-        // pipeline rejects on an error from either side; a hand-rolled pause/'drain' loop here
-        // would wait forever for a 'drain' that an errored output never emits.
-        await pipeline(
-          createReadStream(partPath, { highWaterMark: ASSEMBLE_STREAM_BUFFER_BYTES }),
-          output,
-          { end: false }
-        )
-        if (outputErrors.length > 0) throw outputErrors[0]
-        bytesWritten += actualBytes
-
-        if (assembleSpeedBytesPerSec) {
-          await sleep(Math.max(1, (actualBytes / assembleSpeedBytesPerSec) * 1000))
-        }
-
+    // A single pipeline for the whole file, not one per part: pipeline leaves its listeners on
+    // a destination it doesn't end, so one per part would pile up on the output — five per part.
+    const source = Readable.from(
+      this.readParts(runtime, ASSEMBLE_STREAM_BUFFER_BYTES, (partBytes) => {
+        bytesWritten += partBytes
         // Reported per part rather than per underlying write so the assembling visualization
         // advances in the same units the block grid already shows — one step per chunk, not a
         // byte stream.
         runtime.state.assembledBytes = bytesWritten
         this.scheduleUpdate(runtime)
-      }
+      }),
+      { objectMode: false, highWaterMark: ASSEMBLE_STREAM_BUFFER_BYTES }
+    )
 
-      output.end()
-      await finished(output)
-      if (outputErrors.length > 0) throw outputErrors[0]
+    try {
+      // Rejects on an error from either side, and destroys both.
+      await pipeline(source, output)
 
       if (runtime.state.totalBytes > 0 && bytesWritten !== runtime.state.totalBytes) {
         throw new Error(
@@ -1367,6 +1341,48 @@ export class DownloadManager {
       // worse than leaving nothing: it looks like the download they asked for.
       await rm(runtime.state.destinationPath, { force: true })
       throw error
+    }
+  }
+
+  /** The download's bytes in file order: each part checked against the size its range says, then
+   * read through. `onPartRead` is told how many bytes each part held, once it has been read. */
+  private async *readParts(
+    runtime: DownloadRuntime,
+    bufferBytes: number,
+    onPartRead: (partBytes: number) => void
+  ): AsyncGenerator<Buffer> {
+    // Set only for a dev-tool simulated download that asked for a slowed-down assemble — real
+    // downloads always reassemble at full disk speed. Throttling here (rather than faking it in
+    // the renderer) exercises the exact same assembledBytes/IPC path a real assemble uses.
+    const assembleSpeedBytesPerSec = getSimAssembleSpeed(runtime.requestPayload.url)
+
+    for (let i = 0; i < runtime.totalBlocks; i++) {
+      const partPath = join(runtime.tempDir, `part-${i}`)
+      const block = runtime.blocks[i]
+      const expectedBytes = block.rangeEnd === null ? null : block.rangeEnd - block.rangeStart + 1
+      const actualBytes = (await stat(partPath)).size
+
+      if (expectedBytes !== null && actualBytes !== expectedBytes) {
+        throw new Error(
+          `Part ${i} is ${actualBytes} bytes but should be ${expectedBytes} — refusing to write a corrupt file`
+        )
+      }
+
+      let read = 0
+      for await (const chunk of createReadStream(partPath, { highWaterMark: bufferBytes })) {
+        read += (chunk as Buffer).length
+        yield chunk as Buffer
+      }
+      if (read !== actualBytes) {
+        throw new Error(
+          `Part ${i} changed while it was being assembled — refusing to write a corrupt file`
+        )
+      }
+
+      if (assembleSpeedBytesPerSec) {
+        await sleep(Math.max(1, (read / assembleSpeedBytesPerSec) * 1000))
+      }
+      onPartRead(read)
     }
   }
 

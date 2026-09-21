@@ -408,6 +408,10 @@ export const test = base.extend<Fixtures>({
       // A test already failing (or expected to fail) has said what it needed to.
       if (testInfo.status !== 'passed' || testInfo.expectedStatus !== 'passed') return
       checkEvents(plexo.sessions)
+      // Listeners piling up on one stream or emitter: harmless today, a leak tomorrow.
+      expect(plexo.output.join(''), 'the app warned of a listener leak').not.toContain(
+        'MaxListenersExceededWarning'
+      )
       if (plexo.alive) await checkFinalState(plexo)
     },
     { auto: true }

@@ -48,6 +48,21 @@ Tests build the app first; set `PLEXO_E2E_SKIP_BUILD=1` when `out/` is already f
 - If you're changing download/networking behavior (`src/main/download/`, `src/main/network/`), explain the reasoning in the PR — a lot of the logic there (resume/retry/stall handling) exists to avoid subtle data-corruption bugs, so tradeoffs matter more than usual.
 - UI changes: a screenshot or short screen recording in the PR description is very helpful.
 
+## Releasing
+
+A release ships seven files: `Plexo` for macOS (Apple silicon and Intel `.dmg`), Windows (one installer for x64 and ARM64) and Linux (`AppImage` and `.deb`, x86_64 and ARM64). The download page (`docs/`, served by GitHub Pages) reads them from the latest GitHub Release and labels each one from its file name (`docs/downloads.js`), so keep the naming in `electron-builder.yml` intact.
+
+```bash
+npm version <version> --no-git-tag-version     # e.g. 1.0.0-rc.8
+npm run build:mac && npm run build:win && npm run build:linux
+
+node scripts/release-notes.mjs v<version> notes.md > body.md   # your notes + the downloads table
+gh release create v<version> --prerelease --title v<version> --notes-file body.md \
+  $(node scripts/release-notes.mjs v<version> --files)
+```
+
+The script only picks up files the download page knows how to describe, so the update metadata and blockmaps electron-builder leaves in `dist/` are never uploaded.
+
 ## Reporting bugs
 
 Open a GitHub issue with:

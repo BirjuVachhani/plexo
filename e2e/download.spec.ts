@@ -163,3 +163,27 @@ test.describe('edge cases', () => {
     await plexo.waitForStatus('completed')
   })
 })
+
+test.describe('a network that never answers', () => {
+  // The stall timeout is far longer than the test, so only noticing the silence can save it.
+  test.use({ appEnv: { PLEXO_E2E_STALL_MS: '30000', PLEXO_E2E_SILENT_MS: '300' } })
+
+  test('does not hold up a download the other network can finish', async ({ plexo, serve }) => {
+    test.skip(!LAN_ADDRESS, 'needs a LAN address to act as the second network')
+    const origin = await serve({ size: 24 * BLOCK })
+    origin.setRule(({ from, range }) =>
+      from !== '127.0.0.1' && !(range?.start === 0 && range.end === 0) ? 'stallHeaders' : 'ok'
+    )
+
+    const started = Date.now()
+    await plexo.start(origin.url(), origin.sha256, { networks: ['a', 'b'], connections: 2 })
+    const state = await plexo.waitForStatus('completed', 15_000)
+
+    expect(Date.now() - started).toBeLessThan(15_000)
+    const deliveredByB = (state.blocks ?? []).reduce(
+      (sum, block) => sum + (block.bytesByInterface['b'] ?? 0),
+      0
+    )
+    expect(deliveredByB, 'the silent network delivered nothing').toBe(0)
+  })
+})

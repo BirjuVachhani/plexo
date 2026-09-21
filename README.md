@@ -124,6 +124,7 @@ Instead, Plexo uses a **dynamic work-stealing queue**:
 2. All chunks enter a centralized pending queue.
 3. A pool of worker connections (up to 8 per interface, 32 total, never more than there are chunks to work on) continuously lease the next chunk from the queue as soon as they become free. Connections start interleaved across networks, so each network is served before any is served twice.
 4. Faster interfaces finish chunks quicker and immediately pick up new ones; slower interfaces pull fewer chunks.
+5. **Racing the tail.** Once no chunk is left waiting, a free connection can start a second attempt at a chunk another connection is fetching too slowly (one that still needs as long again as it has already taken, at least 5 seconds), picking up from where the first had got to. Whichever finishes first wins and the other is dropped. It costs a few bytes fetched twice at the very end, and it means one slow connection — or one slow network — can no longer hold the whole download back. A stream doing this is marked **BACKUP** in the streams table.
 
 ```text
 Shared Pending Queue: [Chunk #4] [Chunk #5] [Chunk #6] [Chunk #7] [Chunk #8] ...

@@ -50,13 +50,12 @@ function ProgressBar({
   )
 }
 
-/** What an expanded stream row shows: the block that stream is working on right now (falling back
- * to the one starting at its range, for a stream that hasn't claimed a block yet) and how far
- * along that block is. A completed stream reads as full even when no block backs it. */
+/** What an expanded stream row shows: the block that stream is working on right now and how far
+ * along it is. A stream holding no block (idle, or finished) has nothing of its own to measure,
+ * so it shows only what it has delivered in total. */
 function describeStream(
   chunk: ChunkState,
-  blocks: BlockState[] | undefined,
-  totalBytes: number | null | undefined
+  blocks: BlockState[] | undefined
 ): {
   block: BlockState | undefined
   size: number
@@ -64,34 +63,15 @@ function describeStream(
   percent: number
   done: boolean
 } {
-  const block =
-    (chunk.currentBlockIndex != null ? blocks?.[chunk.currentBlockIndex] : undefined) ??
-    blocks?.find((b) => b.rangeStart === chunk.rangeStart)
-
-  const isDone = chunk.status === 'completed'
-  const range = block ?? chunk
-  const size =
-    range.rangeEnd !== null
-      ? range.rangeEnd - range.rangeStart + 1
-      : block
-        ? 0
-        : totalBytes
-          ? totalBytes - chunk.rangeStart
-          : 0
-  const downloaded = block
-    ? block.bytesDownloaded
-    : isDone && size > 0
-      ? size
-      : chunk.bytesDownloaded
-  const percent = size > 0 ? Math.min(100, Math.max(0, (downloaded / size) * 100)) : 0
-
-  return {
-    block,
-    size,
-    downloaded,
-    percent,
-    done: block?.status === 'completed' || isDone || percent >= 100
+  const block = chunk.currentBlockIndex != null ? blocks?.[chunk.currentBlockIndex] : undefined
+  const done = chunk.status === 'completed' || block?.status === 'completed'
+  if (!block) {
+    return { block, size: 0, downloaded: chunk.bytesDownloaded, percent: done ? 100 : 0, done }
   }
+
+  const size = block.rangeEnd !== null ? block.rangeEnd - block.rangeStart + 1 : 0
+  const percent = done ? 100 : size > 0 ? Math.min(100, (block.bytesDownloaded / size) * 100) : 0
+  return { block, size, downloaded: block.bytesDownloaded, percent, done }
 }
 
 export function NetworkRow({
@@ -186,14 +166,16 @@ export function NetworkRow({
           const isLast = index === group.chunks.length - 1
           const isChunkActive = chunk.status === 'downloading'
           const isChunkError = chunk.status === 'error'
-          const stream = describeStream(chunk, blocks, totalBytes)
+          const stream = describeStream(chunk, blocks)
           const statusText = stream.done
             ? 'Done'
             : chunk.status === 'paused'
               ? 'Paused'
               : chunk.status === 'retrying'
                 ? 'Retrying…'
-                : 'Waiting'
+                : chunk.status === 'error'
+                  ? 'Failed'
+                  : 'Idle'
 
           return (
             <div
@@ -226,6 +208,14 @@ export function NetworkRow({
                     Chunk #{stream.block.index + 1}
                   </span>
                 )}
+                {chunk.hedge && (
+                  <span
+                    title="Racing another stream for this chunk, which was running slowly"
+                    className="rounded-[3px] border-[0.5px] border-border px-[4.5px] py-[1.5px] font-mono text-[9px] leading-none whitespace-nowrap text-muted-foreground"
+                  >
+                    BACKUP
+                  </span>
+                )}
                 {isChunkActive ? (
                   <ColorBadge
                     bg={visual.bg}
@@ -253,7 +243,7 @@ export function NetworkRow({
               <ProgressBar
                 className="h-[5px]"
                 label={`Stream #${index + 1} progress`}
-                percent={stream.done ? 100 : stream.percent}
+                percent={stream.percent}
                 color={isChunkError ? DANGER : visual.solid}
               />
 
@@ -268,7 +258,7 @@ export function NetworkRow({
                       : 'var(--text-tertiary)'
                 }}
               >
-                {Math.round(stream.percent)}%
+                {stream.block || stream.done ? `${Math.round(stream.percent)}%` : '—'}
               </div>
 
               <div

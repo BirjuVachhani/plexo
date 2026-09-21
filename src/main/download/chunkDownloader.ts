@@ -20,6 +20,9 @@ export interface ChunkDownloadOptions {
   signal: AbortSignal
   /** The version the download started on, plus any confirmed to serve identical bytes. */
   acceptedVersions: FileVersion[]
+  /** Called once the server has answered with usable headers: how long that took, and whether
+   * the request went out on a connection an earlier one had already warmed up. */
+  onResponse?: (info: { ttfbMs: number; reusedSocket: boolean }) => void
 }
 
 /** A response whose version doesn't match the download's. Nothing from it was written; the
@@ -99,7 +102,8 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
     append,
     onProgress,
     signal,
-    acceptedVersions
+    acceptedVersions,
+    onResponse
   } = options
 
   return new Promise((resolve, reject) => {
@@ -171,6 +175,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
 
     const attempt = (targetUrl: URL, redirectsLeft: number): void => {
       const requester = targetUrl.protocol === 'https:' ? httpsRequest : httpRequest
+      const sentAt = Date.now()
 
       const req: ClientRequest = requester(
         {
@@ -244,6 +249,8 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
               return
             }
           }
+
+          onResponse?.({ ttfbMs: Date.now() - sentAt, reusedSocket: req.reusedSocket })
 
           const fileStream: WriteStream = createWriteStream(destinationPath, {
             flags: append ? 'a' : 'w'

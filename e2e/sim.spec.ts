@@ -122,3 +122,30 @@ test.describe('simulated downloads @smoke', () => {
     await plexo.waitForStatus('completed')
   })
 })
+
+test.describe('a slow simulated network', () => {
+  test.use({ appEnv: { PLEXO_E2E_HEDGE_MS: '300' } })
+
+  test('does not hold the download back: the fast one takes over its blocks', async ({
+    plexo,
+    dirs
+  }) => {
+    // The slow network needs 6.4 s for each 64 KB block it is given, and gets two of them.
+    const source = await sourceFile(dirs.userData, 4)
+    const started = Date.now()
+    await plexo.startSimulated(
+      {
+        sourceFilePath: source.path,
+        networks: [
+          { kind: 'usb', label: 'slow', speedBytesPerSec: 10_000, faultRatePercent: 0 },
+          network('fast')
+        ],
+        chunkCount: 4,
+        connectionsPerNetwork: 2
+      },
+      source.sha
+    )
+    await plexo.waitForStatus('completed', 15_000)
+    expect(Date.now() - started).toBeLessThan(5000)
+  })
+})

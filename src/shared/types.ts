@@ -29,6 +29,9 @@ export interface ProbeResult {
 export type DownloadStatus =
   'downloading' | 'assembling' | 'paused' | 'completed' | 'error' | 'cancelled'
 
+/** A stream's state. `pending` means it is waiting for work: it holds no block, either because
+ * none is free for it right now or because it hasn't started. `downloading` always means it is
+ * fetching one (`currentBlockIndex` says which). */
 export type ChunkStatus =
   'pending' | 'downloading' | 'retrying' | 'paused' | 'completed' | 'error' | 'cancelled'
 
@@ -46,8 +49,11 @@ export interface ChunkState {
   error?: string
   /** Number of times this chunk's connection has been retried after a dropped/failed attempt. */
   retryCount: number
-  /** Index of the block currently being downloaded by this worker chunk. */
+  /** The block this stream is fetching. Unset whenever it holds none (idle, retrying, paused, done). */
   currentBlockIndex?: number
+  /** True while this stream is racing another stream for `currentBlockIndex`, because that one
+   * was too slow — see main/download/scheduler.ts. Whichever finishes first wins. */
+  hedge?: boolean
 }
 
 export type BlockStatus = 'pending' | 'downloading' | 'completed' | 'error'

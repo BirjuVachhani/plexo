@@ -88,6 +88,8 @@ export class PlexoApp {
         PLEXO_E2E_BLOCK_BYTES: String(BLOCK),
         PLEXO_E2E_RETRY_BASE_MS: '20',
         PLEXO_E2E_STALL_MS: '1500',
+        // Off unless a test asks for it: a hedge is an extra request, and most tests count them.
+        PLEXO_E2E_HEDGE_MS: '600000',
         PLEXO_E2E_INTERFACES: interfacesEnv(NETWORKS),
         ...this.extraEnv
       }
@@ -271,6 +273,33 @@ export function checkEvents(sessions: DownloadState[][]): void {
               size
             )
           }
+        }
+      }
+      if (state.status === 'downloading') {
+        // A stream holds a block exactly while it is fetching it. A block has at most one stream
+        // fetching it for real and one racing it as a hedge, and is in flight whenever the first
+        // is there. What the stream rows show is only as true as this.
+        const primaries = new Map<number, number>()
+        const hedges = new Map<number, number>()
+        for (const chunk of state.chunks) {
+          const holding = chunk.currentBlockIndex !== undefined
+          expect(holding, `${label}: stream ${chunk.id} (${chunk.status}) holds a block`).toBe(
+            chunk.status === 'downloading'
+          )
+          if (chunk.currentBlockIndex === undefined) {
+            expect(chunk.hedge, `${label}: idle stream ${chunk.id} is not racing`).toBeFalsy()
+            continue
+          }
+          const tally = chunk.hedge ? hedges : primaries
+          tally.set(chunk.currentBlockIndex, (tally.get(chunk.currentBlockIndex) ?? 0) + 1)
+        }
+        for (const [index, count] of [...primaries, ...hedges]) {
+          expect(count, `${label}: block ${index} has one stream of each kind`).toBe(1)
+        }
+        for (const index of primaries.keys()) {
+          expect(state.blocks?.[index]?.status, `${label}: held block ${index} is in flight`).toBe(
+            'downloading'
+          )
         }
       }
       const previous = lastStatus.get(state.id)

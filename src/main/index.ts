@@ -123,9 +123,16 @@ app.on('before-quit', (event) => {
   if (quitAfterSuspending || !downloadManager) return
 
   event.preventDefault()
+  
+  // Guarantee the process exits even if suspending hangs
+  const forceQuitTimeout = setTimeout(() => {
+    app.exit(0)
+  }, 3000)
+
   void downloadManager.suspendAll().finally(() => {
+    clearTimeout(forceQuitTimeout)
     quitAfterSuspending = true
-    app.quit()
+    app.exit(0)
   })
 })
 

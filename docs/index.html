@@ -439,6 +439,19 @@
           monospace;
         overflow-wrap: anywhere;
       }
+      .guide {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        max-width: 720px;
+      }
+      .guide p {
+        margin: 0;
+        font:
+          400 14px/1.6 Manrope,
+          sans-serif;
+        color: #a9adb2;
+      }
       footer {
         display: flex;
         align-items: center;
@@ -612,6 +625,34 @@
         </div>
       </section>
 
+      <section class="guide" id="mac-tethering">
+        <div class="downloads-head">
+          <div class="title">USB tethering on macOS</div>
+        </div>
+        <p>
+          Macs don't recognize an Android phone's USB tethering out of the box — you'll need a
+          free helper app called <a href="https://github.com/XiaoMiku01/TetherKit">TetherKit</a>
+          first.
+        </p>
+        <ol class="os-notes">
+          <li>
+            Install TetherKit: open Terminal and run
+            <code>brew install XiaoMiku01/tap/tetherkit</code>
+          </li>
+          <li>Connect your Android phone to your Mac with a USB cable.</li>
+          <li>
+            On your phone: Settings → Network & Internet → Hotspot & tethering → turn on USB
+            tethering.
+          </li>
+          <li>Open Plexo — it'll pick up the connection automatically.</li>
+        </ol>
+        <p>
+          <a href="https://github.com/anmolkapil/plexo#using-a-usb-tethered-android-phone"
+            >Full guide on GitHub →</a
+          >
+        </p>
+      </section>
+
       <footer>
         <div class="ver" id="version-label">PLEXO</div>
         <div class="spacer"></div>
@@ -775,6 +816,11 @@
             alt.appendChild(link)
           })
           if (model.hint) alt.appendChild(el('div', 'hint', model.hint))
+          if (env.os === 'mac') {
+            var tetherAlt = el('a', '', 'Tethering an Android phone? See the USB tethering guide →')
+            tetherAlt.href = '#mac-tethering'
+            alt.appendChild(tetherAlt)
+          }
 
           model.groups.forEach(function (g) {
             var section = el('section', 'os-group')
@@ -790,6 +836,11 @@
             })
             section.appendChild(notes)
             groupsEl.appendChild(section)
+            // Slot the static tethering guide right under the macOS group, not after every OS.
+            if (g.os === 'mac') {
+              var guideSection = $('mac-tethering')
+              if (guideSection) groupsEl.appendChild(guideSection)
+            }
           })
 
           if (release.prerelease) {

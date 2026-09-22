@@ -1,5 +1,7 @@
 # Plexo
 
+[![Sponsor](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/anmolkapil)
+
 A fast download manager for Windows, macOS, and Linux that speeds up downloads by pulling chunks in parallel across **multiple network connections at the same time**.
 
 For example, if your computer has:
@@ -367,6 +369,16 @@ Plexo is built with:
 - **Playwright** — end-to-end testing suite
 - **electron-vite** — fast HMR and build tooling
 - **electron-builder** — multi-platform packaging (macOS, Windows, Linux)
+
+---
+
+# Support
+
+If Plexo is useful to you, you can support it by:
+
+- ⭐ Starring the repo
+- 🐛 [Reporting bugs and suggesting features](https://github.com/anmolkapil/plexo/issues)
+- ❤️ [Sponsoring development](https://github.com/sponsors/anmolkapil)
 
 ---
 

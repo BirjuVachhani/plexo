@@ -224,6 +224,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
 
   return (
     <div className="flex h-full flex-col bg-background">
+      {/* Hero band — always visible at top */}
       <HeroBand>
         <div className="flex items-center gap-[14px]">
           <CombineDiagram
@@ -300,7 +301,8 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
         </div>
       </HeroBand>
 
-      <div className="flex flex-col gap-3 p-[16px_20px_18px]">
+      {/* File info — always visible, never shrinks */}
+      <div className="shrink-0 p-[16px_20px_0px]">
         <div className="flex items-center gap-[14px]">
           <div className="flex size-11 shrink-0 items-center justify-center rounded-[10px] border-[0.5px] border-[var(--border-strong)] bg-card font-mono text-[10.5px] leading-none font-bold tracking-[0.04em] text-[var(--text-secondary)]">
             {fileExtensionBadge(download.fileName)}
@@ -348,7 +350,10 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             </div>
           </div>
         </div>
+      </div>
 
+      {/* Block grid + network table — share remaining flexible space, scroll internally */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-3 pb-2">
         <BlockGrid
           blocks={download.blocks}
           groups={groups}
@@ -359,49 +364,50 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
           assembling={isAssembling}
           assembledBytes={assembledBytes}
         />
-      </div>
 
-      <div className="flex-1 overflow-x-hidden overflow-y-auto">
-        <div
-          role="table"
-          aria-label="Networks"
-          className="grid gap-x-3"
-          style={{ gridTemplateColumns: NETWORK_ROW_GRID_COLUMNS }}
-        >
+        <div className="mt-3">
           <div
-            role="row"
-            className="col-span-full grid grid-cols-subgrid gap-x-3 border-b border-border pt-2.5 pb-[7px] font-mono text-[9.5px] leading-none tracking-[0.12em] text-muted-foreground uppercase"
+            role="table"
+            aria-label="Networks"
+            className="grid gap-x-3"
+            style={{ gridTemplateColumns: NETWORK_ROW_GRID_COLUMNS }}
           >
-            <div role="columnheader" aria-label="Status" />
-            <div role="columnheader">Network</div>
-            <div role="columnheader">Progress</div>
-            <div role="columnheader" className="text-right">
-              Share
+            <div
+              role="row"
+              className="col-span-full grid grid-cols-subgrid gap-x-3 border-b border-border pt-2.5 pb-[7px] font-mono text-[9.5px] leading-none tracking-[0.12em] text-muted-foreground uppercase"
+            >
+              <div role="columnheader" aria-label="Status" />
+              <div role="columnheader">Network</div>
+              <div role="columnheader">Progress</div>
+              <div role="columnheader" className="text-right">
+                Share
+              </div>
+              <div role="columnheader" className="text-right">
+                Speed
+              </div>
+              <div role="columnheader" className="pr-5 text-right">
+                Downloaded
+              </div>
             </div>
-            <div role="columnheader" className="text-right">
-              Speed
-            </div>
-            <div role="columnheader" className="pr-5 text-right">
-              Downloaded
-            </div>
+            {groups.map((group, index) => (
+              <NetworkRow
+                key={group.interfaceId}
+                group={group}
+                visual={visuals[index]}
+                sharePercent={
+                  totalDownloadedByNetworks > 0
+                    ? (group.bytesDownloaded / totalDownloadedByNetworks) * 100
+                    : 0
+                }
+                totalBytes={download.totalBytes}
+                blocks={download.blocks}
+              />
+            ))}
           </div>
-          {groups.map((group, index) => (
-            <NetworkRow
-              key={group.interfaceId}
-              group={group}
-              visual={visuals[index]}
-              sharePercent={
-                totalDownloadedByNetworks > 0
-                  ? (group.bytesDownloaded / totalDownloadedByNetworks) * 100
-                  : 0
-              }
-              totalBytes={download.totalBytes}
-              blocks={download.blocks}
-            />
-          ))}
         </div>
       </div>
 
+      {/* Footer is always pinned at the bottom, never scrolled off-screen */}
       <ScreenFooter>
         <div className="flex min-w-0 flex-1 items-center gap-[7px] overflow-hidden font-mono text-[11px] leading-[1.4] text-muted-foreground">
           <Tooltip>
@@ -425,7 +431,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             </>
           )}
         </div>
-        <WhileAssembling active={isAssembling} text="Can’t pause while assembling the file">
+        <WhileAssembling active={isAssembling} text="Can't pause while assembling the file">
           <Button
             type="button"
             variant={isPaused ? 'default' : 'secondary'}
@@ -439,7 +445,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
           </Button>
         </WhileAssembling>
         <AlertDialog>
-          <WhileAssembling active={isAssembling} text="Can’t cancel while assembling the file">
+          <WhileAssembling active={isAssembling} text="Can't cancel while assembling the file">
             <AlertDialogTrigger
               render={
                 <Button

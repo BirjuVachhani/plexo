@@ -191,12 +191,17 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
     const info = testKnobs.forceUpdateVersion
       ? { version: testKnobs.forceUpdateVersion, url: UPDATE_PAGE_URL }
       : await checkForUpdate(app.getVersion())
-    if (!info) return null
-    const { dismissedUpdateVersion: dismissedVersion } = await loadSettings()
-    return { ...info, dismissed: info.version === dismissedVersion }
+    return info
   })()
 
-  handle('checkForUpdate', async () => updateCheckPromise)
+  // Dismissal is read per call, not cached with the check — a reload after "Not now" must not
+  // bring the dialog back.
+  handle('checkForUpdate', async () => {
+    const info = await updateCheckPromise
+    if (!info) return null
+    const { dismissedUpdateVersion } = await loadSettings()
+    return { ...info, dismissed: info.version === dismissedUpdateVersion }
+  })
 
   return manager
 }

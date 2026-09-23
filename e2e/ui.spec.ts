@@ -1,6 +1,6 @@
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Locator, Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import { BLOCK, expect, interfacesEnv, NETWORKS, test } from './fixtures'
 
 // G. A handful of journeys through the real UI, to prove the screens are wired to the main
@@ -164,17 +164,24 @@ test.describe('settings @smoke', () => {
     })
   })
 
-  test('a broken settings file falls back to defaults', async ({ plexo, dirs }) => {
+  test('a broken settings file falls back to what a fresh install shows', async ({
+    plexo,
+    dirs
+  }) => {
     const settingsPath = join(dirs.userData, 'app-settings.json')
-    const toField = (): Locator => plexo.page.getByText(/Downloads$/)
+    // The streams picker and the TO row, as the user sees them — compared whole, so no
+    // platform's idea of the default folder is baked into the test.
+    const choices = (): Promise<string[]> =>
+      Promise.all([
+        plexo.page.getByRole('button', { name: /^\d×$/, pressed: true }).innerText(),
+        plexo.page.getByText('TO', { exact: true }).locator('..').innerText()
+      ])
+    const fresh = await choices()
 
     await plexo.quit()
     await writeFile(settingsPath, '{"streamsPerNetwork": 4,')
     await plexo.launch()
-    await expect(plexo.page.getByRole('button', { name: '2×' })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    )
+    expect(await choices()).toEqual(fresh)
 
     await plexo.quit()
     await writeFile(
@@ -182,11 +189,7 @@ test.describe('settings @smoke', () => {
       JSON.stringify({ streamsPerNetwork: 3, destinationDir: join(dirs.dest, 'unplugged') })
     )
     await plexo.launch()
-    await expect(plexo.page.getByRole('button', { name: '2×' })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    )
-    await expect(toField()).toBeVisible()
+    expect(await choices()).toEqual(fresh)
   })
 })
 

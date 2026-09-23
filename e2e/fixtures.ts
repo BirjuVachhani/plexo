@@ -1,4 +1,4 @@
-/// <reference path="../src/preload/globals.d.ts" />
+import type {} from '../src/preload/globals'
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises'
@@ -99,8 +99,8 @@ export class PlexoApp {
           }
         })
         break
-      } catch (e: any) {
-        if (retries-- > 0 && e.message?.includes('ETXTBSY')) {
+      } catch (e: unknown) {
+        if (retries-- > 0 && e instanceof Error && e.message?.includes('ETXTBSY')) {
           await new Promise((resolve) => setTimeout(resolve, 100))
           continue
         }

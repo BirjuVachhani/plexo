@@ -147,9 +147,9 @@ Instead, Plexo uses a **dynamic work-stealing queue**:
 
 ```text
 Shared Pending Queue: [Chunk #4]  [Chunk #5]  [Chunk #6]  [Chunk #7]  [Chunk #8]  ...
-                           ↑           ↑           ↑           ↑
-                        Worker 1    Worker 2    Worker 3    Worker 4
-                        (Wi-Fi)    (Ethernet) (USB Tether) (Cellular)
+                          ↑           ↑           ↑           ↑
+                       Worker 1    Worker 2    Worker 3    Worker 4
+                       (Wi-Fi)    (Ethernet) (USB Tether) (Cellular)
 ```
 
 Work distribution is dynamically proportional to each interface's real-time throughput. If one network slows down or disconnects, remaining workers continue draining the queue without stalled shares.

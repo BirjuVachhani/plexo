@@ -96,11 +96,6 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
   // Answered via sendSync from the preload, which blocks the page until returnValue is set — so a
   // throw here must still reply (with no saved values) rather than leave the window never showing.
   ipcMain.on(IpcChannels.getInitialState, async (event) => {
-    const paths = (): Pick<InitialState, 'homeDir' | 'downloadsDir' | 'isDev'> => ({
-      homeDir: getHomeDir(),
-      downloadsDir: getDefaultDownloadsDir(),
-      isDev: is.dev
-    })
     try {
       const settings = await loadSettings()
       const { destinationDir } = settings
@@ -116,7 +111,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
           new Promise<boolean>((resolve) => setTimeout(resolve, DESTINATION_CHECK_MS, false))
         ]))
       event.returnValue = {
-        ...paths(),
+        homeDir: getHomeDir(),
+        downloadsDir: getDefaultDownloadsDir(),
+        isDev: is.dev,
         themeSource: currentThemeSource(),
         networkPreferences: settings.networkPreferences ?? {},
         streamsPerNetwork: settings.streamsPerNetwork,
@@ -124,14 +121,11 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
       } satisfies InitialState
     } catch (error) {
       console.error('[plexo] failed to read initial state', error)
-      let fallbackPaths: ReturnType<typeof paths>
-      try {
-        fallbackPaths = paths()
-      } catch {
-        fallbackPaths = { homeDir: '', downloadsDir: '', isDev: is.dev }
-      }
+      // No getPath() here — it may be what threw. An empty destination just keeps Start disabled.
       event.returnValue = {
-        ...fallbackPaths,
+        homeDir: '',
+        downloadsDir: '',
+        isDev: is.dev,
         themeSource: currentThemeSource(),
         networkPreferences: {}
       } satisfies InitialState

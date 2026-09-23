@@ -95,12 +95,13 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.plexo.app')
 
-  // Applied before the window is created so the initial background/icon already match —
-  // the saved preference otherwise only takes effect on the next 'updated' event.
   // A failed move keeps the old file, to retry next launch — it must never stop the window opening.
   await migrateLegacyNetworkPreferences().catch((error) =>
     console.error('[plexo] failed to migrate network-preferences.json', error)
   )
+
+  // Applied before the window is created so the initial background/icon already match —
+  // the saved preference otherwise only takes effect on the next 'updated' event.
   nativeTheme.themeSource = await loadThemeSource()
 
   app.on('browser-window-created', (_, window) => {

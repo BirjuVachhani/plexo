@@ -63,11 +63,15 @@ function sanitizeSettings(parsed: unknown): AppSettings {
 
 export async function loadSettings(): Promise<AppSettings> {
   // Reading can fall back to defaults; only a save must not act on a failed read.
-  return sanitizeSettings(await readJson(settingsPath()).catch(() => undefined))
+  try {
+    return sanitizeSettings(await readJson(settingsPath()))
+  } catch {
+    return {}
+  }
 }
 
-/** Merges `patch` over what's saved and returns the result as written. */
-export function saveSettings(patch: unknown): Promise<AppSettings> {
+/** Merges `patch` over what's saved. */
+export function saveSettings(patch: unknown): Promise<void> {
   return updateJson(settingsPath(), (current) =>
     sanitizeSettings({ ...sanitizeSettings(current), ...(isRecord(patch) ? patch : {}) })
   )

@@ -3,7 +3,7 @@ import { app, BrowserWindow, Menu, nativeTheme, shell } from 'electron'
 import { join } from 'path'
 import icon from '../../resources/icon-dark.png?asset'
 import { registerIpcHandlers } from './ipc/handlers'
-import { loadThemeSource } from './settings'
+import { loadThemeSource, migrateLegacyNetworkPreferences } from './settings'
 import { testKnobs } from './testKnobs'
 import { IpcChannels } from '../shared/ipc-channels'
 import type { DownloadManager } from './download/downloadManager'
@@ -97,6 +97,7 @@ app.whenReady().then(async () => {
 
   // Applied before the window is created so the initial background/icon already match —
   // the saved preference otherwise only takes effect on the next 'updated' event.
+  await migrateLegacyNetworkPreferences()
   nativeTheme.themeSource = await loadThemeSource()
 
   app.on('browser-window-created', (_, window) => {

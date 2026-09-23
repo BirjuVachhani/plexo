@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { IpcChannels } from '../shared/ipc-channels'
 import type { IpcContract } from '../shared/ipc-contract'
-import type { DownloadState, InitialState, NetworkPreference, ThemeSource } from '../shared/types'
+import type { AppSettings, DownloadState, InitialState } from '../shared/types'
 
 /** Typed wrapper around ipcRenderer.invoke — the channel name picks its args/result shape out of
  * IpcContract, so a call here that doesn't match what registerIpcHandlers (main) actually handles
@@ -22,14 +22,8 @@ const plexoApi = {
   pingInterfaces: () => invoke('pingInterfaces'),
   deviceBindingSupported: () => invoke('deviceBindingSupported'),
   openNetworkSettings: () => invoke('openNetworkSettings'),
-  setNetworkPreference: (id: string, patch: NetworkPreference) =>
-    invoke('setNetworkPreference', id, patch),
-  getThemeSource: () => invoke('getThemeSource'),
-  setThemeSource: (source: ThemeSource) => invoke('setThemeSource', source),
-  setStreamsPerNetwork: (streamsPerNetwork: number) =>
-    invoke('setStreamsPerNetwork', streamsPerNetwork),
+  updateSettings: (patch: AppSettings) => invoke('updateSettings', patch),
   probeUrl: (url: string) => invoke('probeUrl', url),
-  setDestinationDir: (dir: string) => invoke('setDestinationDir', dir),
   chooseDestinationFolder: (defaultPath: string) => invoke('chooseDestinationFolder', defaultPath),
   chooseSourceFile: () => invoke('chooseSourceFile'),
   readClipboardText: () => invoke('readClipboardText'),
@@ -44,7 +38,6 @@ const plexoApi = {
   cancelDownload: (downloadId: string) => invoke('cancelDownload', downloadId),
   removeDownload: (downloadId: string) => invoke('removeDownload', downloadId),
   checkForUpdate: () => invoke('checkForUpdate'),
-  dismissUpdate: (version: string) => invoke('dismissUpdate', version),
 
   onDownloadUpdated: (callback: (state: DownloadState) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, state: DownloadState): void => callback(state)

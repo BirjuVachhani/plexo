@@ -1,12 +1,10 @@
 import type {
+  AppSettings,
   DownloadState,
   NetworkInterfaceInfo,
-  NetworkPreference,
-  NetworkPreferences,
   ProbeResult,
   StartDownloadRequest,
   StartSimulatedDownloadRequest,
-  ThemeSource,
   UpdateInfo
 } from './types'
 
@@ -19,15 +17,8 @@ export interface IpcContract {
   pingInterfaces: { args: []; result: Record<string, number | null> }
   deviceBindingSupported: { args: []; result: boolean }
   openNetworkSettings: { args: []; result: void }
-  setNetworkPreference: {
-    args: [id: string, patch: NetworkPreference]
-    result: NetworkPreferences
-  }
-  getThemeSource: { args: []; result: ThemeSource }
-  setThemeSource: { args: [source: ThemeSource]; result: ThemeSource }
-  setStreamsPerNetwork: { args: [streamsPerNetwork: number]; result: void }
+  updateSettings: { args: [patch: AppSettings]; result: void }
   probeUrl: { args: [url: string]; result: ProbeResult }
-  setDestinationDir: { args: [dir: string]; result: void }
   chooseDestinationFolder: { args: [defaultPath: string]; result: string | null }
   chooseSourceFile: { args: []; result: string | null }
   readClipboardText: { args: []; result: string }
@@ -40,5 +31,4 @@ export interface IpcContract {
   cancelDownload: { args: [id: string]; result: void }
   removeDownload: { args: [id: string]; result: void }
   checkForUpdate: { args: []; result: UpdateInfo | null }
-  dismissUpdate: { args: [version: string]; result: void }
 }

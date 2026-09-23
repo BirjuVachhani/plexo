@@ -19,7 +19,6 @@ import { probeUrl } from '../download/probe'
 import { deviceBindingSupported } from '../network/deviceBinding'
 import { measureLatencies } from '../network/latency'
 import { listActiveInterfaces } from '../network/interfaces'
-import { loadNetworkPreferences, saveNetworkPreference } from '../network/preferences'
 import { loadSettings, saveSettings } from '../settings'
 import { testKnobs } from '../testKnobs'
 import { checkForUpdate, UPDATE_PAGE_URL } from '../updateCheck'
@@ -79,20 +78,18 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
   const bindingSupport = deviceBindingSupported()
   handle('deviceBindingSupported', async () => bindingSupport)
 
-  handle('setNetworkPreference', async (_event, id, patch) => saveNetworkPreference(id, patch))
-
   // The app only ever assigns 'light'/'dark' to nativeTheme.themeSource (main/index.ts's startup
   // call to loadThemeSource() never resolves to 'system') — narrow Electron's wider type here
   // rather than widening our own ThemeSource just to match it.
   const currentThemeSource = (): ThemeSource =>
     nativeTheme.themeSource === 'dark' ? 'dark' : 'light'
 
-  handle('getThemeSource', async () => currentThemeSource())
-
-  handle('setThemeSource', async (_event, source) => {
-    nativeTheme.themeSource = source
-    await saveSettings({ themeSource: source })
-    return currentThemeSource()
+  handle('updateSettings', async (_event, patch) => {
+    const saved = await saveSettings(patch)
+    // The one setting main also applies — sanitized first, so only 'light'/'dark' reach it.
+    if (patch?.themeSource !== undefined && saved.themeSource) {
+      nativeTheme.themeSource = saved.themeSource
+    }
   })
 
   // Answered via sendSync from the preload, which blocks the page until returnValue is set — so a
@@ -104,15 +101,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
       isDev: is.dev
     })
     try {
-      const [settings, networkPreferences] = await Promise.all([
-        loadSettings(),
-        loadNetworkPreferences()
-      ])
+      const settings = await loadSettings()
       const { destinationDir } = settings
       // Capped: a folder on a dropped network share can take many seconds to answer, and launch
       // waits on this reply — past the cap it's treated as gone and Downloads is used instead.
       const destinationExists =
-        typeof destinationDir === 'string' &&
+        destinationDir !== undefined &&
         (await Promise.race([
           stat(destinationDir).then(
             (stats) => stats.isDirectory(),
@@ -123,7 +117,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
       event.returnValue = {
         ...paths(),
         themeSource: currentThemeSource(),
-        networkPreferences,
+        networkPreferences: settings.networkPreferences ?? {},
         streamsPerNetwork: settings.streamsPerNetwork,
         destinationDir: destinationExists ? destinationDir : undefined
       } satisfies InitialState
@@ -142,12 +136,6 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
       } satisfies InitialState
     }
   })
-
-  handle('setStreamsPerNetwork', async (_event, streamsPerNetwork) =>
-    saveSettings({ streamsPerNetwork })
-  )
-
-  handle('setDestinationDir', async (_event, destinationDir) => saveSettings({ destinationDir }))
 
   handle('openNetworkSettings', async () => {
     await openNetworkSettings()
@@ -214,10 +202,6 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
   })()
 
   handle('checkForUpdate', async () => updateCheckPromise)
-
-  handle('dismissUpdate', async (_event, version) => {
-    await saveSettings({ dismissedUpdateVersion: version })
-  })
 
   return manager
 }

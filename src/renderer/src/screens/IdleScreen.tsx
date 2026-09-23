@@ -37,7 +37,6 @@ export function IdleScreen(): React.JSX.Element {
 
   const interfaces = useAppStore((store) => store.interfaces)
   const homeDir = useAppStore((store) => store.homeDir)
-  const downloadsDir = useAppStore((store) => store.downloadsDir)
   const latencies = useAppStore((store) => store.latencies)
   const url = useAppStore((store) => store.draftUrl)
   const setUrl = useAppStore((store) => store.setDraftUrl)
@@ -108,7 +107,6 @@ export function IdleScreen(): React.JSX.Element {
     selectedInterfaceIds.length > 0 &&
     Boolean(destinationDir) &&
     !starting
-  const effectiveDestinationDir = destinationDir || downloadsDir
   const footerParts = [
     `${selectedInterfaceIds.length} ${selectedInterfaceIds.length === 1 ? 'network' : 'networks'} selected`
   ]
@@ -140,7 +138,7 @@ export function IdleScreen(): React.JSX.Element {
   }
 
   const handleBrowse = async (): Promise<void> => {
-    const chosen = await window.plexo.chooseDestinationFolder(effectiveDestinationDir)
+    const chosen = await window.plexo.chooseDestinationFolder(destinationDir)
     if (chosen) setDestinationDir(chosen)
   }
 
@@ -246,7 +244,7 @@ export function IdleScreen(): React.JSX.Element {
         <div className="flex h-9 items-center gap-[9px] rounded-[9px] border border-border px-3">
           <div className={fieldLabelClass}>TO</div>
           <div className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-[var(--text-secondary)]">
-            {toDisplayPath(effectiveDestinationDir, homeDir)}
+            {toDisplayPath(destinationDir, homeDir)}
           </div>
           <Button
             type="button"
@@ -273,7 +271,7 @@ export function IdleScreen(): React.JSX.Element {
               value={[String(chunksPerNetwork)]}
               onValueChange={(values) => {
                 if (values.length === 0) return
-                void setChunksPerNetwork(Number(values[0]))
+                setChunksPerNetwork(Number(values[0]))
               }}
               disabled={isSingleStreamOnly}
               aria-labelledby="idle-streams-label"

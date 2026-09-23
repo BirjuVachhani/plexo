@@ -3,13 +3,9 @@ export const IpcChannels = {
   pingInterfaces: 'network:ping-interfaces',
   deviceBindingSupported: 'network:device-binding-supported',
   openNetworkSettings: 'network:open-settings',
-  setNetworkPreference: 'network:set-preference',
-  getThemeSource: 'theme:get-source',
-  setThemeSource: 'theme:set-source',
-  setStreamsPerNetwork: 'streams:set-per-network',
   probeUrl: 'download:probe',
   getInitialState: 'app:get-initial-state',
-  setDestinationDir: 'destination:set-dir',
+  updateSettings: 'app:update-settings',
   chooseDestinationFolder: 'dialog:choose-destination-folder',
   chooseSourceFile: 'dialog:choose-source-file',
   readClipboardText: 'clipboard:read-text',
@@ -23,6 +19,5 @@ export const IpcChannels = {
   removeDownload: 'download:remove',
   downloadUpdated: 'download:updated',
   toggleDevToolsPanel: 'dev:toggle-panel',
-  checkForUpdate: 'update:check',
-  dismissUpdate: 'update:dismiss'
+  checkForUpdate: 'update:check'
 } as const

@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises'
+import { access, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { BLOCK, expect, interfacesEnv, NETWORKS, test } from './fixtures'
 
@@ -106,12 +106,13 @@ test.describe('UI journeys @smoke', () => {
   })
 
   test('theme choice survives a restart', async ({ plexo }) => {
-    const before = await plexo.api.getThemeSource()
-    const next = before === 'light' ? 'dark' : 'light'
+    const themeSource = (): Promise<string> =>
+      plexo.evaluateMain(({ nativeTheme }) => nativeTheme.themeSource, undefined)
+    const next = (await themeSource()) === 'light' ? 'dark' : 'light'
     await plexo.page.getByRole('button', { name: `Switch to ${next} theme` }).click()
-    await expect.poll(() => plexo.api.getThemeSource()).toBe(next)
+    await expect.poll(themeSource).toBe(next)
     await plexo.relaunch()
-    expect(await plexo.api.getThemeSource()).toBe(next)
+    expect(await themeSource()).toBe(next)
   })
 
   test('renaming a network survives a restart', async ({ plexo }) => {
@@ -139,14 +140,24 @@ test.describe('UI journeys @smoke', () => {
     await expect(plexo.page.getByText(dirs.dest)).toBeVisible()
   })
 
-  test('a corrupt network-preferences.json does not break the network list', async ({
+  test('a corrupt app-settings.json does not break the app', async ({ plexo, dirs }) => {
+    await plexo.quit()
+    await writeFile(join(dirs.userData, 'app-settings.json'), '{"networkPreferences": {"a": [')
+    await plexo.launch()
+    await expect(plexo.page.getByRole('button', { name: 'Edit network' }).first()).toBeVisible()
+  })
+
+  test('names from the old network-preferences.json are moved into app-settings.json', async ({
     plexo,
     dirs
   }) => {
     await plexo.quit()
-    await writeFile(join(dirs.userData, 'network-preferences.json'), '{"a": 42, "b": [')
+    const [id] = Object.keys(NETWORKS)
+    const legacyPath = join(dirs.userData, 'network-preferences.json')
+    await writeFile(legacyPath, JSON.stringify({ [id]: { customName: 'Office fibre' } }))
     await plexo.launch()
-    await expect(plexo.page.getByRole('button', { name: 'Edit network' }).first()).toBeVisible()
+    await expect(plexo.page.getByText('Office fibre')).toBeVisible()
+    await expect(access(legacyPath)).rejects.toThrow()
   })
 })
 

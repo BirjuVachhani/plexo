@@ -52,13 +52,13 @@ A single TCP connection rarely saturates your actual bandwidth. Even when your c
 Plexo changes that: it splits the file into independent byte ranges and downloads them simultaneously through distinct physical network interfaces.
 
 ```text
-                    ┌── Wi-Fi (IP: 192.168.1.40) ────┐
-                    │                                │
-                    ├── Ethernet (IP: 10.0.0.12)     │
-File ──→ Split ─────┤                                ┼──→ Assembled File
-                    ├── USB Tether (IP: 172.20.10.3) ┤
-                    │                                │
-                    └── Cellular (IP: 21.169.64.78)  ┘
+                    ┌── Wi-Fi (IP: 192.168.1.40) ──────┐
+                    │                                  │
+                    ├── Ethernet (IP: 10.0.0.12) ──────┤
+File ──→ Split ─────┤                                  ├──→ Assembled File
+                    ├── USB Tether (IP: 172.20.10.3) ──┤
+                    │                                  │
+                    └── Cellular (IP: 21.169.64.78) ───┘
 ```
 
 **Multiple networks → concurrent HTTP range requests → aggregated bandwidth**

@@ -55,6 +55,8 @@ function handle<K extends keyof IpcContract>(
   )
 }
 
+const DESTINATION_CHECK_MS = 300
+
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): DownloadManager {
   let cachedInterfaces: NetworkInterfaceInfo[] = []
 
@@ -107,12 +109,17 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
         loadNetworkPreferences()
       ])
       const { destinationDir } = settings
+      // Capped: a folder on a dropped network share can take many seconds to answer, and launch
+      // waits on this reply — past the cap it's treated as gone and Downloads is used instead.
       const destinationExists =
         typeof destinationDir === 'string' &&
-        (await stat(destinationDir).then(
-          (stats) => stats.isDirectory(),
-          () => false
-        ))
+        (await Promise.race([
+          stat(destinationDir).then(
+            (stats) => stats.isDirectory(),
+            () => false
+          ),
+          new Promise<boolean>((resolve) => setTimeout(resolve, DESTINATION_CHECK_MS, false))
+        ]))
       event.returnValue = {
         ...paths(),
         themeSource: currentThemeSource(),

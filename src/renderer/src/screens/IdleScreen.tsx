@@ -1,4 +1,4 @@
-import { planDownload } from '@shared/plan'
+import { PRESET_STREAMS, planDownload } from '@shared/plan'
 import type { ProbeResult } from '@shared/types'
 import { cn } from 'cn'
 import { AlertTriangle, ClipboardPaste } from 'lucide-react'
@@ -19,7 +19,6 @@ type ProbeState =
   | { status: 'error'; message: string }
 
 const PROBE_DEBOUNCE_MS = 600
-const PRESET_STREAMS = [1, 2, 4, 8] as const
 const PASTE_SHORTCUT = window.plexo.platform === 'darwin' ? '⌘V' : 'Ctrl+V'
 
 const fieldLabelClass = 'shrink-0 font-mono text-[10px] tracking-[0.14em] text-muted-foreground'
@@ -38,26 +37,22 @@ export function IdleScreen(): React.JSX.Element {
 
   const interfaces = useAppStore((store) => store.interfaces)
   const homeDir = useAppStore((store) => store.homeDir)
-  const downloadsDir = useAppStore((store) => store.downloadsDir)
   const latencies = useAppStore((store) => store.latencies)
   const url = useAppStore((store) => store.draftUrl)
   const setUrl = useAppStore((store) => store.setDraftUrl)
-  const destinationDir = useAppStore((store) => store.draftDestinationDir)
-  const setDestinationDir = useAppStore((store) => store.setDraftDestinationDir)
+  const destinationDir = useAppStore((store) => store.destinationDir)
+  const setDestinationDir = useAppStore((store) => store.setDestinationDir)
+  const chunksPerNetwork = useAppStore((store) => store.streamsPerNetwork)
+  const setChunksPerNetwork = useAppStore((store) => store.setStreamsPerNetwork)
 
   const [probe, setProbe] = useState<ProbeState>({ status: 'idle' })
   // Tracks deselections rather than selections, so a newly-detected interface starts selected.
   const [deselectedInterfaceIds, setDeselectedInterfaceIds] = useState<string[]>([])
-  const [chunksPerNetwork, setChunksPerNetwork] = useState(2)
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
   const [fileNameOverride, setFileNameOverride] = useState<string | null>(null)
 
   const probeRequestId = useRef(0)
-
-  useEffect(() => {
-    if (!destinationDir && downloadsDir) setDestinationDir(downloadsDir)
-  }, [destinationDir, downloadsDir, setDestinationDir])
 
   useEffect(() => {
     const trimmed = url.trim()
@@ -112,7 +107,6 @@ export function IdleScreen(): React.JSX.Element {
     selectedInterfaceIds.length > 0 &&
     Boolean(destinationDir) &&
     !starting
-  const effectiveDestinationDir = destinationDir || downloadsDir
   const footerParts = [
     `${selectedInterfaceIds.length} ${selectedInterfaceIds.length === 1 ? 'network' : 'networks'} selected`
   ]
@@ -144,7 +138,7 @@ export function IdleScreen(): React.JSX.Element {
   }
 
   const handleBrowse = async (): Promise<void> => {
-    const chosen = await window.plexo.chooseDestinationFolder(effectiveDestinationDir)
+    const chosen = await window.plexo.chooseDestinationFolder(destinationDir)
     if (chosen) setDestinationDir(chosen)
   }
 
@@ -250,7 +244,7 @@ export function IdleScreen(): React.JSX.Element {
         <div className="flex h-9 items-center gap-[9px] rounded-[9px] border border-border px-3">
           <div className={fieldLabelClass}>TO</div>
           <div className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-[var(--text-secondary)]">
-            {toDisplayPath(effectiveDestinationDir, homeDir)}
+            {toDisplayPath(destinationDir, homeDir)}
           </div>
           <Button
             type="button"

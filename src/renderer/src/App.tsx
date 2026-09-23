@@ -75,17 +75,11 @@ function App(): React.JSX.Element {
   const interfacesStatus = useAppStore((store) => store.interfacesStatus)
   const currentDownload = useAppStore((store) => store.currentDownload)
   const clearCurrentDownload = useAppStore((store) => store.clearCurrentDownload)
-  const loadNetworkPreferences = useAppStore((store) => store.loadNetworkPreferences)
-  const loadThemeSource = useAppStore((store) => store.loadThemeSource)
-  const loadInitialPaths = useAppStore((store) => store.loadInitialPaths)
   const checkForUpdate = useAppStore((store) => store.checkForUpdate)
 
   useEffect(() => {
-    loadNetworkPreferences()
-    loadThemeSource()
-    loadInitialPaths()
     checkForUpdate()
-  }, [loadNetworkPreferences, loadThemeSource, loadInitialPaths, checkForUpdate])
+  }, [checkForUpdate])
 
   const handleNewDownload = (): void => {
     if (currentDownload) void window.plexo.removeDownload(currentDownload.id)

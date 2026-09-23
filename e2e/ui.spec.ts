@@ -125,6 +125,20 @@ test.describe('UI journeys @smoke', () => {
     await expect(plexo.page.getByText('Office fibre')).toBeVisible()
   })
 
+  test('streams and destination folder survive a restart', async ({ plexo, dirs }) => {
+    await stubNativeUi(plexo, dirs.dest)
+    await plexo.page.getByRole('button', { name: 'Browse…' }).click()
+    await plexo.page.getByRole('button', { name: '4×' }).click()
+    await expect(plexo.page.getByText(dirs.dest)).toBeVisible()
+
+    await plexo.relaunch()
+    await expect(plexo.page.getByRole('button', { name: '4×' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    await expect(plexo.page.getByText(dirs.dest)).toBeVisible()
+  })
+
   test('a corrupt network-preferences.json does not break the network list', async ({
     plexo,
     dirs

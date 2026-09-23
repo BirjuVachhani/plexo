@@ -1,4 +1,4 @@
-import { planDownload } from '@shared/plan'
+import { PRESET_STREAMS, planDownload } from '@shared/plan'
 import type { ProbeResult } from '@shared/types'
 import { cn } from 'cn'
 import { AlertTriangle, ClipboardPaste } from 'lucide-react'
@@ -19,7 +19,6 @@ type ProbeState =
   | { status: 'error'; message: string }
 
 const PROBE_DEBOUNCE_MS = 600
-const PRESET_STREAMS = [1, 2, 4, 8] as const
 const PASTE_SHORTCUT = window.plexo.platform === 'darwin' ? '⌘V' : 'Ctrl+V'
 
 const fieldLabelClass = 'shrink-0 font-mono text-[10px] tracking-[0.14em] text-muted-foreground'
@@ -42,22 +41,19 @@ export function IdleScreen(): React.JSX.Element {
   const latencies = useAppStore((store) => store.latencies)
   const url = useAppStore((store) => store.draftUrl)
   const setUrl = useAppStore((store) => store.setDraftUrl)
-  const destinationDir = useAppStore((store) => store.draftDestinationDir)
-  const setDestinationDir = useAppStore((store) => store.setDraftDestinationDir)
+  const destinationDir = useAppStore((store) => store.destinationDir)
+  const setDestinationDir = useAppStore((store) => store.setDestinationDir)
+  const chunksPerNetwork = useAppStore((store) => store.streamsPerNetwork)
+  const setChunksPerNetwork = useAppStore((store) => store.setStreamsPerNetwork)
 
   const [probe, setProbe] = useState<ProbeState>({ status: 'idle' })
   // Tracks deselections rather than selections, so a newly-detected interface starts selected.
   const [deselectedInterfaceIds, setDeselectedInterfaceIds] = useState<string[]>([])
-  const [chunksPerNetwork, setChunksPerNetwork] = useState(2)
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
   const [fileNameOverride, setFileNameOverride] = useState<string | null>(null)
 
   const probeRequestId = useRef(0)
-
-  useEffect(() => {
-    if (!destinationDir && downloadsDir) setDestinationDir(downloadsDir)
-  }, [destinationDir, downloadsDir, setDestinationDir])
 
   useEffect(() => {
     const trimmed = url.trim()
@@ -277,7 +273,7 @@ export function IdleScreen(): React.JSX.Element {
               value={[String(chunksPerNetwork)]}
               onValueChange={(values) => {
                 if (values.length === 0) return
-                setChunksPerNetwork(Number(values[0]))
+                void setChunksPerNetwork(Number(values[0]))
               }}
               disabled={isSingleStreamOnly}
               aria-labelledby="idle-streams-label"

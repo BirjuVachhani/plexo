@@ -1,3 +1,4 @@
+import { stat } from 'node:fs/promises'
 import { is } from '@electron-toolkit/utils'
 import {
   app,
@@ -11,7 +12,7 @@ import {
 } from 'electron'
 import { IpcChannels } from '../../shared/ipc-channels'
 import type { IpcContract } from '../../shared/ipc-contract'
-import type { NetworkInterfaceInfo, ThemeSource } from '../../shared/types'
+import type { InitialState, NetworkInterfaceInfo, ThemeSource } from '../../shared/types'
 import { DownloadManager } from '../download/downloadManager'
 import { getDefaultDownloadsDir, getHomeDir } from '../download/paths'
 import { probeUrl } from '../download/probe'
@@ -19,11 +20,7 @@ import { deviceBindingSupported } from '../network/deviceBinding'
 import { measureLatencies } from '../network/latency'
 import { listActiveInterfaces } from '../network/interfaces'
 import { loadNetworkPreferences, saveNetworkPreference } from '../network/preferences'
-import {
-  loadDismissedUpdateVersion,
-  saveDismissedUpdateVersion,
-  saveThemeSource
-} from '../settings'
+import { loadSettings, saveSettings } from '../settings'
 import { testKnobs } from '../testKnobs'
 import { checkForUpdate, UPDATE_PAGE_URL } from '../updateCheck'
 
@@ -80,8 +77,6 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
   const bindingSupport = deviceBindingSupported()
   handle('deviceBindingSupported', async () => bindingSupport)
 
-  handle('getNetworkPreferences', async () => loadNetworkPreferences())
-
   handle('setNetworkPreference', async (_event, id, patch) => saveNetworkPreference(id, patch))
 
   // The app only ever assigns 'light'/'dark' to nativeTheme.themeSource (main/index.ts's startup
@@ -94,21 +89,64 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
 
   handle('setThemeSource', async (_event, source) => {
     nativeTheme.themeSource = source
-    await saveThemeSource(source)
+    await saveSettings({ themeSource: source })
     return currentThemeSource()
   })
+
+  // Answered via sendSync from the preload, which blocks the page until returnValue is set — so a
+  // throw here must still reply (with no saved values) rather than leave the window never showing.
+  ipcMain.on(IpcChannels.getInitialState, async (event) => {
+    const paths = (): Pick<InitialState, 'homeDir' | 'downloadsDir' | 'isDev'> => ({
+      homeDir: getHomeDir(),
+      downloadsDir: getDefaultDownloadsDir(),
+      isDev: is.dev
+    })
+    try {
+      const [settings, networkPreferences] = await Promise.all([
+        loadSettings(),
+        loadNetworkPreferences()
+      ])
+      const { destinationDir } = settings
+      const destinationExists =
+        typeof destinationDir === 'string' &&
+        (await stat(destinationDir).then(
+          (stats) => stats.isDirectory(),
+          () => false
+        ))
+      event.returnValue = {
+        ...paths(),
+        themeSource: currentThemeSource(),
+        networkPreferences,
+        streamsPerNetwork: settings.streamsPerNetwork,
+        destinationDir: destinationExists ? destinationDir : undefined
+      } satisfies InitialState
+    } catch (error) {
+      console.error('[plexo] failed to read initial state', error)
+      let fallbackPaths: ReturnType<typeof paths>
+      try {
+        fallbackPaths = paths()
+      } catch {
+        fallbackPaths = { homeDir: '', downloadsDir: '', isDev: is.dev }
+      }
+      event.returnValue = {
+        ...fallbackPaths,
+        themeSource: currentThemeSource(),
+        networkPreferences: {}
+      } satisfies InitialState
+    }
+  })
+
+  handle('setStreamsPerNetwork', async (_event, streamsPerNetwork) =>
+    saveSettings({ streamsPerNetwork })
+  )
+
+  handle('setDestinationDir', async (_event, destinationDir) => saveSettings({ destinationDir }))
 
   handle('openNetworkSettings', async () => {
     await openNetworkSettings()
   })
 
   handle('probeUrl', async (_event, url) => probeUrl(url))
-
-  handle('getInitialPaths', async () => ({
-    homeDir: getHomeDir(),
-    downloadsDir: getDefaultDownloadsDir(),
-    isDev: is.dev
-  }))
 
   handle('chooseDestinationFolder', async (_event, defaultPath) => {
     const window = getWindow()
@@ -164,14 +202,14 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
       ? { version: testKnobs.forceUpdateVersion, url: UPDATE_PAGE_URL }
       : await checkForUpdate(app.getVersion())
     if (!info) return null
-    const dismissedVersion = await loadDismissedUpdateVersion()
+    const { dismissedUpdateVersion: dismissedVersion } = await loadSettings()
     return { ...info, dismissed: info.version === dismissedVersion }
   })()
 
   handle('checkForUpdate', async () => updateCheckPromise)
 
   handle('dismissUpdate', async (_event, version) => {
-    await saveDismissedUpdateVersion(version)
+    await saveSettings({ dismissedUpdateVersion: version })
   })
 
   return manager

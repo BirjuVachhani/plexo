@@ -1,6 +1,5 @@
 import type {
   DownloadState,
-  InitialPaths,
   NetworkInterfaceInfo,
   NetworkPreference,
   NetworkPreferences,
@@ -20,15 +19,15 @@ export interface IpcContract {
   pingInterfaces: { args: []; result: Record<string, number | null> }
   deviceBindingSupported: { args: []; result: boolean }
   openNetworkSettings: { args: []; result: void }
-  getNetworkPreferences: { args: []; result: NetworkPreferences }
   setNetworkPreference: {
     args: [id: string, patch: NetworkPreference]
     result: NetworkPreferences
   }
   getThemeSource: { args: []; result: ThemeSource }
   setThemeSource: { args: [source: ThemeSource]; result: ThemeSource }
+  setStreamsPerNetwork: { args: [streamsPerNetwork: number]; result: void }
   probeUrl: { args: [url: string]; result: ProbeResult }
-  getInitialPaths: { args: []; result: InitialPaths }
+  setDestinationDir: { args: [dir: string]; result: void }
   chooseDestinationFolder: { args: [defaultPath: string]; result: string | null }
   chooseSourceFile: { args: []; result: string | null }
   readClipboardText: { args: []; result: string }

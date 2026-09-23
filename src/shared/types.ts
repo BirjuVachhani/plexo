@@ -156,6 +156,16 @@ export interface InitialPaths {
   isDev: boolean
 }
 
+/** Everything the renderer needs for its first paint, read synchronously by the preload so no
+ * saved value flashes in over a default a moment after launch. */
+export interface InitialState extends InitialPaths {
+  themeSource: ThemeSource
+  networkPreferences: NetworkPreferences
+  streamsPerNetwork?: number
+  /** The last folder picked, if it still exists — otherwise the renderer uses downloadsDir. */
+  destinationDir?: string
+}
+
 export interface StartDownloadRequest {
   url: string
   destinationDir: string

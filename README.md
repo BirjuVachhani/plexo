@@ -54,8 +54,8 @@ Plexo changes that: it splits the file into independent byte ranges and download
 ```text
                     ┌── Wi-Fi (IP: 192.168.1.40) ────┐
                     │                                │
-File ──→ Split ─────┼── Ethernet (IP: 10.0.0.12) ────┼──→ Assembled File
-                    │                                │
+                    ├── Ethernet (IP: 10.0.0.12)     │
+File ──→ Split ─────┤                                ┼──→ Assembled File
                     ├── USB Tether (IP: 172.20.10.3) ┤
                     │                                │
                     └── Cellular (IP: 21.169.64.78)  ┘
@@ -146,10 +146,10 @@ Instead, Plexo uses a **dynamic work-stealing queue**:
 5. **Racing the tail.** Once no chunk is left waiting, a free connection can start a second attempt at a chunk another connection is fetching too slowly (one that still needs as long again as it has already taken, at least 5 seconds), picking up from where the first had got to. Whichever finishes first wins and the other is dropped. It costs a few bytes fetched twice at the very end, and it means one slow connection — or one slow network — can no longer hold the whole download back. A stream doing this is marked **BACKUP** in the streams table.
 
 ```text
-Shared Pending Queue: [Chunk #4] [Chunk #5] [Chunk #6] [Chunk #7] [Chunk #8] ...
-                           ↑          ↑          ↑          ↑
-                        Worker 1   Worker 2   Worker 3   Worker 4
-                        (Wi-Fi)   (Ethernet)(USB Tether)(Cellular)
+Shared Pending Queue: [Chunk #4]  [Chunk #5]  [Chunk #6]  [Chunk #7]  [Chunk #8]  ...
+                           ↑           ↑           ↑           ↑
+                        Worker 1    Worker 2    Worker 3    Worker 4
+                        (Wi-Fi)    (Ethernet) (USB Tether) (Cellular)
 ```
 
 Work distribution is dynamically proportional to each interface's real-time throughput. If one network slows down or disconnects, remaining workers continue draining the queue without stalled shares.

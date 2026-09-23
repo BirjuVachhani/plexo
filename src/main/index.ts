@@ -97,7 +97,10 @@ app.whenReady().then(async () => {
 
   // Applied before the window is created so the initial background/icon already match —
   // the saved preference otherwise only takes effect on the next 'updated' event.
-  await migrateLegacyNetworkPreferences()
+  // A failed move keeps the old file, to retry next launch — it must never stop the window opening.
+  await migrateLegacyNetworkPreferences().catch((error) =>
+    console.error('[plexo] failed to migrate network-preferences.json', error)
+  )
   nativeTheme.themeSource = await loadThemeSource()
 
   app.on('browser-window-created', (_, window) => {

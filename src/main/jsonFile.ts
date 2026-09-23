@@ -1,11 +1,15 @@
 import { readFile, rename, writeFile } from 'node:fs/promises'
 
-/** Parsed contents, or undefined when the file is missing (first run) or unreadable/corrupt. */
+/** Parsed contents, or undefined when the file is missing (first run) or corrupt. Any other
+ * failure (a lock, too many open files) throws, so a save never overwrites what it couldn't read. */
 export async function readJson(path: string): Promise<unknown> {
   try {
     return JSON.parse(await readFile(path, 'utf-8'))
-  } catch {
-    return undefined
+  } catch (error) {
+    if (error instanceof SyntaxError || (error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return undefined
+    }
+    throw error
   }
 }
 

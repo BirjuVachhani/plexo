@@ -85,11 +85,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
     nativeTheme.themeSource === 'dark' ? 'dark' : 'light'
 
   handle('updateSettings', async (_event, patch) => {
-    const saved = await saveSettings(patch)
-    // The one setting main also applies — sanitized first, so only 'light'/'dark' reach it.
-    if (patch?.themeSource !== undefined && saved.themeSource) {
-      nativeTheme.themeSource = saved.themeSource
+    // The one setting main also applies — before saving, so a failed write still switches the
+    // window to the theme the toggle now shows.
+    if (patch?.themeSource === 'light' || patch?.themeSource === 'dark') {
+      nativeTheme.themeSource = patch.themeSource
     }
+    await saveSettings(patch)
   })
 
   // Answered via sendSync from the preload, which blocks the page until returnValue is set — so a

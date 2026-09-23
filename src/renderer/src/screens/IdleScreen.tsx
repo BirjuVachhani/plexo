@@ -275,7 +275,7 @@ export function IdleScreen(): React.JSX.Element {
         {subnetConflict && (
           <WarningAlert
             title="Same local network detected"
-            message={`${subnetConflict.names.join(' and ')} are connected to the same subnet (${subnetConflict.subnet}). Windows routes all traffic through one connection on the same subnet, so speeds cannot be combined. Connect to distinct networks (e.g. Wi-Fi + phone USB tethering) to combine bandwidth.`}
+            message={`${subnetConflict.names.join(' and ')} are connected to the same subnet (${subnetConflict.subnet}). The operating system routes all traffic through one connection on the same subnet, so speeds cannot be combined. Connect to distinct networks (e.g. Wi-Fi + phone USB tethering) to combine bandwidth.`}
           />
         )}
 

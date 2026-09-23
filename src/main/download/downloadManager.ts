@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { mkdir, readFile, readdir, rename, rm, stat, statfs, writeFile } from 'node:fs/promises'
+import { readFile, readdir, rename, rm, stat, statfs, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { finished, pipeline } from 'node:stream/promises'
@@ -29,7 +29,7 @@ import {
   reconcilePartFileSize,
   removeHedgeFiles
 } from './partFiles'
-import { reserveDestinationPath } from './paths'
+import { ensureDirectory, reserveDestinationPath } from './paths'
 import { pickWork, type SchedulerPolicy, type Work } from './scheduler'
 import {
   createSimSession,
@@ -502,8 +502,8 @@ export class DownloadManager {
     requestPayload: StartDownloadRequest,
     interfaces: NetworkInterfaceInfo[]
   ): Promise<string> {
-    await mkdir(this.downloadsRoot(), { recursive: true })
-    await mkdir(requestPayload.destinationDir, { recursive: true })
+    await ensureDirectory(this.downloadsRoot())
+    await ensureDirectory(requestPayload.destinationDir)
     await ensureDiskSpace(
       requestPayload.destinationDir,
       this.downloadsRoot(),
@@ -522,7 +522,7 @@ export class DownloadManager {
     const id = randomUUID()
     const tempDir = join(this.downloadDir(id), 'parts')
     try {
-      await mkdir(tempDir, { recursive: true })
+      await ensureDirectory(tempDir)
     } catch (error) {
       await rm(destinationPath, { force: true })
       throw error
@@ -705,7 +705,7 @@ export class DownloadManager {
     // The part files are the real record of what's downloaded, not the manifest. If one went
     // missing or came up short while paused (userData cleaned out, a crash before a write hit
     // the disk), fetch that block again instead of failing at assembly.
-    await mkdir(runtime.tempDir, { recursive: true })
+    await ensureDirectory(runtime.tempDir)
     await removeHedgeFiles(runtime.tempDir)
     await Promise.all(
       runtime.blocks.map(async (block) => {
@@ -1755,7 +1755,7 @@ export class DownloadManager {
           requestPayload: runtime.requestPayload,
           activeInterfaces: runtime.activeInterfaces
         }
-        await mkdir(dir, { recursive: true })
+        await ensureDirectory(dir)
         await writeFile(temporaryPath, JSON.stringify(persisted), 'utf-8')
         await rename(temporaryPath, path)
       })

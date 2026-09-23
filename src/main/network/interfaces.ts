@@ -78,6 +78,26 @@ async function getWindowsAdapters(): Promise<Map<string, WindowsAdapter>> {
   }
 }
 
+/** Computes the CIDR subnet (e.g. "192.168.1.0/24") from an IPv4 address and netmask. */
+export function ipv4Subnet(address: string, netmask: string): string | null {
+  const ipParts = address.split('.').map(Number)
+  const maskParts = netmask.split('.').map(Number)
+  if (ipParts.length !== 4 || maskParts.length !== 4) return null
+  if (
+    ipParts.some((p) => isNaN(p) || p < 0 || p > 255) ||
+    maskParts.some((p) => isNaN(p) || p < 0 || p > 255)
+  ) {
+    return null
+  }
+  const subnetParts = ipParts.map((part, i) => part & maskParts[i])
+  const maskBits =
+    maskParts
+      .map((b) => b.toString(2).padStart(8, '0'))
+      .join('')
+      .split('1').length - 1
+  return `${subnetParts.join('.')}/${maskBits}`
+}
+
 /**
  * Active non-loopback IPv4 interfaces. Each one has its
  * own local IP, which is what lets us bind a download's outgoing connection
@@ -105,13 +125,16 @@ export async function listActiveInterfaces(): Promise<NetworkInterfaceInfo[]> {
     // NDIS media: 1 = wireless LAN, 9 = native 802.11, 14 = Ethernet (802.3).
     if (adapter?.NdisPhysicalMedium === 1 || adapter?.NdisPhysicalMedium === 9) kind = 'wifi'
     else if (kind === 'other' && adapter?.NdisPhysicalMedium === 14) kind = 'ethernet'
+    const subnet = ipv4.netmask ? (ipv4Subnet(ipv4.address, ipv4.netmask) ?? undefined) : undefined
     result.push({
       id: device,
       device,
       displayName: hardwareName ?? adapter?.InterfaceDescription ?? device,
       address: ipv4.address,
       kind,
-      mac: ipv4.mac && ipv4.mac !== '00:00:00:00:00:00' ? ipv4.mac : undefined
+      mac: ipv4.mac && ipv4.mac !== '00:00:00:00:00:00' ? ipv4.mac : undefined,
+      subnet,
+      netmask: ipv4.netmask
     })
   }
 

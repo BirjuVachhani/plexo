@@ -10,6 +10,8 @@ export interface NetworkInterfaceInfo {
   address: string
   kind: NetworkInterfaceKind
   mac?: string
+  subnet?: string
+  netmask?: string
 }
 
 export interface ProbeResult {

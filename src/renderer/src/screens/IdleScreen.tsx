@@ -1,11 +1,11 @@
 import { PRESET_STREAMS, planDownload } from '@shared/plan'
 import type { ProbeResult } from '@shared/types'
 import { cn } from 'cn'
-import { AlertTriangle, ClipboardPaste } from 'lucide-react'
+import { AlertTriangle, ClipboardPaste, Info } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { NetworkCard } from '../components/NetworkCard'
 import { ScreenFooter } from '../components/ScreenFooter'
-import { Alert, AlertDescription } from '../components/ui/alert'
+import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Button } from '../components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group'
 import { useNetworkPolling } from '../hooks/useNetworkPolling'
@@ -28,6 +28,30 @@ function ErrorAlert({ message }: { message: string }): React.JSX.Element {
     <Alert variant="destructive" className="py-1.5">
       <AlertTriangle />
       <AlertDescription>{message}</AlertDescription>
+    </Alert>
+  )
+}
+
+function WarningAlert({ title, message }: { title?: string; message: string }): React.JSX.Element {
+  return (
+    <Alert className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 py-2">
+      <AlertTriangle className="text-amber-600 dark:text-amber-400" />
+      {title && <AlertTitle className="text-xs font-semibold">{title}</AlertTitle>}
+      <AlertDescription className="text-xs text-amber-800 dark:text-amber-200/90 leading-relaxed">
+        {message}
+      </AlertDescription>
+    </Alert>
+  )
+}
+
+function InfoAlert({ title, message }: { title?: string; message: string }): React.JSX.Element {
+  return (
+    <Alert className="border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300 py-2">
+      <Info className="text-blue-600 dark:text-blue-400" />
+      {title && <AlertTitle className="text-xs font-semibold">{title}</AlertTitle>}
+      <AlertDescription className="text-xs text-blue-800 dark:text-blue-200/90 leading-relaxed">
+        {message}
+      </AlertDescription>
     </Alert>
   )
 }
@@ -114,6 +138,25 @@ export function IdleScreen(): React.JSX.Element {
     footerParts.push(`${totalChunks} ${totalChunks === 1 ? 'stream' : 'parallel streams'}`)
   }
   if (ready && ready.totalBytes !== null) footerParts.push(formatBytes(ready.totalBytes))
+
+  let subnetConflict: { subnet: string; names: string[] } | null = null
+  if (selectedInterfaceIds.length > 1) {
+    const subnets = new Map<string, string[]>()
+    for (const id of selectedInterfaceIds) {
+      const iface = interfaces.find((i) => i.id === id)
+      if (iface?.subnet) {
+        const names = subnets.get(iface.subnet) ?? []
+        names.push(iface.displayName)
+        subnets.set(iface.subnet, names)
+      }
+    }
+    for (const [subnet, names] of subnets.entries()) {
+      if (names.length > 1) {
+        subnetConflict = { subnet, names }
+        break
+      }
+    }
+  }
 
   const handleToggleInterface = (id: string): void => {
     if (isSingleStreamOnly) {
@@ -216,6 +259,20 @@ export function IdleScreen(): React.JSX.Element {
 
         {probe.status === 'error' && <ErrorAlert message={probe.message} />}
 
+        {isSingleStreamOnly && (
+          <InfoAlert
+            title="Single-connection mode"
+            message="This server does not support parallel range requests (206 Partial Content). The download will run as a single stream through whichever network you choose below."
+          />
+        )}
+
+        {subnetConflict && (
+          <WarningAlert
+            title="Same local network detected"
+            message={`${subnetConflict.names.join(' and ')} are connected to the same subnet (${subnetConflict.subnet}). The operating system routes all traffic through one connection on the same subnet, so speeds cannot be combined. Connect to distinct networks (e.g. Wi-Fi + phone USB tethering) to combine bandwidth.`}
+          />
+        )}
+
         <div
           className={cn(
             'flex h-9 items-center gap-[9px] rounded-[9px] border px-3',
@@ -312,12 +369,6 @@ export function IdleScreen(): React.JSX.Element {
           </div>
         </div>
 
-        {isSingleStreamOnly && (
-          <div className="text-[11.5px] text-muted-foreground">
-            This server doesn’t support multi-chunk downloads for this file — using a single
-            network.
-          </div>
-        )}
         {startError && <ErrorAlert message={startError} />}
       </div>
 

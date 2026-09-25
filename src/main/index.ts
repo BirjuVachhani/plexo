@@ -46,9 +46,9 @@ function installDevMenu(): void {
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 760,
-    height: 560,
+    height: 640,
     minWidth: 720,
-    minHeight: 520,
+    minHeight: 600,
     show: false,
     autoHideMenuBar: true,
     title: 'Plexo',

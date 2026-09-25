@@ -140,6 +140,32 @@ test.describe('file names @smoke', () => {
     expect(sha256(await readFile(one.destinationPath))).toBe(first.sha256)
   })
 
+  test('a file appearing under the final name mid-download is not overwritten', async ({
+    plexo,
+    serve
+  }) => {
+    const { existsSync } = await import('node:fs')
+    const { readFile, writeFile } = await import('node:fs/promises')
+    const origin = await serve({ size: 16 * BLOCK })
+    const reached = origin.hold(8 * BLOCK)
+    const id = await plexo.start(origin.url(), origin.sha256, { connections: 1 })
+    await reached
+    const pending = (await plexo.current())!
+    expect(existsSync(`${pending.destinationPath}.plexo`)).toBe(true)
+    expect(existsSync(pending.destinationPath)).toBe(false)
+
+    await writeFile(pending.destinationPath, 'another application created this file')
+    // The fixture's stray-file check should ignore the deliberate external file.
+    plexo.tracked.get(id)!.destBefore.push(pending.fileName)
+    origin.release()
+
+    const done = await plexo.waitForStatus('completed')
+    expect(done.fileName).toBe('test (1).bin')
+    expect(await readFile(pending.destinationPath, 'utf-8')).toBe(
+      'another application created this file'
+    )
+  })
+
   test('a malformed %-escape in the URL path still downloads', async ({ plexo, serve }) => {
     const origin = await serve({ size: 2 * BLOCK })
     await plexo.start(origin.url('/files/100%25%E0%A4%A.bin'), origin.sha256)

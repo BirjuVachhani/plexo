@@ -107,6 +107,8 @@ interface SpeedSample {
 
 interface DownloadRuntime {
   state: DownloadState
+  publicationPath?: string
+  publicationIdentity?: { dev: number; ino: number }
   requestPayload: StartDownloadRequest
   activeInterfaces: NetworkInterfaceInfo[]
   chunkRuntimes: Map<number, ChunkRuntime>
@@ -136,9 +138,12 @@ interface DownloadRuntime {
 }
 
 interface PersistedDownload {
-  version: 3
+  version: 4
   savedAt: number
   state: DownloadState
+  partialPath: string
+  publicationPath?: string
+  publicationIdentity?: { dev: number; ino: number }
   requestPayload: StartDownloadRequest
   activeInterfaces: NetworkInterfaceInfo[]
 }
@@ -326,7 +331,7 @@ export class DownloadManager {
           const persisted = JSON.parse(
             await readFile(this.manifestPath(id), 'utf-8')
           ) as PersistedDownload
-          if (persisted.version !== 3 || persisted.state.id !== id || !persisted.state.blocks)
+          if (persisted.version !== 4 || persisted.state.id !== id || !persisted.state.blocks)
             return
 
           const state = persisted.state
@@ -353,28 +358,38 @@ export class DownloadManager {
             if (block.status === 'downloading') block.status = 'pending'
           }
 
-          const file = new DownloadFile(state.destinationPath, id)
+          const file = new DownloadFile(persisted.partialPath)
           if (state.status === 'paused') {
             const size = await file.size().catch(() => -1)
-            if (size < 0) {
-              const publishedSize = await stat(state.destinationPath).then(
-                (entry) => entry.size,
-                () => -1
-              )
-              const expected = state.totalBytes || state.bytesDownloaded
-              if (
-                blocks.every((block) => block.status === 'completed') &&
-                publishedSize === expected
-              ) {
-                state.status = 'completed'
-                state.error = undefined
-                state.completedAt ??= persisted.savedAt
-              } else {
-                state.status = 'error'
-                state.error =
-                  'The partial download file is missing. Remove this download and start again.'
-                if (publishedSize === 0) await rm(state.destinationPath, { force: true })
-              }
+            const publishedPath = persisted.publicationPath ?? state.destinationPath
+            const published = await stat(publishedPath).catch(() => null)
+            const publishedSize = published?.size ?? -1
+            const expected = state.totalBytes || state.bytesDownloaded
+            const sameFile =
+              !!published &&
+              (size >= 0
+                ? await stat(file.path)
+                    .then(
+                      (partial) => partial.dev === published.dev && partial.ino === published.ino
+                    )
+                    .catch(() => false)
+                : persisted.publicationIdentity?.dev === published.dev &&
+                  persisted.publicationIdentity?.ino === published.ino)
+            if (
+              blocks.every((block) => block.status === 'completed') &&
+              publishedSize === expected &&
+              sameFile
+            ) {
+              state.status = 'completed'
+              state.destinationPath = publishedPath
+              state.fileName = basename(publishedPath)
+              state.error = undefined
+              state.completedAt ??= persisted.savedAt
+              if (size >= 0) await file.discard()
+            } else if (size < 0) {
+              state.status = 'error'
+              state.error =
+                'The partial download file is missing. Remove this download and start again.'
             } else {
               for (const block of blocks) {
                 const length = block.rangeEnd === null ? 0 : block.rangeEnd - block.rangeStart + 1
@@ -393,6 +408,8 @@ export class DownloadManager {
 
           restored.push({
             state,
+            publicationPath: persisted.publicationPath,
+            publicationIdentity: persisted.publicationIdentity,
             requestPayload: persisted.requestPayload,
             activeInterfaces: persisted.activeInterfaces,
             chunkRuntimes: new Map(),
@@ -424,9 +441,22 @@ export class DownloadManager {
     restored.sort((a, b) => b.state.startedAt - a.state.startedAt)
     const [current, ...orphans] = restored
 
-    await Promise.all(orphans.map((runtime) => this.removePersistedDownload(runtime)))
+    await Promise.all(
+      orphans.map((runtime) =>
+        this.removePersistedDownload(runtime, runtime.file.path !== current?.file.path)
+      )
+    )
 
     if (current) {
+      if (current.state.status === 'completed' && current.publicationIdentity) {
+        const published = await stat(current.state.destinationPath).catch(() => null)
+        if (
+          published?.dev === current.publicationIdentity.dev &&
+          published.ino === current.publicationIdentity.ino
+        ) {
+          await current.file.discard().catch(() => {})
+        }
+      }
       this.runtimes.set(current.state.id, current)
       await this.persistNow(current)
     }
@@ -545,13 +575,7 @@ export class DownloadManager {
     )
 
     const id = randomUUID()
-    const file = new DownloadFile(destinationPath, id)
-    try {
-      await file.create()
-    } catch (error) {
-      await rm(destinationPath, { force: true })
-      throw error
-    }
+    const file = new DownloadFile(`${destinationPath}.plexo`)
 
     // The UI caps how many cells it renders separately (see BlockGrid), by bucketing these
     // blocks rather than by shrinking their count here.
@@ -807,7 +831,6 @@ export class DownloadManager {
     await runtime.runPromise
     await runtime.file.discard()
     unregisterSimSession(runtime.requestPayload.url)
-    await this.discardUnfinishedDestination(runtime)
     await this.removePersistedDownload(runtime)
   }
 
@@ -890,7 +913,6 @@ export class DownloadManager {
         this.pushUpdate(runtime)
         await runtime.file.discard()
         unregisterSimSession(runtime.requestPayload.url)
-        await this.discardUnfinishedDestination(runtime)
       }
       return
     }
@@ -901,10 +923,23 @@ export class DownloadManager {
         throw new Error('Download is incomplete — refusing to publish the file')
       }
       await this.persistNow(runtime)
-      await runtime.file.publish(runtime.state.totalBytes)
+      const publishedPath = await runtime.file.publish(
+        runtime.state.destinationPath,
+        runtime.state.totalBytes,
+        async (candidate) => {
+          runtime.publicationPath = candidate
+          const partial = await stat(runtime.file.path)
+          runtime.publicationIdentity = { dev: partial.dev, ino: partial.ino }
+          await this.persistNow(runtime, true)
+        }
+      )
+      runtime.state.destinationPath = publishedPath
+      runtime.state.fileName = basename(publishedPath)
       runtime.state.status = 'completed'
       runtime.state.completedAt = Date.now()
       runtime.state.bytesDownloaded = runtime.state.totalBytes || runtime.state.bytesDownloaded
+      await this.persistNow(runtime)
+      await runtime.file.discard().catch(() => {})
       this.notify('Download Complete', `${runtime.state.fileName} has finished downloading.`)
     } catch (error) {
       runtime.state.status = 'error'
@@ -914,9 +949,8 @@ export class DownloadManager {
     runtime.publishing = false
 
     this.pushUpdate(runtime)
-    if (runtime.state.status !== 'completed') await runtime.file.discard()
-    unregisterSimSession(runtime.requestPayload.url)
-    await this.discardUnfinishedDestination(runtime)
+    // Publication failures keep the complete partial file so Resume can try again.
+    if (runtime.state.status === 'completed') unregisterSimSession(runtime.requestPayload.url)
   }
 
   /**
@@ -1679,21 +1713,6 @@ export class DownloadManager {
     window.webContents.send(IpcChannels.downloadUpdated, structuredClone(runtime.state))
   }
 
-  /**
-   * Releases the placeholder file reserved at start when the download won't be
-   * filling it in, so its name is free for the next attempt. Only ever removes
-   * a path this download created and never finished writing — a completed
-   * download keeps its file.
-   */
-  private async discardUnfinishedDestination(runtime: DownloadRuntime): Promise<void> {
-    if (runtime.state.status === 'completed') return
-    try {
-      await rm(runtime.state.destinationPath, { force: true })
-    } catch {
-      // Best-effort — a stray empty file isn't worth failing the download over.
-    }
-  }
-
   private schedulePersistence(runtime: DownloadRuntime): void {
     if (this.suspending || runtime.removed || runtime.persistenceTimer) return
     runtime.persistenceTimer = setTimeout(() => {
@@ -1702,14 +1721,14 @@ export class DownloadManager {
     }, CHECKPOINT_INTERVAL_MS)
   }
 
-  private persistNow(runtime: DownloadRuntime): Promise<void> {
+  private persistNow(runtime: DownloadRuntime, required = false): Promise<void> {
     if (runtime.removed) return runtime.persistenceChain
     if (runtime.persistenceTimer) {
       clearTimeout(runtime.persistenceTimer)
       runtime.persistenceTimer = undefined
     }
 
-    runtime.persistenceChain = runtime.persistenceChain
+    const operation = runtime.persistenceChain
       .catch(() => {})
       .then(async () => {
         if (runtime.removed) return
@@ -1717,9 +1736,12 @@ export class DownloadManager {
         const path = this.manifestPath(runtime.state.id)
         const temporaryPath = `${path}.tmp`
         const persisted: PersistedDownload = {
-          version: 3,
+          version: 4,
           savedAt: Date.now(),
           state: structuredClone(runtime.state),
+          partialPath: runtime.file.path,
+          publicationPath: runtime.publicationPath,
+          publicationIdentity: runtime.publicationIdentity,
           requestPayload: runtime.requestPayload,
           activeInterfaces: runtime.activeInterfaces
         }
@@ -1730,17 +1752,20 @@ export class DownloadManager {
         await writeFile(temporaryPath, JSON.stringify(persisted), 'utf-8')
         await rename(temporaryPath, path)
       })
-      .catch(() => {
-        // Progress persistence is best-effort; transfer errors are surfaced separately.
-      })
-    return runtime.persistenceChain
+    runtime.persistenceChain = operation.catch(() => {
+      // Routine progress checkpoints are best-effort. Publication intent is required.
+    })
+    return required ? operation : runtime.persistenceChain
   }
 
-  private async removePersistedDownload(runtime: DownloadRuntime): Promise<void> {
+  private async removePersistedDownload(
+    runtime: DownloadRuntime,
+    discardPartial = true
+  ): Promise<void> {
     runtime.removed = true
     if (runtime.persistenceTimer) clearTimeout(runtime.persistenceTimer)
     await runtime.persistenceChain.catch(() => {})
-    await runtime.file.discard().catch(() => {})
+    if (discardPartial) await runtime.file.discard().catch(() => {})
     await rm(this.downloadDir(runtime.state.id), { recursive: true, force: true })
   }
 }

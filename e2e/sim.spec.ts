@@ -94,8 +94,9 @@ test.describe('simulated downloads @smoke', () => {
       source.sha
     )
     await plexo.waitUntil((state) => state.bytesDownloaded > 0)
-    const staging = join(dirs.dest, `.plexo-${id}.part`)
+    const staging = join(dirs.dest, 'source-5.bin.plexo')
     expect(existsSync(staging)).toBe(true)
+    expect(existsSync(join(dirs.dest, 'source-5.bin'))).toBe(false)
     expect(existsSync(join(dirs.userData, 'downloads', id, 'parts'))).toBe(false)
     await plexo.waitForStatus('completed', 30_000)
     expect(existsSync(staging)).toBe(false)
@@ -122,7 +123,7 @@ test.describe('simulated downloads @smoke', () => {
       source.sha
     )
     await plexo.waitUntil((state) => state.bytesDownloaded > 0)
-    const staging = join(dirs.dest, `.plexo-${id}.part`)
+    const staging = join(dirs.dest, 'source-2.bin.plexo')
     await plexo.api.pauseDownload(id)
     expect((await plexo.current())?.status).toBe('paused')
     expect(existsSync(staging)).toBe(true)

@@ -136,12 +136,12 @@ test.describe('persisted state on disk @smoke', () => {
 
   test('staging file deleted while the app was closed → reports lost progress', async ({
     plexo,
-    serve,
-    dirs
+    serve
   }) => {
-    const { id } = await pausedDownload(plexo, serve)
+    await pausedDownload(plexo, serve)
+    const partial = `${(await plexo.current())!.destinationPath}.plexo`
     await plexo.quit()
-    await rm(join(dirs.dest, `.plexo-${id}.part`))
+    await rm(partial)
     await plexo.launch()
     expect((await plexo.current())?.status).toBe('error')
     expect((await plexo.current())?.error).toMatch(/partial download file is missing/)
@@ -149,8 +149,7 @@ test.describe('persisted state on disk @smoke', () => {
 
   test('a staging file cut short while the app was closed is fetched again', async ({
     plexo,
-    serve,
-    dirs
+    serve
   }) => {
     // What a power cut can do: the manifest says a block is done, but its data never all
     // reached the disk.
@@ -158,7 +157,7 @@ test.describe('persisted state on disk @smoke', () => {
     const state = (await plexo.current())!
     const done = state.blocks!.find((block) => block.status === 'completed')!
     await plexo.quit()
-    const staging = join(dirs.dest, `.plexo-${id}.part`)
+    const staging = `${state.destinationPath}.plexo`
     await truncate(staging, done.rangeStart + 1000)
 
     await plexo.launch()

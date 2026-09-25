@@ -366,7 +366,7 @@ export async function checkFinalState(app: PlexoApp): Promise<void> {
     expectedAdded
   )
 
-  const stagingPath = join(tracked.destinationDir, `.plexo-${state.id}.part`)
+  const stagingPath = `${state.destinationPath}.plexo`
   await expect
     .poll(() => existsSync(stagingPath), { message: 'staging file cleaned up', timeout: 5000 })
     .toBe(false)

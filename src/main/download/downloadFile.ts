@@ -1,24 +1,11 @@
 import { createWriteStream, type WriteStream } from 'node:fs'
-import { open, rename, rm, stat } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { link, lstat, open, rm, stat } from 'node:fs/promises'
+import { basename, dirname, extname, join } from 'node:path'
 
 /** The only large file owned by a download. It lives beside the final file so publishing it
  * requires no copy and never needs a second file's worth of disk space. */
 export class DownloadFile {
-  readonly path: string
-
-  constructor(
-    readonly destinationPath: string,
-    id: string
-  ) {
-    // Keep the component short even when the final filename is near the filesystem limit.
-    this.path = join(dirname(destinationPath), `.plexo-${id}.part`)
-  }
-
-  async create(): Promise<void> {
-    const handle = await open(this.path, 'wx+')
-    await handle.close()
-  }
+  constructor(readonly path: string) {}
 
   /** Every writer has its own descriptor and explicit offset. Never use append mode here. */
   writer(position: number): WriteStream {
@@ -67,12 +54,55 @@ export class DownloadFile {
     return (await stat(this.path)).size
   }
 
-  async publish(expectedBytes: number): Promise<void> {
+  async publish(
+    destinationPath: string,
+    expectedBytes: number,
+    beforeAttempt: (candidate: string) => Promise<void>
+  ): Promise<string> {
     if (expectedBytes > 0 && (await this.size()) !== expectedBytes) {
       throw new Error('Download file size does not match the expected size')
     }
     await this.sync()
-    await rename(this.path, this.destinationPath)
+    const extension = extname(destinationPath)
+    const stem = basename(destinationPath, extension)
+    const directory = dirname(destinationPath)
+    for (let index = 0; index < 10_000; index += 1) {
+      const suffix = index === 0 ? '' : ` (${index})`
+      if (Buffer.byteLength(`${suffix}${extension}`) >= 255) {
+        throw new Error('The file extension is too long')
+      }
+      const candidateCharacters = Array.from(stem)
+      while (Buffer.byteLength(`${candidateCharacters.join('')}${suffix}${extension}`) > 255) {
+        candidateCharacters.pop()
+      }
+      const candidateStem = candidateCharacters.join('')
+      const candidate = join(directory, `${candidateStem}${suffix}${extension}`)
+      if (candidate !== destinationPath) {
+        const partialExists = await lstat(`${candidate}.plexo`).then(
+          () => true,
+          (error: NodeJS.ErrnoException) => {
+            if (error.code === 'ENOENT') return false
+            throw error
+          }
+        )
+        if (partialExists) continue
+      }
+      await beforeAttempt(candidate)
+      try {
+        // Hard-linking is an atomic, no-overwrite publication on the same volume.
+        // Removing the partial name afterwards frees no extra file-sized space.
+        await link(this.path, candidate)
+        return candidate
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (code === 'EEXIST') continue
+        if (code === 'ENOTSUP' || code === 'EOPNOTSUPP' || code === 'ENOSYS') {
+          throw new Error('This destination does not support safe one-copy finalization')
+        }
+        throw error
+      }
+    }
+    throw new Error('Could not find an unused file name for this download')
   }
 
   async discard(): Promise<void> {

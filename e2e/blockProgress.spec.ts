@@ -5,6 +5,7 @@ import { expect, test } from '@playwright/test'
 import fc from 'fast-check'
 import { advanceBlock, retractBlock } from '../src/main/download/blockProgress'
 import { DownloadFile } from '../src/main/download/downloadFile'
+import { reserveDestinationPath } from '../src/main/download/paths'
 import type { BlockState } from '../src/shared/types'
 
 // K. What a block's byte counts mean when two attempts race for it, and how range writes land
@@ -86,16 +87,41 @@ test.describe('destination-side staging file', () => {
   const bytes = (from: number, to: number): Buffer =>
     Buffer.from(Array.from({ length: to - from }, (_, i) => (from + i) % 251))
 
+  test('only the .plexo file is visible until completion, and it reserves the name', async () => {
+    const first = await reserveDestinationPath(dir, 'result.bin')
+    const second = await reserveDestinationPath(dir, 'result.bin')
+    expect(first).toBe(join(dir, 'result.bin'))
+    expect(second).toBe(join(dir, 'result (1).bin'))
+    expect(await readFile(`${first}.plexo`)).toHaveLength(0)
+    expect(await readFile(`${second}.plexo`)).toHaveLength(0)
+    await expect(readFile(first)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(second)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   test('out-of-order ranges and a hedge overwrite produce one exact file', async () => {
     const destination = join(dir, 'result.bin')
-    await writeFile(destination, '')
-    const file = new DownloadFile(destination, 'test-id')
-    await file.create()
+    const file = new DownloadFile(`${destination}.plexo`)
+    await writeFile(file.path, '')
     await file.writeBuffers(500, [bytes(500, LENGTH)])
     await file.writeBuffers(0, [bytes(0, 600)])
     await file.writeBuffers(400, [bytes(400, LENGTH)])
     expect(await file.read(390, 20)).toEqual(bytes(390, 410))
-    await file.publish(LENGTH)
+    expect(await readFile(file.path)).toEqual(bytes(0, LENGTH))
+    expect(await file.publish(destination, LENGTH, async () => {})).toBe(destination)
+    await file.discard()
     expect(await readFile(destination)).toEqual(bytes(0, LENGTH))
+  })
+
+  test('publishing does not replace a final file created during the download', async () => {
+    const destination = join(dir, 'result.bin')
+    const file = new DownloadFile(`${destination}.plexo`)
+    await writeFile(file.path, bytes(0, LENGTH))
+    await writeFile(destination, 'someone else owns this name')
+
+    const published = await file.publish(destination, LENGTH, async () => {})
+    expect(published).toBe(join(dir, 'result (1).bin'))
+    expect(await readFile(destination, 'utf-8')).toBe('someone else owns this name')
+    expect(await readFile(published)).toEqual(bytes(0, LENGTH))
+    await file.discard()
   })
 })

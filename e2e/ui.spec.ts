@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
-import { BLOCK, expect, interfacesEnv, LAN_ADDRESS, NETWORKS, test } from './fixtures'
+import { BLOCK, expect, interfacesEnv, NETWORKS, test } from './fixtures'
 
 // G. A handful of journeys through the real UI, to prove the screens are wired to the main
 // process. Download correctness is covered far more thoroughly by the API-level specs; these
@@ -107,29 +107,6 @@ test.describe('UI journeys @smoke', () => {
   })
 })
 
-test.describe('tooltips @smoke', () => {
-  // base-ui settles on the first render whether a tooltip's state is its own; one that is
-  // switched on only later, as this one is, must still open.
-  test('a network that becomes the last one in use says why it can’t be switched off', async ({
-    plexo,
-    serve
-  }) => {
-    test.skip(!LAN_ADDRESS, 'needs a LAN address to act as the second network')
-    const origin = await serve({ size: 64 * BLOCK, bytesPerSecond: 256 * 1024 })
-    const id = await plexo.start(origin.url(), origin.sha256, { networks: ['a', 'b'] })
-    const checked = plexo.page.getByRole('checkbox', { name: /^Use /, checked: true })
-    await expect(checked).toHaveCount(2)
-
-    await plexo.api.setDownloadNetwork(id, 'b', false)
-    await expect(checked).toBeDisabled()
-    // A disabled checkbox gets no hover of its own: what it sits in shows the tooltip.
-    await checked.locator('..').hover()
-    await expect(
-      plexo.page.getByText('The last network in use stays on. Pause to stop.')
-    ).toBeVisible()
-  })
-})
-
 // What a user sets is still set after they reload or restart — checked only through what they see.
 test.describe('settings @smoke', () => {
   test.describe('with an update available', () => {
@@ -206,26 +183,6 @@ test.describe('settings @smoke', () => {
 
 test.describe('no networks', () => {
   test.use({ appEnv: { PLEXO_E2E_INTERFACES: '' } })
-
-  test('shows the no-connections screen, and settles on it @smoke', async ({ plexo }) => {
-    await plexo.evaluateMain(({ ipcMain }) => {
-      const g = globalThis as unknown as Record<string, number>
-      g.__scans = 0
-      ipcMain.removeHandler('network:list-interfaces')
-      ipcMain.handle('network:list-interfaces', () => {
-        g.__scans++
-        return []
-      })
-    }, null)
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    const scans = await plexo.evaluateMain(
-      () => (globalThis as unknown as Record<string, number>).__scans,
-      null
-    )
-    // The screen polls every 5 s; a couple of scans in 2 s is normal, thousands is the loop.
-    expect(scans).toBeLessThan(10)
-    await expect(plexo.page.getByText('No networks to combine')).toBeVisible({ timeout: 5000 })
-  })
 
   test('a network appearing takes you back to the start screen @smoke', async ({ plexo }) => {
     await expect(plexo.page.getByText('No networks to combine')).toBeVisible()

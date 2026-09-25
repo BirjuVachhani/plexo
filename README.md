@@ -109,29 +109,28 @@ Before starting a multi-connection download, Plexo sends a **1-byte ranged GET**
 - The probe response provides the total file size (`Content-Range` / `Content-Length`), suggested filename (`Content-Disposition`), and cache validators (`ETag` and `Last-Modified`).
 - If the server answers with `200 OK` (ignoring the `Range` header), Plexo falls back to a standard single-connection stream instead of failing.
 
-### 2. Multi-interface socket binding via `localAddress`
+### 2. Multi-interface socket binding
 
-Every active network interface on your computer has its own local IP address — Wi-Fi might be `192.168.1.40`, while a USB-tethered phone is `172.20.10.3`.
+Every active network interface on your computer has local IP addresses — Wi-Fi might have both IPv4 and IPv6, while a USB-tethered phone has its own addresses.
 
-A standard TCP socket leaves interface selection to the operating system's routing table. However, Node.js allows outbound HTTP/HTTPS requests to explicitly bind to a specific local IP using the `localAddress` option:
+A standard TCP socket leaves interface selection to the operating system's routing table. Plexo resolves the server, chooses an address of the same IP family on each selected interface, then binds that address for its HTTP/HTTPS connections. On Linux it also pins the socket to the device.
 
 ```js
 https.request({
   hostname: 'releases.ubuntu.com',
   path: '/ubuntu-26.04.1-desktop-amd64.iso',
-  localAddress: '172.20.10.3', // Forces this connection through the USB tether
+  localAddress: '172.20.10.3', // Source address on the USB tether
   headers: {
     Range: 'bytes=8388608-16777215'
   }
 })
 ```
 
-This single option is Plexo's entire multi-network routing engine:
+The interface binding keeps each worker on its selected network:
 
 - **No virtual network adapters or VPN tunnels**
 - **No packet bonding or link aggregation**
 - **No kernel extensions (`kext`) or root privileges**
-- **Zero native C/C++ dependencies**
 
 ### 3. Dynamic work-stealing queue
 

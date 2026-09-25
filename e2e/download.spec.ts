@@ -4,6 +4,24 @@ import { BLOCK, expect, LAN_ADDRESS, test } from './fixtures'
 // fixtures.ts: completed ⇒ the file's SHA-256 matches the source, nothing stray left behind.
 
 test.describe('happy paths @smoke', () => {
+  test('IPv6-only origin downloads through an IPv6 interface', async ({ plexo, serve }) => {
+    const origin = await serve({ size: 4 * BLOCK, host: '::1' })
+    await plexo.relaunch({ PLEXO_E2E_INTERFACES: 'a=::1' })
+    await plexo.start(origin.url(), origin.sha256)
+    const state = await plexo.waitForStatus('completed')
+    expect(state.chunks.every((chunk) => chunk.retryCount === 0)).toBe(true)
+    expect(origin.chunkRequests().every((request) => request.from === '::1')).toBe(true)
+  })
+
+  test('IPv6 origin reports an incompatible IPv4-only selection immediately', async ({
+    plexo,
+    serve
+  }) => {
+    const origin = await serve({ size: BLOCK, host: '::1' })
+    await expect(plexo.start(origin.url(), origin.sha256)).rejects.toThrow(/No selected network/)
+    expect(await plexo.current()).toBeNull()
+  })
+
   for (const [label, size] of [
     ['1 byte', 1],
     ['exactly one block', BLOCK],

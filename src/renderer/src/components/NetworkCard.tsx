@@ -41,7 +41,7 @@ export function NetworkCard({
   onToggle
 }: NetworkCardProps): React.JSX.Element {
   const visual = useNetworkVisuals()(iface.id, iface.kind, iface.displayName)
-  const online = latencyMs != null
+  const hasLatency = latencyMs != null
 
   return (
     <div
@@ -87,7 +87,7 @@ export function NetworkCard({
         </ColorBadge>
       </div>
       <div className="truncate font-mono text-[10.5px] leading-normal text-muted-foreground">
-        {iface.device} · {iface.address}
+        {iface.device} · {iface.addresses[0]?.address}
       </div>
       <div className="flex items-end justify-between">
         <div className="flex flex-col gap-[5px]">
@@ -96,14 +96,15 @@ export function NetworkCard({
           </div>
           <div
             className="font-mono text-[13px] leading-none font-medium"
-            style={{ color: online && selected ? visual.text : 'var(--text-secondary)' }}
+            style={{ color: hasLatency && selected ? visual.text : 'var(--text-secondary)' }}
           >
-            {online ? `${latencyMs} ms` : '—'}
+            {hasLatency ? `${latencyMs} ms` : '—'}
           </div>
         </div>
         <div
+          title={hasLatency ? 'Latency measured' : 'Latency unavailable; downloads may still work'}
           className={`size-[7px] shrink-0 rounded-full ${
-            online ? 'bg-[var(--color-success)]' : 'bg-[var(--icon-muted)]'
+            hasLatency ? 'bg-[var(--color-success)]' : 'bg-[var(--icon-muted)]'
           }`}
         />
       </div>

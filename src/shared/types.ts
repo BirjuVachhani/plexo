@@ -1,4 +1,13 @@
 export type NetworkInterfaceKind = 'wifi' | 'usb' | 'ethernet' | 'bridge' | 'other'
+export type IpFamily = 4 | 6
+
+export interface NetworkAddress {
+  address: string
+  family: IpFamily
+  netmask?: string
+  /** Used by the existing IPv4 same-subnet warning. */
+  subnet?: string
+}
 
 export type ThemeSource = 'light' | 'dark'
 
@@ -7,11 +16,9 @@ export interface NetworkInterfaceInfo {
   id: string
   device: string
   displayName: string
-  address: string
+  addresses: NetworkAddress[]
   kind: NetworkInterfaceKind
   mac?: string
-  subnet?: string
-  netmask?: string
 }
 
 export interface ProbeResult {

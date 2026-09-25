@@ -1,4 +1,5 @@
 import { app } from 'electron'
+import { isIP } from 'node:net'
 import type { NetworkInterfaceInfo } from '../shared/types'
 
 // Overrides for the end-to-end suite (e2e/), read from the environment. A packaged build ignores
@@ -46,9 +47,8 @@ export function testInterfaces(): NetworkInterfaceInfo[] | null {
         id,
         device: id,
         displayName: id,
-        address,
-        kind: inferredKind,
-        subnet: subnet || undefined
+        addresses: [{ address, family: isIP(address) === 6 ? 6 : 4, subnet: subnet || undefined }],
+        kind: inferredKind
       }
     })
 }

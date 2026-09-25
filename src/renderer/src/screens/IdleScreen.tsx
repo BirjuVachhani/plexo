@@ -144,10 +144,11 @@ export function IdleScreen(): React.JSX.Element {
     const subnets = new Map<string, string[]>()
     for (const id of selectedInterfaceIds) {
       const iface = interfaces.find((i) => i.id === id)
-      if (iface?.subnet) {
-        const names = subnets.get(iface.subnet) ?? []
+      const subnet = iface?.addresses.find((address) => address.family === 4)?.subnet
+      if (subnet) {
+        const names = subnets.get(subnet) ?? []
         names.push(iface.displayName)
-        subnets.set(iface.subnet, names)
+        subnets.set(subnet, names)
       }
     }
     for (const [subnet, names] of subnets.entries()) {

@@ -1,8 +1,8 @@
 import { createWriteStream, type WriteStream } from 'node:fs'
-import { request as httpRequest, type ClientRequest, type IncomingMessage } from 'node:http'
-import { request as httpsRequest } from 'node:https'
+import type { ClientRequest, IncomingMessage } from 'node:http'
 import { URL } from 'node:url'
-import { routeFrom } from '../network/deviceBinding'
+import type { NetworkInterfaceInfo } from '../../shared/types'
+import { requestOnInterface } from '../network/routes'
 import { testKnobs } from '../testKnobs'
 import { compareVersion, type FileVersion, type VersionCheck } from './fileVersion'
 
@@ -11,8 +11,7 @@ export interface ChunkDownloadOptions {
   rangeStart: number
   /** null = open-ended range, download to end of file. */
   rangeEnd: number | null
-  /** Local IP of the network interface this chunk's connection binds to. */
-  localAddress: string
+  interfaceInfo: NetworkInterfaceInfo
   destinationPath: string
   /** true when resuming a paused chunk — appends to the existing part file instead of overwriting it. */
   append: boolean
@@ -97,7 +96,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
     url,
     rangeStart,
     rangeEnd,
-    localAddress,
+    interfaceInfo,
     destinationPath,
     append,
     onProgress,
@@ -174,19 +173,20 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
     }
 
     const attempt = (targetUrl: URL, redirectsLeft: number): void => {
-      const requester = targetUrl.protocol === 'https:' ? httpsRequest : httpRequest
-      const sentAt = Date.now()
-
-      const req: ClientRequest = requester(
-        {
-          method: 'GET',
-          hostname: targetUrl.hostname,
-          port: targetUrl.port || undefined,
-          path: `${targetUrl.pathname}${targetUrl.search}`,
-          ...routeFrom(localAddress, targetUrl),
-          headers
-        },
-        (res: IncomingMessage) => {
+      void requestOnInterface({
+        target: targetUrl,
+        iface: interfaceInfo,
+        headers,
+        signal,
+        timeoutMs: STALL_TIMEOUT_MS
+      })
+        .then(({ req, res, sentAt }) => {
+          if (settled) {
+            req.destroy()
+            return
+          }
+          currentReq = req
+          req.on('error', fail)
           const status = res.statusCode ?? 0
 
           if (status >= 300 && status < 400) {
@@ -308,15 +308,8 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
             fileStream.once('close', () => finish(resolve))
             fileStream.end()
           })
-        }
-      )
-
-      currentReq = req
-      req.on('error', fail)
-      req.setTimeout(STALL_TIMEOUT_MS, () =>
-        fail(new Error('Connection stalled: no response from server'))
-      )
-      req.end()
+        })
+        .catch(fail)
     }
 
     attempt(new URL(url), MAX_REDIRECTS)
@@ -329,21 +322,18 @@ export function fetchRange(
   url: string,
   start: number,
   end: number,
-  localAddress: string
+  interfaceInfo: NetworkInterfaceInfo
 ): Promise<{ body: Buffer; version: FileVersion }> {
   return new Promise((resolve, reject) => {
     const attempt = (target: URL, redirectsLeft: number): void => {
-      const requester = target.protocol === 'https:' ? httpsRequest : httpRequest
-      const req = requester(
-        {
-          method: 'GET',
-          hostname: target.hostname,
-          port: target.port || undefined,
-          path: `${target.pathname}${target.search}`,
-          ...routeFrom(localAddress, target),
-          headers: { 'User-Agent': 'Plexo/1.0', Range: `bytes=${start}-${end}` }
-        },
-        (res) => {
+      void requestOnInterface({
+        target,
+        iface: interfaceInfo,
+        headers: { 'User-Agent': 'Plexo/1.0', Range: `bytes=${start}-${end}` },
+        timeoutMs: STALL_TIMEOUT_MS
+      })
+        .then(({ req, res }) => {
+          req.on('error', reject)
           const status = res.statusCode ?? 0
           if (status >= 300 && status < 400 && res.headers.location && redirectsLeft > 0) {
             res.resume()
@@ -357,16 +347,14 @@ export function fetchRange(
             return
           }
           const chunks: Buffer[] = []
+          res.setTimeout(STALL_TIMEOUT_MS, () => req.destroy(new Error('Sample request stalled')))
           res.on('data', (chunk: Buffer) => chunks.push(chunk))
           res.on('error', reject)
           res.on('end', () =>
             resolve({ body: Buffer.concat(chunks), version: versionOf(res, served) })
           )
-        }
-      )
-      req.on('error', reject)
-      req.setTimeout(STALL_TIMEOUT_MS, () => req.destroy(new Error('Sample request stalled')))
-      req.end()
+        })
+        .catch(reject)
     }
     attempt(new URL(url), MAX_REDIRECTS)
   })

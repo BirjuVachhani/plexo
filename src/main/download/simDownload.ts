@@ -66,7 +66,7 @@ export async function createSimSession(
       id,
       device: id,
       displayName: config.label,
-      address: id,
+      addresses: [],
       kind: config.kind
     }
   })
@@ -84,7 +84,7 @@ const DEFAULT_SPEED_BYTES_PER_SEC = 3 * 1024 * 1024
  * simulated network's configured speed so the UI has something real to show — a chunk grid or
  * speed readout that jumped from 0 to 100% instantly would defeat the point of simulating it. */
 export function downloadChunkSimulated(options: ChunkDownloadOptions): Promise<void> {
-  const { url, rangeStart, rangeEnd, localAddress, destinationPath, append, onProgress, signal } =
+  const { url, rangeStart, rangeEnd, interfaceInfo, destinationPath, append, onProgress, signal } =
     options
 
   return new Promise((resolve, reject) => {
@@ -99,7 +99,7 @@ export function downloadChunkSimulated(options: ChunkDownloadOptions): Promise<v
       return
     }
 
-    const network = session.networks.get(localAddress)
+    const network = session.networks.get(interfaceInfo.id)
     if (network && Math.random() * 100 < network.faultRatePercent) {
       reject(new Error(`Simulated drop on ${network.label}`))
       return

@@ -698,22 +698,8 @@
         align-items: center;
         gap: 10px;
       }
-      .poll-dialog .close {
-        margin-left: auto;
-        width: 30px;
-        height: 30px;
-        border-radius: 50%;
-        border: 0;
-        background: #262a2d;
-        color: #a9adb2;
-        font:
-          500 18px/1 Manrope,
-          sans-serif;
-        cursor: pointer;
-      }
-      .poll-dialog .close:hover {
-        background: #2f3437;
-        color: #eae7e2;
+      .poll-dialog h2:focus {
+        outline: none;
       }
       .poll-dialog h2 {
         margin: 0;
@@ -748,18 +734,20 @@
         border-color: #e8bb6d;
       }
       .poll-dialog .later {
-        align-self: center;
-        padding: 4px 8px;
+        align-self: stretch;
+        padding: 10px 14px;
+        border-radius: 10px;
         border: 0;
         background: none;
         font:
-          500 12.5px/1.4 Manrope,
+          600 13.5px/1.2 Manrope,
           sans-serif;
-        color: #8d9196;
+        color: #c7cace;
         cursor: pointer;
       }
       .poll-dialog .later:hover {
-        color: #eae7e2;
+        background: #262a2d;
+        color: #f5f2ed;
       }
       .poll-dialog .error {
         font:
@@ -1307,9 +1295,8 @@
       <div class="body" id="poll-dialog-ask">
         <div class="top-row">
           <div class="eyebrow">QUICK POLL · 1 QUESTION</div>
-          <button type="button" class="close" data-close aria-label="Close">×</button>
         </div>
-        <h2 id="poll-dialog-title">Help decide how Plexo is funded</h2>
+        <h2 id="poll-dialog-title" tabindex="-1" autofocus>Help decide how Plexo is funded</h2>
         <p>
           Plexo is free and built by one developer. Apple and Microsoft developer licenses, and the
           work on every release, cost money.
@@ -1330,7 +1317,6 @@
       <div class="body" id="poll-dialog-thanks" hidden>
         <div class="top-row">
           <div class="eyebrow">VOTE COUNTED</div>
-          <button type="button" class="close" data-close aria-label="Close">×</button>
         </div>
         <h2>Thanks for voting</h2>
         <p id="poll-dialog-thanks-text"></p>
@@ -1339,6 +1325,7 @@
             See live results
           </button>
         </div>
+        <button type="button" class="later" data-close>Close</button>
       </div>
     </dialog>
 
@@ -1773,17 +1760,43 @@
           )
         })
 
-        // First visit only: ask in a popup a few seconds in, once. Closing it counts as asked.
+        // Ask in a popup shortly after the page opens. "Not now" (or Esc, or a click outside) asks
+        // again on a later visit: never twice in one browser session, at least a day apart, and at
+        // most MAX_ASKS times. Voting ends it for good.
         var dialog = document.getElementById('poll-dialog')
-        var PROMPTED = 'plexo-ads-poll-prompted'
-        var PROMPT_DELAY_MS = 4000
+        var ASKS = 'plexo-ads-poll-asks'
+        var SESSION = 'plexo-ads-poll-asked'
+        var LEGACY = 'plexo-ads-poll-prompted'
+        var PROMPT_DELAY_MS = 2000
+        var MIN_GAP_MS = 24 * 60 * 60 * 1000
+        var MAX_ASKS = 3
 
-        function prompted() {
+        function asks() {
+          var a = JSON.parse(localStorage.getItem(ASKS) || 'null')
+          if (a && typeof a.count === 'number') return a
+          // Asked once by the page before this rule, date unknown.
+          return { count: localStorage.getItem(LEGACY) === '1' ? 1 : 0, last: 0 }
+        }
+
+        function shouldAsk() {
           try {
-            return localStorage.getItem(PROMPTED) === '1'
+            if (sessionStorage.getItem(SESSION)) return false
+            var a = asks()
+            return a.count < MAX_ASKS && Date.now() - a.last >= MIN_GAP_MS
           } catch (e) {
             // Can't remember that we asked, so don't ask at all rather than on every visit.
+            return false
+          }
+        }
+
+        function markAsked() {
+          try {
+            var a = asks()
+            localStorage.setItem(ASKS, JSON.stringify({ count: a.count + 1, last: Date.now() }))
+            sessionStorage.setItem(SESSION, '1')
             return true
+          } catch (e) {
+            return false
           }
         }
 
@@ -1828,16 +1841,11 @@
           document.getElementById('support').scrollIntoView({ behavior: 'smooth' })
         })
 
-        if (!stored() && !prompted() && typeof dialog.showModal === 'function') {
+        if (!stored() && shouldAsk() && typeof dialog.showModal === 'function') {
           setTimeout(function () {
             // Not if they voted meanwhile, or are already looking at the poll.
             if (stored() || location.hash === '#support') return
-            try {
-              localStorage.setItem(PROMPTED, '1')
-            } catch (e) {
-              return
-            }
-            dialog.showModal()
+            if (markAsked()) dialog.showModal()
           }, PROMPT_DELAY_MS)
         }
 

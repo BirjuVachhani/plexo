@@ -609,6 +609,27 @@
           600 12.5px/1.4 Manrope,
           sans-serif;
       }
+      .poll-nudge {
+        align-self: flex-start;
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        padding: 8px 14px;
+        border-radius: 999px;
+        border: 1px solid #2b2f33;
+        background: #1b1e20;
+        font:
+          500 12.5px/1.3 Manrope,
+          sans-serif;
+        color: #c7cace;
+      }
+      .poll-nudge:hover {
+        border-color: #4a3a22;
+        color: #f5f2ed;
+      }
+      .poll-nudge .arrow {
+        color: #d8a44c;
+      }
       .support {
         display: flex;
         flex-direction: column;
@@ -919,6 +940,11 @@
           </div>
           <div class="cta-alt" id="cta-alt"></div>
           <div class="release-line" id="release-line">Checking GitHub for the latest release…</div>
+          <a class="poll-nudge" id="poll-nudge" href="#support">
+            <span class="live-dot"></span>
+            Quick poll: help decide how Plexo is funded
+            <span class="arrow">↓</span>
+          </a>
         </section>
 
         <aside class="card whats-new" id="whats-new" aria-labelledby="whats-new-title">
@@ -989,6 +1015,71 @@
           <span class="dot active"></span>
           <span class="dot"></span>
           <span class="dot"></span>
+        </div>
+      </section>
+
+      <section class="support" id="support">
+        <div class="downloads-head">
+          <div class="title">Help keep Plexo free</div>
+        </div>
+        <p>
+          Plexo is free and open source, built and maintained by one developer. Keeping it going
+          costs real money: Apple and Microsoft developer licenses, so macOS and Windows stop
+          warning you when you install it, plus the time that goes into every release. I’d like your
+          honest take on how to cover that.
+        </p>
+
+        <div class="card poll" id="poll">
+          <p class="question">Would you be okay with small, non-intrusive ads in Plexo?</p>
+          <p class="sub">
+            Simple and out of the way: no pop-ups, no video, nothing that interrupts a download.
+          </p>
+          <div class="poll-choices" id="poll-choices">
+            <button type="button" data-vote="yes">Yes, that’s fine</button>
+            <button type="button" data-vote="no">No, I’d rather not</button>
+          </div>
+          <div class="poll-results" id="poll-results" hidden>
+            <div class="bar yes">
+              <div class="row">
+                <span>Yes, that’s fine <span class="mine" hidden>YOUR VOTE</span></span
+                ><span class="num"></span>
+              </div>
+              <div class="track"><div class="fill"></div></div>
+            </div>
+            <div class="bar no">
+              <div class="row">
+                <span>No, I’d rather not <span class="mine" hidden>YOUR VOTE</span></span
+                ><span class="num"></span>
+              </div>
+              <div class="track"><div class="fill"></div></div>
+            </div>
+          </div>
+          <div class="poll-meta">
+            <span class="live-dot off" id="poll-dot"></span>
+            <span id="poll-status">Anonymous · no sign-in, nothing about you is stored</span>
+          </div>
+        </div>
+
+        <div class="ways" id="ways" hidden>
+          <p class="lead" id="ways-lead">Other ways to support Plexo</p>
+          <div class="ways-grid">
+            <a class="way primary" href="https://github.com/sponsors/anmolkapil">
+              <strong>Sponsor on GitHub</strong>
+              One-off or monthly, any amount. Goes straight to licenses and development.
+            </a>
+            <a class="way" href="https://github.com/anmolkapil/plexo">
+              <strong>Star the repo</strong>
+              Helps more people find Plexo, and costs nothing.
+            </a>
+            <a class="way" href="https://github.com/anmolkapil/plexo/issues/new">
+              <strong>Report bugs, suggest features</strong>
+              Good reports make every release better.
+            </a>
+            <button type="button" class="way" id="share-btn">
+              <strong>Tell a friend</strong>
+              <span id="share-text">Copy a link to this page.</span>
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1065,71 +1156,6 @@
             domain” to <strong>Disabled</strong>.
           </li>
         </ol>
-      </section>
-
-      <section class="support" id="support">
-        <div class="downloads-head">
-          <div class="title">Help keep Plexo free</div>
-        </div>
-        <p>
-          Plexo is free and open source, built and maintained by one developer. Keeping it going
-          costs real money: Apple and Microsoft developer licenses, so macOS and Windows stop
-          warning you when you install it, plus the time that goes into every release. I’d like your
-          honest take on how to cover that.
-        </p>
-
-        <div class="card poll" id="poll">
-          <p class="question">Would you be okay with small, non-intrusive ads in Plexo?</p>
-          <p class="sub">
-            Simple and out of the way: no pop-ups, no video, nothing that interrupts a download.
-          </p>
-          <div class="poll-choices" id="poll-choices">
-            <button type="button" data-vote="yes">Yes, that’s fine</button>
-            <button type="button" data-vote="no">No, I’d rather not</button>
-          </div>
-          <div class="poll-results" id="poll-results" hidden>
-            <div class="bar yes">
-              <div class="row">
-                <span>Yes, that’s fine <span class="mine" hidden>YOUR VOTE</span></span
-                ><span class="num"></span>
-              </div>
-              <div class="track"><div class="fill"></div></div>
-            </div>
-            <div class="bar no">
-              <div class="row">
-                <span>No, I’d rather not <span class="mine" hidden>YOUR VOTE</span></span
-                ><span class="num"></span>
-              </div>
-              <div class="track"><div class="fill"></div></div>
-            </div>
-          </div>
-          <div class="poll-meta">
-            <span class="live-dot off" id="poll-dot"></span>
-            <span id="poll-status">Anonymous · no sign-in, nothing about you is stored</span>
-          </div>
-        </div>
-
-        <div class="ways" id="ways" hidden>
-          <p class="lead" id="ways-lead">Other ways to support Plexo</p>
-          <div class="ways-grid">
-            <a class="way primary" href="https://github.com/sponsors/anmolkapil">
-              <strong>Sponsor on GitHub</strong>
-              One-off or monthly, any amount. Goes straight to licenses and development.
-            </a>
-            <a class="way" href="https://github.com/anmolkapil/plexo">
-              <strong>Star the repo</strong>
-              Helps more people find Plexo, and costs nothing.
-            </a>
-            <a class="way" href="https://github.com/anmolkapil/plexo/issues/new">
-              <strong>Report bugs, suggest features</strong>
-              Good reports make every release better.
-            </a>
-            <button type="button" class="way" id="share-btn">
-              <strong>Tell a friend</strong>
-              <span id="share-text">Copy a link to this page.</span>
-            </button>
-          </div>
-        </div>
       </section>
 
       <footer>
@@ -1509,6 +1535,7 @@
         }
 
         function showVoted(v) {
+          document.getElementById('poll-nudge').hidden = true
           poll.querySelector('#poll-choices').hidden = true
           results.hidden = false
           ways.hidden = false

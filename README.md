@@ -9,6 +9,7 @@ For example, if your computer has:
 - Wi-Fi
 - Ethernet
 - USB-tethered phone (iPhone or Android)
+- Cellular
 
 Plexo can utilize all of them simultaneously to download the **same file**.
 
@@ -51,11 +52,13 @@ A single TCP connection rarely saturates your actual bandwidth. Even when your c
 Plexo changes that: it splits the file into independent byte ranges and downloads them simultaneously through distinct physical network interfaces.
 
 ```text
-                    ┌── Wi-Fi (IP: 192.168.1.40) ────┐
-                    │                                │
-File ──→ Split ─────┼── Ethernet (IP: 10.0.0.12) ────┼──→ Assembled File
-                    │                                │
-                    └── USB Tether (IP: 172.20.10.3) ┘
+                    ┌── Wi-Fi (IP: 192.168.1.40) ──────┐
+                    │                                  │
+                    ├── Ethernet (IP: 10.0.0.12) ──────┤
+File ──→ Split ─────┤                                  ├──→ Assembled File
+                    ├── USB Tether (IP: 172.20.10.3) ──┤
+                    │                                  │
+                    └── Cellular (IP: 21.169.64.78) ───┘
 ```
 
 **Multiple networks → concurrent HTTP range requests → aggregated bandwidth**
@@ -143,10 +146,10 @@ Instead, Plexo uses a **dynamic work-stealing queue**:
 5. **Racing the tail.** Once no chunk is left waiting, a free connection can start a second attempt at a chunk another connection is fetching too slowly (one that still needs as long again as it has already taken, at least 5 seconds), picking up from where the first had got to. Whichever finishes first wins and the other is dropped. It costs a few bytes fetched twice at the very end, and it means one slow connection — or one slow network — can no longer hold the whole download back. A stream doing this is marked **BACKUP** in the streams table.
 
 ```text
-Shared Pending Queue: [Chunk #4] [Chunk #5] [Chunk #6] [Chunk #7] [Chunk #8] ...
-                            ↑           ↑           ↑
-                         Worker 1    Worker 2    Worker 3
-                         (Wi-Fi)     (Ethernet)  (USB Tether)
+Shared Pending Queue: [Chunk #4]  [Chunk #5]  [Chunk #6]  [Chunk #7]  [Chunk #8]  ...
+                          ↑           ↑           ↑           ↑
+                       Worker 1    Worker 2    Worker 3    Worker 4
+                       (Wi-Fi)    (Ethernet) (USB Tether) (Cellular)
 ```
 
 Work distribution is dynamically proportional to each interface's real-time throughput. If one network slows down or disconnects, remaining workers continue draining the queue without stalled shares.
@@ -192,9 +195,10 @@ A **chunk** is the atomic unit of work in Plexo:
 - **Assignment**: Leased to an individual worker socket bound to a specific network interface.
 
 ```text
-Chunk #0 → Range: bytes=0-8388607         → part-0 (Wi-Fi)
-Chunk #1 → Range: bytes=8388608-16777215  → part-1 (Ethernet)
-Chunk #2 → Range: bytes=16777216-25165823 → part-2 (USB Tether)
+Chunk #0 → Range: bytes=0          - 6,291,455  → part-0 (Wi-Fi)
+Chunk #1 → Range: bytes=6,291,455  - 12,582,911 → part-1 (Ethernet)
+Chunk #2 → Range: bytes=12,582,911 - 18,874,365 → part-2 (USB Tether)
+Chunk #3 → Range: bytes=12,582,911 - 25,165,820 → part-3 (Cellular)
 ```
 
 ### Why up to 8 MB?
@@ -214,6 +218,7 @@ Active Streams:
 [Wi-Fi]      → Chunk #4
 [Ethernet]   → Chunk #5
 [USB Tether] → Chunk #6
+[Cellular]   → Chunk #7
 
 Progress Grid:
 [#1][#2][#3][#4][#5][#6][#7][#8]...

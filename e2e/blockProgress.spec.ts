@@ -1,14 +1,14 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import fc from 'fast-check'
 import { advanceBlock, retractBlock } from '../src/main/download/blockProgress'
-import { hedgeFile, mergeHedge, partFile, removeHedgeFiles } from '../src/main/download/partFiles'
+import { DownloadFile } from '../src/main/download/downloadFile'
 import type { BlockState } from '../src/shared/types'
 
-// K. What a block's byte counts mean when two attempts race for it, and how a racing attempt's
-// file joins the block's own.
+// K. What a block's byte counts mean when two attempts race for it, and how range writes land
+// in the one destination-side staging file.
 
 const LENGTH = 1000
 const fresh = (): BlockState => ({
@@ -74,10 +74,10 @@ test.describe('block progress', () => {
   })
 })
 
-test.describe('joining a racing attempt onto its block', () => {
+test.describe('destination-side staging file', () => {
   let dir: string
   test.beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'plexo-merge-'))
+    dir = await mkdtemp(join(tmpdir(), 'plexo-staging-'))
   })
   test.afterEach(async () => {
     await rm(dir, { recursive: true, force: true })
@@ -86,49 +86,16 @@ test.describe('joining a racing attempt onto its block', () => {
   const bytes = (from: number, to: number): Buffer =>
     Buffer.from(Array.from({ length: to - from }, (_, i) => (from + i) % 251))
 
-  test('keeps the block’s first bytes and appends the hedge’s, dropping what the block’s writer got past the join', async () => {
-    const part = partFile(dir, 3)
-    const hedge = hedgeFile(dir, 3, 7)
-    // The block's writer got to 600 before it was stopped; the hedge began at 400.
-    await writeFile(part, bytes(0, 600))
-    await writeFile(hedge, bytes(400, LENGTH))
-    expect(await mergeHedge(part, hedge, 400, LENGTH)).toBe(true)
-    expect(await readFile(part)).toEqual(bytes(0, LENGTH))
-  })
-
-  test('a hedge that began at the very start becomes the block', async () => {
-    const part = partFile(dir, 0)
-    const hedge = hedgeFile(dir, 0, 1)
-    await writeFile(hedge, bytes(0, LENGTH)) // no part file at all
-    expect(await mergeHedge(part, hedge, 0, LENGTH)).toBe(true)
-    expect(await readFile(part)).toEqual(bytes(0, LENGTH))
-  })
-
-  test('refuses, changing nothing, when the block’s file is shorter than the join', async () => {
-    const part = partFile(dir, 0)
-    const hedge = hedgeFile(dir, 0, 1)
-    await writeFile(part, bytes(0, 300)) // its writer never flushed the last 100
-    await writeFile(hedge, bytes(400, LENGTH))
-    expect(await mergeHedge(part, hedge, 400, LENGTH)).toBe(false)
-    expect((await stat(part)).size).toBe(300)
-  })
-
-  test('refuses, changing nothing, when the hedge’s file is not the size its range says', async () => {
-    const part = partFile(dir, 0)
-    const hedge = hedgeFile(dir, 0, 1)
-    await writeFile(part, bytes(0, 500))
-    await writeFile(hedge, bytes(400, 900))
-    expect(await mergeHedge(part, hedge, 400, LENGTH)).toBe(false)
-    expect(await readFile(part)).toEqual(bytes(0, 500))
-  })
-
-  test('leftover hedge files are cleared without touching the blocks’ own', async () => {
-    await writeFile(partFile(dir, 1), 'keep')
-    await writeFile(hedgeFile(dir, 1, 4), 'stale')
-    await writeFile(hedgeFile(dir, 2, 0), 'stale')
-    await removeHedgeFiles(dir)
-    expect((await stat(partFile(dir, 1))).size).toBe(4)
-    await expect(stat(hedgeFile(dir, 1, 4))).rejects.toThrow()
-    await expect(stat(hedgeFile(dir, 2, 0))).rejects.toThrow()
+  test('out-of-order ranges and a hedge overwrite produce one exact file', async () => {
+    const destination = join(dir, 'result.bin')
+    await writeFile(destination, '')
+    const file = new DownloadFile(destination, 'test-id')
+    await file.create()
+    await file.writeBuffers(500, [bytes(500, LENGTH)])
+    await file.writeBuffers(0, [bytes(0, 600)])
+    await file.writeBuffers(400, [bytes(400, LENGTH)])
+    expect(await file.read(390, 20)).toEqual(bytes(390, 410))
+    await file.publish(LENGTH)
+    expect(await readFile(destination)).toEqual(bytes(0, LENGTH))
   })
 })

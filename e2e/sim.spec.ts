@@ -1,11 +1,12 @@
-import { truncate, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { SimulatedNetworkConfig } from '../src/shared/types'
 import { BLOCK, expect, test } from './fixtures'
 import { seededBytes, sha256 } from './origin'
 
-// F. The dev-tool simulated download: a local file pushed through the real chunking, retry and
-// assembly pipeline, with only the HTTP transfer swapped out (see simDownload.ts).
+// F. The dev-tool simulated download: a local file pushed through the real chunking and retry
+// pipeline, with only the HTTP transfer swapped out (see simDownload.ts).
 
 const SIZE = 40 * BLOCK
 
@@ -78,7 +79,7 @@ test.describe('simulated downloads @smoke', () => {
     }
   })
 
-  test('a part that goes wrong during assembly fails the download and leaves nothing behind', async ({
+  test('writes one staging file beside the final destination and publishes it', async ({
     plexo,
     dirs
   }) => {
@@ -86,40 +87,47 @@ test.describe('simulated downloads @smoke', () => {
     const id = await plexo.startSimulated(
       {
         sourceFilePath: source.path,
-        networks: [network('one')],
+        networks: [{ ...network('one'), speedBytesPerSec: 200_000 }],
         chunkCount: 2,
-        connectionsPerNetwork: 2,
-        assembleSpeedBytesPerSec: SIZE / 2
+        connectionsPerNetwork: 2
       },
       source.sha
     )
-    await plexo.waitForStatus('assembling')
-    // The last part is still waiting its turn; cut a byte off it.
-    const last = join(dirs.userData, 'downloads', id, 'parts', `part-${SIZE / BLOCK - 1}`)
-    await truncate(last, BLOCK - 1)
-
-    const state = await plexo.waitForStatus('error')
-    expect(state.error).toMatch(/refusing to write a corrupt file/)
-    // (the automatic checks then confirm there is no file at the destination and no parts left)
+    await plexo.waitUntil((state) => state.bytesDownloaded > 0)
+    const staging = join(dirs.dest, `.plexo-${id}.part`)
+    expect(existsSync(staging)).toBe(true)
+    expect(existsSync(join(dirs.userData, 'downloads', id, 'parts'))).toBe(false)
+    await plexo.waitForStatus('completed', 30_000)
+    expect(existsSync(staging)).toBe(false)
+    const progressUpdates = plexo.sessions
+      .at(-1)!
+      .filter(
+        (state) => state.id === id && state.status === 'downloading' && state.bytesDownloaded > 0
+      )
+    expect(
+      progressUpdates.length,
+      'progress remains responsive during a slow download'
+    ).toBeGreaterThan(5)
   })
 
-  test('pause and cancel are ignored while assembling', async ({ plexo, dirs }) => {
+  test('pausing keeps the staging file; cancellation removes it', async ({ plexo, dirs }) => {
     const source = await sourceFile(dirs.userData, 2)
     const id = await plexo.startSimulated(
       {
         sourceFilePath: source.path,
-        networks: [network('one')],
+        networks: [{ ...network('one'), speedBytesPerSec: 200_000 }],
         chunkCount: 2,
-        connectionsPerNetwork: 2,
-        assembleSpeedBytesPerSec: SIZE / 2
+        connectionsPerNetwork: 2
       },
       source.sha
     )
-    await plexo.waitForStatus('assembling')
+    await plexo.waitUntil((state) => state.bytesDownloaded > 0)
+    const staging = join(dirs.dest, `.plexo-${id}.part`)
     await plexo.api.pauseDownload(id)
+    expect((await plexo.current())?.status).toBe('paused')
+    expect(existsSync(staging)).toBe(true)
     await plexo.api.cancelDownload(id)
-    expect((await plexo.current())?.status).toBe('assembling')
-    await plexo.waitForStatus('completed')
+    expect(existsSync(staging)).toBe(false)
   })
 })
 

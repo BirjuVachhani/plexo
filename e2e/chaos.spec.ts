@@ -45,7 +45,7 @@ async function status(real: Real): Promise<DownloadStatus | undefined> {
 /** Re-reads the app, since a running download may have finished on its own since last looked. */
 async function sync(model: Model, real: Real): Promise<void> {
   const current = await status(real)
-  if (current === 'completed' || current === 'assembling') model.phase = 'done'
+  if (current === 'completed') model.phase = 'done'
   if (current === 'error' || current === 'cancelled') {
     throw new Error(`download ended ${current}: ${(await real.app.current())?.error}`)
   }
@@ -66,7 +66,7 @@ class Pause implements fc.AsyncCommand<Model, Real> {
   async run(model: Model, real: Real): Promise<void> {
     await real.app.api.pauseDownload(real.id)
     // Either it paused, or it had already finished downloading before the pause arrived.
-    const state = await real.app.waitForStatus(['paused', 'assembling', 'completed'], 15_000)
+    const state = await real.app.waitForStatus(['paused', 'completed'], 15_000)
     model.phase = state.status === 'paused' ? 'paused' : 'done'
   }
   toString = (): string => 'Pause'
@@ -76,7 +76,7 @@ class Resume implements fc.AsyncCommand<Model, Real> {
   check = (model: Readonly<Model>): boolean => model.phase === 'paused'
   async run(model: Model, real: Real): Promise<void> {
     await real.app.api.resumeDownload(real.id)
-    await real.app.waitForStatus(['downloading', 'assembling', 'completed'], 15_000)
+    await real.app.waitForStatus(['downloading', 'completed'], 15_000)
     model.phase = 'running'
     await sync(model, real)
   }

@@ -2,7 +2,7 @@ import { cp, readFile, rm, truncate, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { BLOCK, expect, test } from './fixtures'
-import { seededBytes, sha256 } from './origin'
+import { sha256 } from './origin'
 
 // D. Quitting, crashing and restarting. kill() is SIGKILL: no before-quit, no final save —
 // what's on disk is whatever the app had managed to persist, exactly as after a crash or a
@@ -67,37 +67,6 @@ test.describe('crash (SIGKILL) and recover @smoke', () => {
       await plexo.waitForStatus('completed')
     })
   }
-
-  test('killed while assembling → relaunch paused → resume re-assembles', async ({
-    plexo,
-    dirs
-  }) => {
-    // A simulated download can throttle the assemble step, which keeps it in 'assembling'
-    // long enough to kill it there.
-    const source = join(dirs.userData, '..', 'source.bin')
-    const bytes = seededBytes(SIZE, 21)
-    await writeFile(source, bytes)
-    const id = await plexo.startSimulated(
-      {
-        sourceFilePath: source,
-        networks: [{ kind: 'ethernet', label: 'sim', speedBytesPerSec: 50e6, faultRatePercent: 0 }],
-        chunkCount: 2,
-        connectionsPerNetwork: 2,
-        assembleSpeedBytesPerSec: SIZE / 4
-      },
-      sha256(bytes)
-    )
-    await plexo.waitUntil(
-      (state) => state.status === 'assembling' && (state.assembledBytes ?? 0) > 0
-    )
-
-    await plexo.kill()
-    await plexo.launch()
-    expect((await plexo.current())?.status).toBe('paused')
-
-    await plexo.api.resumeDownload(id)
-    await plexo.waitForStatus('completed')
-  })
 })
 
 test.describe('persisted state on disk @smoke', () => {
@@ -165,21 +134,20 @@ test.describe('persisted state on disk @smoke', () => {
     await plexo.waitForStatus('completed')
   })
 
-  test('part files deleted while the app was closed → re-downloads them', async ({
+  test('staging file deleted while the app was closed → reports lost progress', async ({
     plexo,
     serve,
     dirs
   }) => {
     const { id } = await pausedDownload(plexo, serve)
     await plexo.quit()
-    await rm(join(dirs.userData, 'downloads', id, 'parts'), { recursive: true, force: true })
+    await rm(join(dirs.dest, `.plexo-${id}.part`))
     await plexo.launch()
-    await plexo.api.resumeDownload(id)
-    const state = await plexo.waitForStatus(['completed', 'error'])
-    expect(state.error).toBeUndefined()
+    expect((await plexo.current())?.status).toBe('error')
+    expect((await plexo.current())?.error).toMatch(/partial download file is missing/)
   })
 
-  test('a finished part file cut short while the app was closed is fetched again', async ({
+  test('a staging file cut short while the app was closed is fetched again', async ({
     plexo,
     serve,
     dirs
@@ -187,10 +155,11 @@ test.describe('persisted state on disk @smoke', () => {
     // What a power cut can do: the manifest says a block is done, but its data never all
     // reached the disk.
     const { id } = await pausedDownload(plexo, serve)
-    const done = (await plexo.current())!.blocks!.find((block) => block.status === 'completed')!
+    const state = (await plexo.current())!
+    const done = state.blocks!.find((block) => block.status === 'completed')!
     await plexo.quit()
-    const part = join(dirs.userData, 'downloads', id, 'parts', `part-${done.index}`)
-    await truncate(part, 1000)
+    const staging = join(dirs.dest, `.plexo-${id}.part`)
+    await truncate(staging, done.rangeStart + 1000)
 
     await plexo.launch()
     await plexo.api.resumeDownload(id)

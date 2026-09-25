@@ -131,19 +131,12 @@ const NESTED_ERROR_PREFIX = /^Error:\s*/
 
 const ERROR_HINTS: Array<{ pattern: RegExp; message: string }> = [
   {
-    pattern: /parts never finished/,
-    message:
-      'The download never fully finished, so Plexo couldn’t assemble it. Try downloading again.'
+    pattern: /Download is incomplete/,
+    message: 'The download did not finish every range. Try downloading again.'
   },
   {
-    pattern: /refusing to write a corrupt file/,
-    message:
-      'One of the downloaded pieces didn’t match its expected size, so Plexo stopped rather than save a corrupted file. Try downloading again.'
-  },
-  {
-    pattern: /refusing to keep a corrupt file/,
-    message:
-      'The assembled file didn’t match its expected size, so Plexo removed it rather than keep a corrupted file. Try downloading again.'
+    pattern: /Download file size does not match/,
+    message: 'The downloaded file did not match its expected size, so Plexo did not publish it.'
   },
   {
     pattern: /ENOTFOUND|EAI_AGAIN/,

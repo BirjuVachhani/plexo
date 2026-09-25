@@ -1,4 +1,4 @@
-import { createWriteStream, type WriteStream } from 'node:fs'
+import type { Writable } from 'node:stream'
 import type { ClientRequest, IncomingMessage } from 'node:http'
 import { URL } from 'node:url'
 import type { NetworkInterfaceInfo } from '../../shared/types'
@@ -12,9 +12,10 @@ export interface ChunkDownloadOptions {
   /** null = open-ended range, download to end of file. */
   rangeEnd: number | null
   interfaceInfo: NetworkInterfaceInfo
-  destinationPath: string
-  /** true when resuming a paused chunk — appends to the existing part file instead of overwriting it. */
-  append: boolean
+  createDestination: () => Writable
+  /** Network bytes received, before destination backpressure or disk writes. */
+  onNetworkProgress: (bytesReceivedThisRun: number) => void
+  /** Bytes accepted by the destination writer; safe to include in resumable progress. */
   onProgress: (bytesDownloadedThisRun: number) => void
   signal: AbortSignal
   /** The version the download started on, plus any confirmed to serve identical bytes. */
@@ -83,10 +84,10 @@ function versionOf(res: IncomingMessage, served: ServedRange | null): FileVersio
 }
 
 /**
- * Downloads a single byte range of a URL, bound to one network interface, into a part file.
+ * Downloads a single byte range of a URL, bound to one network interface, into a supplied writer.
  *
  * Resolving means the *entire* requested range was written, and nothing else was:
- * a chunk's bytes land at a fixed offset in the reassembled file, so a response
+ * a chunk's bytes land at a fixed offset in the staged file, so a response
  * that is short, starts somewhere else, or overruns the range would corrupt the
  * output rather than just this chunk. Every one of those is a rejection, which
  * puts the block back on the queue for a retry instead of marking it done.
@@ -97,8 +98,8 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
     rangeStart,
     rangeEnd,
     interfaceInfo,
-    destinationPath,
-    append,
+    createDestination,
+    onNetworkProgress,
     onProgress,
     signal,
     acceptedVersions,
@@ -116,7 +117,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
     let bytesDownloaded = 0
     let settled = false
     let currentReq: ClientRequest | null = null
-    let currentFileStream: WriteStream | null = null
+    let currentFileStream: Writable | null = null
     let stallWatchdog: NodeJS.Timeout | null = null
 
     const clearWatchdog = (): void => {
@@ -144,14 +145,11 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
     const fail = (error: Error): void =>
       finish(() => {
         currentReq?.destroy()
-        // Closing the part file matters twice over: an abandoned stream holds
+        // Closing the writer matters twice over: an abandoned stream holds
         // its descriptor for the life of the process (a paused-and-resumed
         // download, or a chunk that retries a few times, leaks one per
         // attempt until the process hits its open-file limit), and its
-        // buffered writes would otherwise land in the part file *after* a
-        // resume has already reconciled that file's length. Discarding those
-        // writes is safe: what survives on disk is what the next attempt
-        // resumes from.
+        // buffered writes would otherwise land after a retry has started.
         const stream = currentFileStream
         if (stream && !stream.closed) {
           stream.once('close', () => reject(error))
@@ -211,7 +209,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
             return
           }
 
-          // Each part is fetched separately, so a file republished mid-download would otherwise
+          // Each range is fetched separately, so a file republished mid-download would otherwise
           // be stitched together from two versions and still pass every length check.
           const served = parseContentRange(res.headers['content-range'])
           const seen = versionOf(res, served)
@@ -223,7 +221,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
           }
 
           // A 206 says where in the file these bytes belong — check it lines up
-          // with what we asked for before writing any of them into the part file.
+          // with what we asked for before writing any of them.
           if (status === 206) {
             if (!served) {
               fail(new Error('Server sent a 206 without a usable Content-Range header'))
@@ -252,9 +250,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
 
           onResponse?.({ ttfbMs: Date.now() - sentAt, reusedSocket: req.reusedSocket })
 
-          const fileStream: WriteStream = createWriteStream(destinationPath, {
-            flags: append ? 'a' : 'w'
-          })
+          const fileStream = createDestination()
           currentFileStream = fileStream
 
           res.on('error', fail)
@@ -265,8 +261,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
           resetWatchdog()
 
           // Written by hand rather than piped so an overlong body can be cut off
-          // at the range boundary: a part file longer than its block would push
-          // every byte after it out of place at reassembly time.
+          // at the range boundary: an overlong response could overwrite the next block.
           res.on('data', (chunk: Buffer) => {
             if (settled) return
             resetWatchdog()
@@ -278,8 +273,14 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
 
             if (usable.length > 0) {
               bytesDownloaded += usable.length
-              onProgress(bytesDownloaded)
-              if (!fileStream.write(usable)) {
+              const progress = bytesDownloaded
+              onNetworkProgress(progress)
+              if (
+                !fileStream.write(usable, (error) => {
+                  if (error) fail(error)
+                  else if (!settled) onProgress(progress)
+                })
+              ) {
                 res.pause()
                 fileStream.once('drain', () => {
                   resetWatchdog()

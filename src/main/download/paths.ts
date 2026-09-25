@@ -43,11 +43,11 @@ export async function ensureDirectory(directory: string): Promise<void> {
  * Claims <directory>/<fileName>, or <directory>/<fileName> (1), (2), ... if it
  * already exists, by creating an empty file at that path.
  *
- * Creating it is the point. A download's bytes go to part files and only reach
- * the destination at reassembly, so merely *checking* that a name is free
+ * Creating it is the point. A download's bytes go to a hidden staging file and only become
+ * visible under the final name at publication, so merely *checking* that a name is free
  * leaves it free: two downloads of the same file name started minutes apart
  * would both pick it, and the one that finished second would overwrite the
- * first — or, if their assemblies overlapped, both would write into one file
+ * first — or, if their publications overlapped, both would write into one file
  * and neither would survive. An exclusive create is what makes the name ours.
  *
  * The caller owns the placeholder from here: it must be removed if the

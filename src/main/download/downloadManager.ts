@@ -15,12 +15,18 @@ import type {
 } from '../../shared/types'
 import { testKnobs, testStreamsPerNetwork } from '../testKnobs'
 import { advanceBlock, retractBlock } from './blockProgress'
-import { ConcurrencyController, type ConcurrencyPolicy, type Snapshot } from './concurrency'
+import {
+  ConcurrencyController,
+  type Action,
+  type ConcurrencyPolicy,
+  type Snapshot
+} from './concurrency'
 import { downloadChunk, fetchRange, RemoteChangedError } from './chunkDownloader'
 import { DownloadFile } from './downloadFile'
 import { compareVersion, type FileVersion } from './fileVersion'
 import { ensureDirectory, reserveDestinationPath } from './paths'
 import { interleave, MAX_STREAMS_PER_NETWORK, planBlocks, planDownload } from './plan'
+import { restoreBlocks, saveBlocks, type SavedBlocks } from './savedProgress'
 import { pickWork, type SchedulerPolicy, type Work } from './scheduler'
 import {
   compatibleInterfaces,
@@ -91,7 +97,7 @@ interface ChunkRuntime {
   receivedBytes: number
   /** Failed attempts in a row, for backoff. */
   failures: number
-  /** Stops for good after the block it's on, and leaves the list (see retireStreams). */
+  /** Stopped for good, and to leave the list once its worker has (see retireStreams). */
   retiring: boolean
 }
 
@@ -133,6 +139,9 @@ interface DownloadRuntime {
   /** Everything each network's streams have received, by network id: what the stream count is
    * judged by (see concurrency.ts). */
   receivedByNetwork: Map<string, number>
+  /** Decides how many streams each network runs; kept for the whole download, so a pause and
+   * resume doesn't forget what it has found out. */
+  concurrency: ConcurrencyController | null
   /** Updates sent to the window so far (see DownloadUpdate). */
   sentUpdates: number
   /** Each block as the window was last sent it, by index — what tells a changed block apart. */
@@ -150,50 +159,11 @@ interface PersistedDownloadBase {
 
 type PersistedDownload = PersistedDownloadBase &
   (
-    | {
-        version: 5
-        state: Omit<DownloadState, 'blocks'>
-        /** Per network id, the bytes it delivered of each block, by block index. Everything else
-         * about a block follows from the plan: its range from `blockSizeBytes`, and that it is
-         * complete from those bytes adding up to its length. */
-        progress: Record<string, number[]>
-      }
+    | ({ version: 5; state: Omit<DownloadState, 'blocks'> } & SavedBlocks)
     /** Written before version 5, with every block saved whole; still read, so an update doesn't
      * lose the progress of a download it finds paused. */
     | { version: 4; state: DownloadState }
   )
-
-/** Per network, the bytes it delivered of each block (see PersistedDownload). */
-function progressByNetwork(blocks: readonly BlockState[]): Record<string, number[]> {
-  const progress: Record<string, number[]> = {}
-  for (const block of blocks) {
-    for (const [networkId, bytes] of Object.entries(block.bytesByInterface)) {
-      ;(progress[networkId] ??= new Array<number>(blocks.length).fill(0))[block.index] = bytes
-    }
-  }
-  return progress
-}
-
-/** The blocks a version 5 manifest describes. */
-function restoreBlocks(
-  state: Omit<DownloadState, 'blocks'>,
-  progress: Record<string, number[]>
-): BlockState[] {
-  const blocks = planBlocks(state.totalBytes, state.blockSizeBytes ?? state.totalBytes)
-  for (const [networkId, column] of Object.entries(progress)) {
-    column.forEach((bytes, index) => {
-      const block = blocks[index]
-      if (!block || !(bytes > 0)) return
-      block.bytesByInterface[networkId] = bytes
-      block.bytesDownloaded += bytes
-    })
-  }
-  for (const block of blocks) {
-    const length = block.rangeEnd === null ? null : block.rangeEnd - block.rangeStart + 1
-    if (state.status === 'completed' || block.bytesDownloaded === length) block.status = 'completed'
-  }
-  return blocks
-}
 
 // Set PLEXO_DEBUG=1 to log every request's outcome, how long the server took to answer and
 // whether it reused a warm connection — what it takes to tell one slow connection from a slow path.
@@ -270,7 +240,16 @@ const CONCURRENCY_POLICY: ConcurrencyPolicy = {
   maxPerNetwork: MAX_STREAMS_PER_NETWORK,
   windowMs: testKnobs.probeWindowMs,
   warmupMs: testKnobs.probeWindowMs,
-  minGain: 0.15
+  minGain: 0.15,
+  maxWindows: 4
+}
+
+/** How many streams a download runs is only for it to work out when there can be more than one
+ * — a download without ranges or a known size is a single request — and unless a test fixes it. */
+function concurrencyFor(request: StartDownloadRequest): ConcurrencyController | null {
+  return request.supportsRanges && request.totalBytes > 0 && testStreamsPerNetwork() === null
+    ? new ConcurrencyController(CONCURRENCY_POLICY)
+    : null
 }
 // Idle connections look for work every 250 ms, so waiting a bit longer hands a refreshed block
 // to a connection that is already proven fast, if there is one.
@@ -401,7 +380,7 @@ export class DownloadManager {
           if (persisted.state.id !== id) return
           const blocks =
             persisted.version === 5
-              ? restoreBlocks(persisted.state, persisted.progress)
+              ? restoreBlocks(persisted.state, persisted)
               : persisted.version === 4
                 ? persisted.state.blocks
                 : undefined
@@ -497,6 +476,7 @@ export class DownloadManager {
             attempts: new Map(),
             hedgesByBlock: new Map(),
             receivedByNetwork: new Map(),
+            concurrency: concurrencyFor(persisted.requestPayload),
             sentUpdates: 0,
             sentBlocks: []
           })
@@ -627,6 +607,7 @@ export class DownloadManager {
       speedBytesPerSec: 0,
       status: 'downloading',
       chunks,
+      peakStreams: chunks.length,
       blocks,
       totalBlocks: blocks.length,
       blockSizeBytes: plan.blockSizeBytes,
@@ -652,6 +633,7 @@ export class DownloadManager {
       attempts: new Map(),
       hedgesByBlock: new Map(),
       receivedByNetwork: new Map(),
+      concurrency: concurrencyFor(requestPayload),
       sentUpdates: 0,
       sentBlocks: []
     }
@@ -705,6 +687,9 @@ export class DownloadManager {
   // started on (see runWorker), which can tell a real change from a relabelled server.
   private async resumeAfterVerifying(runtime: DownloadRuntime): Promise<void> {
     const { url } = runtime.requestPayload
+    // The paused run can still be winding down: a writer closing, a sample check in flight. A new
+    // one must not start beside it — both would go on to publish, and act on each other's streams.
+    await runtime.runPromise
 
     let availableInterfaces: NetworkInterfaceInfo[]
     try {
@@ -857,19 +842,20 @@ export class DownloadManager {
     }
     for (const chunk of chunks) startWorker(chunk)
 
-    // Streams are only added where there is more than one to have: a download without ranges or
-    // a known size is a single request.
-    const concurrency =
-      runtime.requestPayload.supportsRanges &&
-      runtime.state.totalBytes > 0 &&
-      testStreamsPerNetwork() === null
-        ? new ConcurrencyController(CONCURRENCY_POLICY)
-        : null
+    const adjustStreams = (action: Action | undefined): void => {
+      if (action?.kind === 'add') {
+        for (const chunk of this.addStreams(runtime, action.networkId, action.count)) {
+          startWorker(chunk)
+        }
+      } else if (action?.kind === 'retire') {
+        for (const chunk of this.retireStreams(runtime, action.networkId, action.count)) {
+          // One that already stopped has no worker left to remove it.
+          if (!active.has(chunk.id)) this.removeStream(runtime, chunk)
+        }
+      }
+    }
 
     const speedTicker = setInterval(() => {
-      // Only the `finally` below stops this ticker — self-clearing on status here would let a
-      // fast pause/resume start a second runChunksToCompletion (and ticker) while this one is
-      // still winding down, and it would never see 'downloading' flip back on its own.
       if (runtime.state.status !== 'downloading') return
       const now = Date.now()
       const prevSpeed = runtime.state.speedBytesPerSec
@@ -879,18 +865,7 @@ export class DownloadManager {
         this.scheduleUpdate(runtime)
       }
       this.refreshStuckConnections(runtime, now)
-
-      const action = concurrency?.tick(this.concurrencySnapshot(runtime, now))
-      if (action?.kind === 'add') {
-        for (const chunk of this.addStreams(runtime, action.networkId, action.count)) {
-          startWorker(chunk)
-        }
-      } else if (action?.kind === 'retire') {
-        for (const chunk of this.retireStreams(runtime, action.networkId, action.count)) {
-          // One that already stopped (it failed for good) has no worker left to remove it.
-          if (!active.has(chunk.id)) this.removeStream(runtime, chunk)
-        }
-      }
+      adjustStreams(runtime.concurrency?.tick(this.concurrencySnapshot(runtime, now)))
     }, 500)
     speedTicker.unref()
 
@@ -899,6 +874,8 @@ export class DownloadManager {
     } finally {
       clearInterval(speedTicker)
     }
+    // Stopped partway through a step: streams it added were never judged, so they don't stay.
+    if (runtime.state.status !== 'downloading') adjustStreams(runtime.concurrency?.interrupt())
 
     if (
       runtime.state.status === 'downloading' &&
@@ -1305,24 +1282,17 @@ export class DownloadManager {
     return 'continue'
   }
 
-  /** The download was paused or cancelled while the request was in flight. */
+  /** The stream was stopped while its request was in flight. */
   private finishStopped(
     runtime: DownloadRuntime,
     chunk: ChunkState,
     self: ChunkRuntime,
     attempt: Attempt
   ): 'stop' {
-    const status = runtime.state.status as DownloadStatus
-    if (attempt.kind === 'primary') {
-      this.endAttempt(runtime, self, attempt)
-      if (status === 'paused') attempt.block.status = 'pending'
-    } else {
-      this.letGo(runtime, chunk, self, attempt, false)
-    }
-    chunk.status = status === 'paused' ? 'paused' : 'cancelled'
-    chunk.currentBlockIndex = undefined
-    chunk.hedge = undefined
-    chunk.speedBytesPerSec = 0
+    // Whatever stopped it — a pause, a cancel, retirement — the block goes back as any other
+    // attempt's would, and one another attempt has finished stays finished.
+    this.letGo(runtime, chunk, self, attempt, false)
+    chunk.status = runtime.state.status === 'paused' ? 'paused' : 'cancelled'
     return 'stop'
   }
 
@@ -1466,17 +1436,17 @@ export class DownloadManager {
   private concurrencySnapshot(runtime: DownloadRuntime, now: number): Snapshot {
     const networks = runtime.activeInterfaces.map((iface) => {
       let streams = 0
-      let failing = false
+      let rejected = 0
       for (const chunk of runtime.state.chunks) {
-        if (chunk.interfaceId !== iface.id || runtime.chunkRuntimes.get(chunk.id)?.retiring)
-          continue
+        const self = runtime.chunkRuntimes.get(chunk.id)
+        if (chunk.interfaceId !== iface.id || self?.retiring) continue
         streams++
-        if (chunk.status === 'retrying' || chunk.status === 'error') failing = true
+        if (self && self.failures > 0 && self.receivedBytes === 0) rejected++
       }
       return {
         id: iface.id,
         streams,
-        failing,
+        rejected,
         received: runtime.receivedByNetwork.get(iface.id) ?? 0
       }
     })
@@ -1494,13 +1464,17 @@ export class DownloadManager {
     let id = Math.max(-1, ...runtime.state.chunks.map((chunk) => chunk.id))
     const added = Array.from({ length: count }, () => newStream(++id, iface))
     runtime.state.chunks.push(...added)
+    runtime.state.peakStreams = Math.max(
+      runtime.state.peakStreams ?? 0,
+      runtime.state.chunks.length
+    )
     debug('streams', { network: iface.displayName, added: count })
     this.scheduleUpdate(runtime)
     return added
   }
 
-  /** Winds down the newest `count` streams on `networkId`. One between blocks — idle, or waiting
-   * out a retry — stops now; one partway through a block finishes it first. */
+  /** Stops the newest `count` streams on `networkId` for good. Stopping partway through a block
+   * costs nothing: what it wrote stays, and whoever takes the block next resumes from there. */
   private retireStreams(runtime: DownloadRuntime, networkId: string, count: number): ChunkState[] {
     const live = runtime.state.chunks.filter(
       (chunk) => chunk.interfaceId === networkId && !runtime.chunkRuntimes.get(chunk.id)?.retiring
@@ -1510,7 +1484,7 @@ export class DownloadManager {
       const self = runtime.chunkRuntimes.get(chunk.id)
       if (!self) continue
       self.retiring = true
-      if (!self.attempt) self.controller.abort()
+      self.controller.abort()
     }
     debug('streams', { network: networkId, retired: count })
     return retired
@@ -1750,7 +1724,7 @@ export class DownloadManager {
           version: 5,
           savedAt: Date.now(),
           state: structuredClone(state),
-          progress: progressByNetwork(blocks ?? runtime.blocks),
+          ...saveBlocks(blocks ?? runtime.blocks),
           partialPath: runtime.file.path,
           publicationPath: runtime.publicationPath,
           publicationIdentity: runtime.publicationIdentity,

@@ -145,14 +145,6 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
     return result.filePaths[0]
   })
 
-  handle('chooseSourceFile', async () => {
-    const window = getWindow()
-    if (!window) return null
-    const result = await dialog.showOpenDialog(window, { properties: ['openFile'] })
-    if (result.canceled || result.filePaths.length === 0) return null
-    return result.filePaths[0]
-  })
-
   handle('readClipboardText', async () => clipboard.readText())
 
   handle('revealInFolder', async (_event, filePath) => {

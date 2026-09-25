@@ -104,6 +104,9 @@ export function IdleScreen(): React.JSX.Element {
   const ready = probe.status === 'ready' ? probe.result : null
   const multiChunkAllowed = ready !== null && ready.supportsRanges && ready.totalBytes !== null
   const isSingleStreamOnly = ready !== null && !multiChunkAllowed
+  // One request has to carry the whole file: either the server can't serve parts of it, or it
+  // didn't say how big it is, so there's no telling where the parts would be.
+  const sizeUnknown = isSingleStreamOnly && ready.supportsRanges
 
   const detectedIds = interfaces.map((iface) => iface.id)
   const enabledIds = detectedIds.filter((id) => !deselectedInterfaceIds.includes(id))
@@ -120,7 +123,13 @@ export function IdleScreen(): React.JSX.Element {
   ]
   // How many streams each network gets is worked out during the download; the one case worth
   // saying up front is a server that can't split the file at all.
-  if (isSingleStreamOnly) footerParts.push('1 stream: the server can’t split this file')
+  if (isSingleStreamOnly) {
+    footerParts.push(
+      sizeUnknown
+        ? '1 stream: the file’s size isn’t known'
+        : '1 stream: the server can’t split this file'
+    )
+  }
   if (ready && ready.totalBytes !== null) footerParts.push(formatBytes(ready.totalBytes))
 
   let subnetConflict: { subnet: string; names: string[] } | null = null
@@ -245,7 +254,11 @@ export function IdleScreen(): React.JSX.Element {
         {isSingleStreamOnly && (
           <InfoAlert
             title="Single-connection mode"
-            message="This server does not support parallel range requests (206 Partial Content). The download will run as a single stream through whichever network you choose below."
+            message={
+              sizeUnknown
+                ? 'The server didn’t say how big this file is, so it can’t be split into parts. The download will run as a single stream through whichever network you choose below.'
+                : 'This server does not support parallel range requests (206 Partial Content). The download will run as a single stream through whichever network you choose below.'
+            }
           />
         )}
 

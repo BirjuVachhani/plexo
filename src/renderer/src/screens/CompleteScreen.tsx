@@ -101,7 +101,8 @@ export function CompleteScreen({
           { label: 'Time', value: formatDuration(elapsedSeconds) },
           { label: 'Peak', value: formatSpeed(peakSpeedBytesPerSec) },
           { label: 'Networks', value: String(groups.length) },
-          { label: 'Streams', value: String(download.chunks.length) }
+          // The most it ran at once: streams that didn't make it faster were closed along the way.
+          { label: 'Streams', value: String(download.peakStreams ?? download.chunks.length) }
         ].map((stat, index) => (
           <div
             key={stat.label}

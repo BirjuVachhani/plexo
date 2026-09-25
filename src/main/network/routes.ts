@@ -164,8 +164,12 @@ async function connectOnInterface(
   throw lastError
 }
 
+/** What a request passes its agent: Node hands a request's options to the agent's
+ * createConnection, so a connection opened for a request can be dropped with it. */
+type ConnectOptions = ClientRequestArgs & { connectSignal?: AbortSignal }
+
 type Open = (
-  options: ClientRequestArgs,
+  options: ConnectOptions,
   secure: ((socket: Socket) => Socket) | null
 ) => Promise<Socket>
 
@@ -177,7 +181,7 @@ class RoutedHttpAgent extends HttpAgent {
     super({ keepAlive: true })
   }
 
-  override createConnection(options: ClientRequestArgs, callback?: OnCreate): undefined {
+  override createConnection(options: ConnectOptions, callback?: OnCreate): undefined {
     this.open(options, null).then(
       (socket) => callback?.(null, socket),
       (error: Error) => callback?.(error, undefined as never)
@@ -191,7 +195,7 @@ class RoutedHttpsAgent extends HttpsAgent {
     super({ keepAlive: true })
   }
 
-  override createConnection(options: ClientRequestArgs, callback?: OnCreate): undefined {
+  override createConnection(options: ConnectOptions, callback?: OnCreate): undefined {
     // The agent's own TLS setup, around our routed socket: it verifies the certificate against
     // the URL's host and caches the TLS session, so a reconnect resumes it instead of redoing
     // the full handshake.
@@ -238,7 +242,11 @@ export class StreamConnection {
         Number(options.port),
         secure,
         timeoutMs,
-        this.lifetime.signal,
+        // Given up on when its request is, not only when the stream closes: a request abandoned
+        // mid-connect (a stuck connection being replaced) shouldn't leave a handshake running.
+        options.connectSignal
+          ? AbortSignal.any([this.lifetime.signal, options.connectSignal])
+          : this.lifetime.signal,
         resolveHost
       )
     this.http = new RoutedHttpAgent(open)
@@ -272,21 +280,20 @@ export class StreamConnection {
       const sentAt = Date.now()
       let answered = false
       let timedOut = false
-      const req = (secure ? httpsRequest : httpRequest)(
-        {
-          method: 'GET',
-          hostname: targetHost(target),
-          port: target.port || undefined,
-          path: `${target.pathname}${target.search}`,
-          headers,
-          agent: secure ? this.https : this.http
-        },
-        (res) => {
-          answered = true
-          settle()
-          resolve({ req, res, sentAt })
-        }
-      )
+      const options: ConnectOptions = {
+        method: 'GET',
+        hostname: targetHost(target),
+        port: target.port || undefined,
+        path: `${target.pathname}${target.search}`,
+        headers,
+        agent: secure ? this.https : this.http,
+        connectSignal: signal
+      }
+      const req = (secure ? httpsRequest : httpRequest)(options, (res) => {
+        answered = true
+        settle()
+        resolve({ req, res, sentAt })
+      })
       const onAbort = (): void => void req.destroy(abortError())
       const timer = setTimeout(() => {
         timedOut = true

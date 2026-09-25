@@ -46,6 +46,44 @@ test.describe('pause and resume @smoke', () => {
     await plexo.waitForStatus('completed')
   })
 
+  test('resuming while a paused stream is still winding down waits for it, not runs beside it', async ({
+    plexo,
+    serve
+  }) => {
+    const origin = await serve({ size: SIZE, bytesPerSecond: 256 * 1024 })
+    // One request a few blocks in is answered under a new label, so its stream checks whether
+    // that's still the same file — and the sample it fetches for that never comes back. Pausing
+    // can't cut the check short: the stream is still winding down when resume is pressed.
+    let relabelled = false
+    let stalled = false
+    origin.setVersionRule(({ range }) => {
+      if (relabelled || !range || range.start < 4 * BLOCK) return undefined
+      relabelled = true
+      return { content: origin.content, etag: '"v2"' }
+    })
+    origin.setRule(({ range }) => {
+      const sample =
+        range &&
+        range.start > 0 &&
+        range.start % BLOCK === 0 &&
+        range.end !== null &&
+        range.end - range.start < BLOCK / 4
+      if (!sample || !relabelled || stalled) return undefined
+      stalled = true
+      return 'stallHeaders'
+    })
+
+    const id = await plexo.start(origin.url(), origin.sha256)
+    await expect.poll(() => stalled, { message: 'the sample request hung' }).toBe(true)
+    const pausing = plexo.api.pauseDownload(id)
+    await plexo.waitForStatus('paused')
+    await plexo.api.resumeDownload(id)
+    await pausing
+    // Two runs side by side would each try to finish the download, and the one left behind would
+    // call it failed.
+    await plexo.waitForStatus('completed', 30_000)
+  })
+
   test('pause and resume several times over the whole file', async ({ plexo, serve }) => {
     const origin = await serve({ size: SIZE, seed: 5 })
     let reached = origin.hold(2 * BLOCK + 5)

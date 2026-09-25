@@ -149,3 +149,17 @@ test('a fresh connection that fails is not retried @smoke', async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()))
   }
 })
+
+test('a request abandoned while still connecting gives up the connection with it @smoke', async () => {
+  // DNS that never answers stands in for any connect that hangs: the abort has to end it, not the
+  // deadline.
+  const connection = new StreamConnection(iface, 5000, () => new Promise(() => {}))
+  const abort = new AbortController()
+  const started = Date.now()
+  setTimeout(() => abort.abort(), 100)
+  await expect(
+    connection.request(new URL('http://slow.example.test/'), {}, abort.signal)
+  ).rejects.toMatchObject({ name: 'AbortError' })
+  expect(Date.now() - started).toBeLessThan(1000)
+  connection.close()
+})

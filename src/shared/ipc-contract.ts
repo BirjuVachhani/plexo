@@ -19,7 +19,6 @@ export interface IpcContract {
   updateSettings: { args: [patch: AppSettings]; result: void }
   probeUrl: { args: [url: string]; result: ProbeResult }
   chooseDestinationFolder: { args: [defaultPath: string]; result: string | null }
-  chooseSourceFile: { args: []; result: string | null }
   readClipboardText: { args: []; result: string }
   revealInFolder: { args: [filePath: string]; result: void }
   startDownload: { args: [request: StartDownloadRequest]; result: string }

@@ -9,8 +9,12 @@ export function applyDownloadUpdate(
   if (current?.id === state.id) {
     // A snapshot taken after this was sent already has it.
     if ((current.seq ?? 0) >= seq) return current
-    const blocks = [...(current.blocks ?? [])]
-    for (const block of changed) blocks[block.index] = block
+    // A new array only when a block changed, so what shows the blocks can tell when they did.
+    let blocks = current.blocks
+    if (changed.length > 0) {
+      blocks = [...(blocks ?? [])]
+      for (const block of changed) blocks[block.index] = block
+    }
     return { ...state, blocks, seq }
   }
   // Another download: only an update with every block in it stands on its own — the first one

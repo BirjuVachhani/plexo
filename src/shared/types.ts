@@ -94,6 +94,8 @@ export interface DownloadState {
   speedBytesPerSec: number
   status: DownloadStatus
   chunks: ChunkState[]
+  /** The most streams it has run at once. */
+  peakStreams?: number
   blocks?: BlockState[]
   totalBlocks?: number
   blockSizeBytes?: number

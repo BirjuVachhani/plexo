@@ -25,8 +25,8 @@ export type Fault =
   /** Never answers at all. */
   | 'stallHeaders'
   | { status: number }
-  /** Sends this many body bytes, then drops the connection. */
-  | { cutAfter: number }
+  /** Sends this many body bytes, then drops the connection — `afterMs` later, if given. */
+  | { cutAfter: number; afterMs?: number }
   /** Sends this many body bytes, then ends the response cleanly (a short body). */
   | { endAfter: number }
   /** Trickles the body at this rate in small pieces — slow, but never silent long enough to stall. */
@@ -257,6 +257,7 @@ export class Origin {
       bodyEnd = Math.min(bodyEnd, start + fault.endAfter)
     }
     const cutAfter = typeof fault === 'object' && 'cutAfter' in fault ? fault.cutAfter : null
+    const cutDelayMs = typeof fault === 'object' && 'cutAfter' in fault ? fault.afterMs : undefined
     const crawl = typeof fault === 'object' && 'crawl' in fault ? fault.crawl : null
     const rate = crawl ?? this.options.bytesPerSecond
 
@@ -278,6 +279,7 @@ export class Origin {
     while (position < bodyEnd) {
       if (res.destroyed) return
       if (cutAfter !== null && position - start >= cutAfter) {
+        if (cutDelayMs) await new Promise((resolve) => setTimeout(resolve, cutDelayMs))
         req.socket.destroy()
         return
       }

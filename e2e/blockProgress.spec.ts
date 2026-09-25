@@ -98,13 +98,20 @@ test.describe('destination-side staging file', () => {
     await expect(readFile(second)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
-  test('out-of-order ranges and a hedge overwrite produce one exact file', async () => {
+  test('out-of-order ranges and a racing hedge produce one exact file', async () => {
     const destination = join(dir, 'result.bin')
     const file = new DownloadFile(`${destination}.plexo`)
     await writeFile(file.path, '')
-    await file.writeBuffers(500, [bytes(500, LENGTH)])
-    await file.writeBuffers(0, [bytes(0, 600)])
-    await file.writeBuffers(400, [bytes(400, LENGTH)])
+    const write = (position: number, data: Buffer): Promise<void> =>
+      new Promise((resolve, reject) => {
+        const writer = file.writer(position)
+        writer.once('error', reject).once('close', resolve)
+        writer.end(data)
+      })
+    // A later block lands first; then a primary and a hedge that began further in write over the
+    // same range at once, the same bytes in whichever order the disk takes them.
+    await write(500, bytes(500, LENGTH))
+    await Promise.all([write(0, bytes(0, 600)), write(400, bytes(400, 600))])
     expect(await file.read(390, 20)).toEqual(bytes(390, 410))
     expect(await readFile(file.path)).toEqual(bytes(0, LENGTH))
     expect(await file.publish(destination, LENGTH, async () => {})).toBe(destination)

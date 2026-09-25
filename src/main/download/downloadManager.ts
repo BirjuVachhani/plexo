@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { readFile, readdir, rename, rm, stat, statfs, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { Writable } from 'node:stream'
 import type { BrowserWindow } from 'electron'
 import { app, Notification } from 'electron'
 import { IpcChannels } from '../../shared/ipc-channels'
@@ -43,6 +42,10 @@ type AbortReason = 'refresh' | 'lost'
  * One request for one block, by one stream. A block normally has a single (primary) attempt.
  * Near the end of a download a second (hedge) one may race it — see scheduler.ts — and then the
  * block is finished by whichever gets there first.
+ *
+ * Both write straight into the staging file at the block's own offsets. Every response is checked
+ * to be the download's version before any of it is written, so racing attempts write identical
+ * bytes and it doesn't matter which lands last: whatever either has written stays secured.
  */
 interface Attempt {
   kind: 'primary' | 'hedge'
@@ -58,21 +61,13 @@ interface Attempt {
   lastNetworkAt: number
   /** When the request was sent. */
   startedAt: number
-  /** A hedge stays in bounded memory until it wins; only primaries write to the staging file. */
-  hedgeBuffers: Buffer[]
   /** The network previously credited for this block's prefix. */
   previousWriter: string | undefined
   /** Aborts this request alone; ChunkRuntime.controller aborts the whole stream. */
   abort: AbortController
   abortReason: AbortReason | null
-  /** Set once this attempt has been chosen to finish the block, so a near-simultaneous finisher
-   * can tell it lost. */
-  won: boolean
   /** What the server's answer cost, for diagnosing slow connections (see PLEXO_DEBUG). */
   response: { ttfbMs: number; reusedSocket: boolean } | null
-  /** Resolves once the request is over and its writer closed. */
-  settled: Promise<void>
-  settle: () => void
 }
 
 /** What became of an attempt's request. */
@@ -222,7 +217,6 @@ const SCHEDULER_POLICY: SchedulerPolicy = {
   hedgeAfterMs: testKnobs.hedgeAfterMs,
   maxHedgesPerBlock: 2
 }
-const MAX_ACTIVE_HEDGES = 2 // At most two block-sized buffers in memory.
 // Idle connections look for work every 250 ms, so waiting a bit longer hands a refreshed block
 // to a connection that is already proven fast, if there is one.
 const REFRESH_HANDOFF_MS = 300
@@ -692,13 +686,6 @@ export class DownloadManager {
       }
     }
     runtime.avoidNetworkByBlock.clear()
-    // A hedge's file is discarded, so its progress must not be in the saved manifest.
-    for (const attempts of runtime.attempts.values()) {
-      for (const hedge of attempts) {
-        const chunk = runtime.state.chunks.find((entry) => entry.id === hedge.streamId)
-        if (hedge.kind === 'hedge' && chunk) this.retractHedge(runtime, chunk, hedge)
-      }
-    }
     for (const chunk of runtime.state.chunks) chunk.hedge = undefined
     for (const chunkRuntime of runtime.chunkRuntimes.values()) {
       chunkRuntime.controller.abort()
@@ -1092,8 +1079,6 @@ export class DownloadManager {
     work: Work
   ): Attempt {
     const { block } = work
-    let settle!: () => void
-    const settled = new Promise<void>((resolve) => (settle = resolve))
     const attempt: Attempt = {
       kind: work.kind,
       block,
@@ -1104,16 +1089,12 @@ export class DownloadManager {
       networkReceived: 0,
       lastNetworkAt: 0,
       startedAt: Date.now(),
-      hedgeBuffers: [],
       // Whoever held this block before now is the one whose tail bytes a truncation would
       // discard — captured before the lease overwrites the field.
       previousWriter: block.interfaceId,
       abort: new AbortController(),
       abortReason: null,
-      won: false,
-      response: null,
-      settled,
-      settle
+      response: null
     }
 
     if (work.kind === 'primary') {
@@ -1184,15 +1165,7 @@ export class DownloadManager {
         rangeStart: block.rangeStart + attempt.startOffset,
         rangeEnd: block.rangeEnd,
         connection: self.connection,
-        createDestination: () =>
-          attempt.kind === 'primary'
-            ? runtime.file.writer(block.rangeStart + (attempt.startOffset ?? 0))
-            : new Writable({
-                write: (chunk: Buffer, _encoding, callback) => {
-                  attempt.hedgeBuffers.push(Buffer.from(chunk))
-                  callback()
-                }
-              }),
+        createDestination: () => runtime.file.writer(block.rangeStart + (attempt.startOffset ?? 0)),
         signal: AbortSignal.any([self.controller.signal, attempt.abort.signal]),
         acceptedVersions: runtime.acceptedVersions,
         onResponse: (info) => (attempt.response = info),
@@ -1218,8 +1191,6 @@ export class DownloadManager {
       if (self.controller.signal.aborted || status !== 'downloading') return { type: 'stopped' }
       if (attempt.abortReason) return { type: 'aborted', reason: attempt.abortReason }
       return { type: 'failed', error }
-    } finally {
-      attempt.settle()
     }
   }
 
@@ -1288,52 +1259,18 @@ export class DownloadManager {
     }
   }
 
-  private async finishCompleted(
+  private finishCompleted(
     runtime: DownloadRuntime,
     chunk: ChunkState,
     self: ChunkRuntime,
     attempt: Attempt
-  ): Promise<'continue' | 'stop'> {
+  ): 'continue' {
     const { block } = attempt
 
-    // Another attempt already finished this block, or is finishing it: these bytes are surplus.
-    if (block.status === 'completed' || runtime.attempts.get(block.index)?.some((a) => a.won)) {
-      await this.letGo(runtime, chunk, self, attempt, false)
+    // Another attempt already finished this block: these bytes are surplus.
+    if (block.status === 'completed') {
+      this.letGo(runtime, chunk, self, attempt, false)
       return 'continue'
-    }
-    attempt.won = true
-
-    if (attempt.kind === 'hedge') {
-      // The primary writer must close before the winning bytes overwrite its range.
-      const rivals = (runtime.attempts.get(block.index) ?? []).filter((a) => a !== attempt)
-      for (const rival of rivals) this.abortAttempt(rival, 'lost')
-      await Promise.all(rivals.map((rival) => rival.settled))
-      const expected = block.rangeEnd === null ? 0 : block.rangeEnd - block.rangeStart + 1
-      const hedgeBytes = attempt.hedgeBuffers.reduce((sum, buffer) => sum + buffer.length, 0)
-      let merged = hedgeBytes === expected - (attempt.startOffset ?? 0)
-      if (merged) {
-        try {
-          await runtime.file.writeBuffers(
-            block.rangeStart + (attempt.startOffset ?? 0),
-            attempt.hedgeBuffers
-          )
-        } catch {
-          merged = false
-        }
-      }
-      attempt.hedgeBuffers.length = 0
-
-      if (!merged) {
-        // A failed hedge commit leaves the primary's prefix; the next worker overwrites the rest.
-        this.endAttempt(runtime, self, attempt)
-        const removed = retractBlock(block, attempt.startOffset ?? 0, attempt.networkId)
-        chunk.bytesDownloaded = Math.max(0, chunk.bytesDownloaded - removed)
-        block.status = 'pending'
-        this.recomputeAggregates(runtime)
-        this.goIdle(chunk)
-        this.scheduleUpdate(runtime)
-        return 'continue'
-      }
     }
 
     this.endAttempt(runtime, self, attempt)
@@ -1358,25 +1295,23 @@ export class DownloadManager {
   }
 
   /** The download was paused or cancelled while the request was in flight. */
-  private async finishStopped(
+  private finishStopped(
     runtime: DownloadRuntime,
     chunk: ChunkState,
     self: ChunkRuntime,
     attempt: Attempt
-  ): Promise<'stop'> {
+  ): 'stop' {
     const status = runtime.state.status as DownloadStatus
-    let cleanup: Promise<void> = Promise.resolve()
     if (attempt.kind === 'primary') {
       this.endAttempt(runtime, self, attempt)
       if (status === 'paused') attempt.block.status = 'pending'
     } else {
-      cleanup = this.letGo(runtime, chunk, self, attempt, false)
+      this.letGo(runtime, chunk, self, attempt, false)
     }
     chunk.status = status === 'paused' ? 'paused' : 'cancelled'
     chunk.currentBlockIndex = undefined
     chunk.hedge = undefined
     chunk.speedBytesPerSec = 0
-    await cleanup
     return 'stop'
   }
 
@@ -1390,13 +1325,7 @@ export class DownloadManager {
     // 'lost': another attempt decided the block, so its state is no longer this one's to touch.
     // 'refresh': not a failure — no retry counted, no backoff. Whoever takes the block next
     // resumes it from the staging file on a new connection.
-    await this.letGo(
-      runtime,
-      chunk,
-      self,
-      attempt,
-      reason === 'refresh' && attempt.networkReceived === 0
-    )
+    this.letGo(runtime, chunk, self, attempt, reason === 'refresh' && attempt.networkReceived === 0)
     if (reason === 'refresh' && attempt.kind === 'primary') {
       // A moment before this stream asks again, so that a connection already proven fast, if
       // there is one, gets to the block before this one does.
@@ -1435,18 +1364,17 @@ export class DownloadManager {
           runtime.acceptedVersions.push(error.seen)
         }
         chunk.error = undefined
-        await this.letGo(runtime, chunk, self, attempt, false)
+        this.letGo(runtime, chunk, self, attempt, false)
         return 'continue'
       }
       if (verdict === 'different') {
         // Every other worker would hit the same new version, so stop them all now rather than
         // let each burn through its retries first.
-        const cleanup = this.letGo(runtime, chunk, self, attempt, false)
+        this.letGo(runtime, chunk, self, attempt, false)
         chunk.status = 'error'
         runtime.state.status = 'error'
         runtime.state.error = message
         for (const other of runtime.chunkRuntimes.values()) other.controller.abort()
-        await cleanup
         return 'stop'
       }
       // 'unknown' — nothing to compare yet, or the check itself failed: retry like any other
@@ -1456,7 +1384,7 @@ export class DownloadManager {
     if (error instanceof NoCompatibleRouteError) {
       // A redirect can move this worker to a host its network cannot reach. Return its block
       // to the shared queue so another compatible worker can finish it.
-      await this.letGo(runtime, chunk, self, attempt, deliveredNothing)
+      this.letGo(runtime, chunk, self, attempt, deliveredNothing)
       chunk.status = 'error'
       if (runtime.state.chunks.every((entry) => entry.status === 'error')) {
         runtime.state.status = 'error'
@@ -1466,16 +1394,16 @@ export class DownloadManager {
       return 'stop'
     }
 
-    // A hedge is optional work: when it fails, the block is exactly where it was.
+    // A hedge is optional work: its failure isn't retried, and what it did write stays.
     if (attempt.kind === 'hedge') {
-      await this.letGo(runtime, chunk, self, attempt, deliveredNothing)
+      this.letGo(runtime, chunk, self, attempt, deliveredNothing)
       return 'continue'
     }
 
     self.failures += 1
     chunk.retryCount += 1
     // Back to the queue, so any available worker can pick it up.
-    void this.letGo(runtime, chunk, self, attempt, deliveredNothing) // nothing to clean up: a primary
+    this.letGo(runtime, chunk, self, attempt, deliveredNothing)
 
     if (self.failures > MAX_CHUNK_RETRIES) {
       chunk.status = 'error'
@@ -1506,11 +1434,8 @@ export class DownloadManager {
 
   /**
    * The stream stops working on the attempt's block without having finished it. A primary hands
-   * the block back to the queue; a hedge just drops out, taking with it any progress that only it
-   * had made. When the attempt delivered nothing, its network is remembered (see scheduler.ts).
-   *
-   * Every change to the download's state is made before this returns, so no other stream can see
-   * it half done; the promise it returns is only the removal of a hedge's file, to be awaited.
+   * the block back to the queue; a hedge just drops out. Either way what it wrote stays counted.
+   * When the attempt delivered nothing, its network is remembered (see scheduler.ts).
    */
   private letGo(
     runtime: DownloadRuntime,
@@ -1518,32 +1443,13 @@ export class DownloadManager {
     self: ChunkRuntime,
     attempt: Attempt,
     deliveredNothing: boolean
-  ): Promise<void> {
+  ): void {
     this.endAttempt(runtime, self, attempt)
     const { block } = attempt
-    if (attempt.kind === 'primary') {
-      // Not if another attempt has decided the block already: it is that one's to finish.
-      const decided = runtime.attempts.get(block.index)?.some((other) => other.won)
-      if (block.status === 'downloading' && !decided) block.status = 'pending'
-    } else {
-      this.retractHedge(runtime, chunk, attempt)
-    }
+    // A block another attempt has finished stays finished.
+    if (attempt.kind === 'primary' && block.status === 'downloading') block.status = 'pending'
     if (deliveredNothing) runtime.avoidNetworkByBlock.set(block.index, attempt.networkId)
     this.goIdle(chunk)
-    attempt.hedgeBuffers.length = 0
-    return Promise.resolve()
-  }
-
-  /** Takes back the progress a hedge alone had made, now that it is not going to finish. */
-  private retractHedge(runtime: DownloadRuntime, chunk: ChunkState, hedge: Attempt): void {
-    // A finished block is finished: whoever lost the race for it has nothing to take back.
-    if (hedge.block.status === 'completed') return
-    const keep = Math.max(hedge.startOffset ?? 0, this.otherAttemptsPosition(runtime, hedge))
-    const removed = retractBlock(hedge.block, keep, hedge.networkId)
-    if (removed > 0) {
-      chunk.bytesDownloaded = Math.max(0, chunk.bytesDownloaded - removed)
-      this.recomputeAggregates(runtime)
-    }
   }
 
   private async runWorker(runtime: DownloadRuntime, chunk: ChunkState): Promise<void> {
@@ -1589,15 +1495,6 @@ export class DownloadManager {
           Date.now(),
           SCHEDULER_POLICY
         )
-        if (
-          work?.kind === 'hedge' &&
-          [...runtime.attempts.values()].flat().filter((attempt) => attempt.kind === 'hedge')
-            .length >= MAX_ACTIVE_HEDGES
-        ) {
-          this.goIdle(chunk)
-          await delay(250, controller.signal)
-          continue
-        }
         if (!work) {
           this.goIdle(chunk)
           // While blocks are still in flight, stay available in case one fails and is handed back,

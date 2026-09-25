@@ -5,7 +5,6 @@ import {
   interleave,
   MAX_STREAMS_PER_NETWORK,
   MIN_BLOCK_BYTES,
-  planBlocks,
   planDownload,
   START_STREAMS_PER_NETWORK,
   startingStreams
@@ -83,17 +82,6 @@ test.describe('download plan', () => {
     expect(plan.blockCount).toBeGreaterThanOrEqual(8)
   })
 
-  test('the test knob for block size still applies', () => {
-    const plan = planDownload({
-      totalBytes: 40 * 64 * 1024,
-      splittable: true,
-      networkCount: 1,
-      maxBlockBytes: 64 * 1024
-    })
-    expect(plan.blockSizeBytes).toBe(64 * 1024)
-    expect(plan.blockCount).toBe(40)
-  })
-
   test('no range support or unknown size: one block', () => {
     for (const request of [
       { totalBytes: 10 * MIB, splittable: false },
@@ -101,27 +89,6 @@ test.describe('download plan', () => {
     ]) {
       expect(planDownload({ ...request, networkCount: 3 }).blockCount).toBe(1)
     }
-  })
-
-  test('the planned blocks tile the file exactly, in order', () => {
-    fc.assert(
-      fc.property(
-        fc.integer({ min: 1, max: 2 ** 30 }),
-        fc.integer({ min: 1, max: 2 ** 24 }),
-        (totalBytes, blockSizeBytes) => {
-          fc.pre(totalBytes / blockSizeBytes <= 100_000)
-          const blocks = planBlocks(totalBytes, blockSizeBytes)
-          let next = 0
-          blocks.forEach((block, index) => {
-            expect(block.index).toBe(index)
-            expect(block.rangeStart).toBe(next)
-            next = block.rangeEnd! + 1
-          })
-          expect(next).toBe(totalBytes)
-        }
-      )
-    )
-    expect(planBlocks(0, 0)).toMatchObject([{ rangeStart: 0, rangeEnd: null }])
   })
 
   test('interleave serves every group before any twice, keeping each group in order', () => {

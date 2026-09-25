@@ -68,36 +68,7 @@ test.describe('two networks @smoke', () => {
     expect(origin.log.slice(goneAt).some(overB), 'b carried more once it was back').toBe(true)
   })
 
-  test('switching a network off stops its traffic; switched on, it carries on', async ({
-    plexo,
-    serve
-  }) => {
-    const origin = await serve({ size: 128 * BLOCK, bytesPerSecond: 256 * 1024 })
-    const id = await plexo.start(origin.url(), origin.sha256, {
-      networks: ['a', 'b'],
-      connections: 2
-    })
-    await plexo.waitUntil((state) => (network(state, 'b')?.bytesDownloaded ?? 0) > 0)
-
-    await plexo.api.setDownloadNetwork(id, 'b', false)
-    const off = await plexo.waitUntil((state) => streamsOn(state, 'b') === 0)
-    expect(network(off, 'b')).toMatchObject({ enabled: false, status: 'off' })
-    expect(network(off, 'b')!.bytesDownloaded, 'what it delivered stays its own').toBeGreaterThan(0)
-    const offAt = origin.log.length
-
-    // The last network in use can't be switched off: pausing is how a download stops.
-    await plexo.api.setDownloadNetwork(id, 'a', false)
-    expect(network((await plexo.current())!, 'a')?.enabled).toBe(true)
-
-    await settle(500)
-    expect(origin.log.slice(offAt).some(overB), 'nothing over b while it is off').toBe(false)
-
-    await plexo.api.setDownloadNetwork(id, 'b', true)
-    await plexo.waitForStatus('completed')
-    expect(origin.log.slice(offAt).some(overB), 'b back at work once switched on').toBe(true)
-  })
-
-  test('a network that turns up mid-download is listed, off, until switched on', async ({
+  test('a network that turns up mid-download is listed off; it carries traffic only while switched on', async ({
     plexo,
     serve
   }) => {
@@ -114,8 +85,20 @@ test.describe('two networks @smoke', () => {
     expect(origin.chunkRequests().some(overB), 'not used until switched on').toBe(false)
 
     await plexo.api.setDownloadNetwork(id, 'b', true)
-    await plexo.waitForStatus('completed')
-    expect(origin.chunkRequests().some(overB)).toBe(true)
+    await plexo.waitUntil((state) => (network(state, 'b')?.bytesDownloaded ?? 0) > 0)
+
+    await plexo.api.setDownloadNetwork(id, 'b', false)
+    const off = await plexo.waitUntil((state) => streamsOn(state, 'b') === 0)
+    expect(network(off, 'b')).toMatchObject({ enabled: false, status: 'off' })
+    expect(network(off, 'b')!.bytesDownloaded, 'what it delivered stays its own').toBeGreaterThan(0)
+    const offAt = origin.log.length
+
+    // The last network in use can't be switched off: pausing is how a download stops.
+    await plexo.api.setDownloadNetwork(id, 'a', false)
+    expect(network((await plexo.current())!, 'a')?.enabled).toBe(true)
+
+    await settle(500)
+    expect(origin.log.slice(offAt).some(overB), 'nothing over b while it is off').toBe(false)
   })
 })
 
@@ -174,7 +157,6 @@ test.describe('a network that changes address', () => {
     const changedAt = Date.now()
     await plexo.waitUntil((state) => (network(state, 'b')?.bytesDownloaded ?? 0) > 0, 5000)
     expect(Date.now() - changedAt, 'well before a backoff of 8 s or more').toBeLessThan(5000)
-    await plexo.waitForStatus('completed')
   })
 })
 

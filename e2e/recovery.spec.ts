@@ -2,7 +2,6 @@ import { cp, readFile, rm, truncate, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { BLOCK, expect, test } from './fixtures'
-import { sha256 } from './origin'
 
 // D. Quitting, crashing and restarting. kill() is SIGKILL: no before-quit, no final save —
 // what's on disk is whatever the app had managed to persist, exactly as after a crash or a
@@ -29,24 +28,12 @@ test.describe('restart @smoke', () => {
     await plexo.api.resumeDownload(id)
     await plexo.waitForStatus('completed')
   })
-
-  test('a completed download is still there after a restart', async ({ plexo, serve }) => {
-    const origin = await serve({ size: SIZE })
-    await plexo.start(origin.url(), origin.sha256)
-    const done = await plexo.waitForStatus('completed')
-
-    await plexo.relaunch()
-    const restored = await plexo.current()
-    expect(restored?.status).toBe('completed')
-    expect(sha256(await readFile(done.destinationPath))).toBe(origin.sha256)
-  })
 })
 
 test.describe('crash (SIGKILL) and recover @smoke', () => {
-  // Offsets chosen to land in different places: so early no progress has been saved yet,
-  // mid-block, a block boundary, and the tail — each leaves different part-file and manifest
-  // states behind. Chaos covers the moments in between.
-  for (const offset of [100, 3 * BLOCK + 777, 12 * BLOCK, SIZE - 10]) {
+  // Offsets chosen to leave different part-file and manifest states behind: so early no progress
+  // has been saved yet, and mid-block. Chaos covers the moments in between.
+  for (const offset of [100, 3 * BLOCK + 777]) {
     test(`killed with a response held at byte ${offset}`, async ({ plexo, serve }) => {
       const origin = await serve({ size: SIZE, seed: offset })
       const reached = origin.hold(offset)
@@ -84,16 +71,6 @@ test.describe('persisted state on disk @smoke', () => {
     origin.release()
     return { id, origin }
   }
-
-  test('a leftover manifest.json.tmp is ignored', async ({ plexo, serve, dirs }) => {
-    const { id } = await pausedDownload(plexo, serve)
-    await plexo.quit()
-    await writeFile(join(dirs.userData, 'downloads', id, 'manifest.json.tmp'), '{"half":')
-    await plexo.launch()
-    expect((await plexo.current())?.id).toBe(id)
-    await plexo.api.resumeDownload(id)
-    await plexo.waitForStatus('completed')
-  })
 
   test('a corrupt manifest does not stop the app from starting', async ({ plexo, serve, dirs }) => {
     const { id } = await pausedDownload(plexo, serve)

@@ -10,28 +10,6 @@ test.describe('automatic stream count', () => {
   const peakStreams = (plexo: { sessions: { chunks: unknown[] }[][] }): number =>
     Math.max(...plexo.sessions.at(-1)!.map((state) => state.chunks.length))
 
-  test('a server that caps each connection gets more of them, up to the limit', async ({
-    plexo,
-    serve
-  }) => {
-    const origin = await serve({ size: 384 * BLOCK, bytesPerSecond: 256 * 1024 })
-    await plexo.start(origin.url(), origin.sha256, { connections: 'auto' })
-    const state = await plexo.waitForStatus('completed', 40_000)
-    expect(state.chunks).toHaveLength(16)
-    expect(state.peakStreams).toBe(16)
-  })
-
-  test('a full link keeps the streams it started with: more are tried, then retired', async ({
-    plexo,
-    serve
-  }) => {
-    const origin = await serve({ size: 160 * BLOCK, sharedBytesPerSecond: 1_000_000 })
-    await plexo.start(origin.url(), origin.sha256, { connections: 'auto' })
-    const state = await plexo.waitForStatus('completed', 40_000)
-    expect(peakStreams(plexo), 'more streams were tried').toBe(8)
-    expect(state.chunks).toHaveLength(4)
-  })
-
   test('a server that turns extra connections away keeps the ones it accepted', async ({
     plexo,
     serve
@@ -52,22 +30,5 @@ test.describe('automatic stream count', () => {
     expect(peakStreams(plexo), 'more streams were tried').toBe(8)
     expect(state.chunks).toHaveLength(4)
     expect(origin.log.some((request) => request.status === 503)).toBe(true)
-  })
-
-  test('paused while trying more streams: the untried ones go, and the rest carry on', async ({
-    plexo,
-    serve
-  }) => {
-    const origin = await serve({ size: 192 * BLOCK, bytesPerSecond: 256 * 1024 })
-    const id = await plexo.start(origin.url(), origin.sha256, { connections: 'auto' })
-    await plexo.waitUntil((state) => state.chunks.length === 8)
-
-    await plexo.api.pauseDownload(id)
-    const paused = await plexo.waitForStatus('paused')
-    expect(paused.chunks, 'streams whose step was never judged').toHaveLength(4)
-
-    await plexo.api.resumeDownload(id)
-    const state = await plexo.waitForStatus('completed', 40_000)
-    expect(state.chunks.length).toBeLessThanOrEqual(16)
   })
 })

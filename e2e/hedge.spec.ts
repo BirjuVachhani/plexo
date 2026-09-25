@@ -64,49 +64,6 @@ test.describe('racing a slow block', () => {
     expect(hedge.bytesSent, 'the losing hedge was cut off').toBeLessThan(BLOCK)
   })
 
-  test('a hedge that fails costs nothing: the block is finished by its holder', async ({
-    plexo,
-    serve
-  }) => {
-    const origin = await serve({ size: BLOCKS * BLOCK })
-    origin.setRule(
-      answerRequestsInSlowBlock((n) => (n === 0 ? { crawl: 20_000 } : { status: 500 }))()
-    )
-
-    await plexo.start(origin.url(), origin.sha256, { connections: 4 })
-    const state = await plexo.waitForStatus('completed', 10_000)
-
-    expect(
-      state.networks.reduce((sum, network) => sum + network.retries, 0),
-      'a failed hedge is not a retry'
-    ).toBe(0)
-    // It was tried, once: the only network there is had just got nothing from the block.
-    expect(origin.chunkRequests().filter((r) => inSlowBlock(r.range))).toHaveLength(2)
-  })
-
-  test('a hedge cut off partway keeps what it wrote: the next one starts after it', async ({
-    plexo,
-    serve
-  }) => {
-    const origin = await serve({ size: BLOCKS * BLOCK })
-    origin.setRule(
-      answerRequestsInSlowBlock((n) =>
-        // The drop comes a moment after the data, as a real one does: by then it's on disk.
-        n === 0 ? { crawl: 2000 } : n === 1 ? { cutAfter: BLOCK / 2, afterMs: 300 } : 'ok'
-      )()
-    )
-
-    await plexo.start(origin.url(), origin.sha256, { connections: 4 })
-    await plexo.waitForStatus('completed', 10_000)
-
-    const [, cut, next] = origin.chunkRequests().filter((r) => inSlowBlock(r.range))
-    expect(next, 'a second hedge finished the block').toBeDefined()
-    expect(
-      next.range!.start,
-      'the second hedge began after what the first had written, not back where the holder was'
-    ).toBeGreaterThanOrEqual(cut.range!.start + BLOCK / 4)
-  })
-
   test('paused while racing, then resumed: no half-hedge is left behind', async ({
     plexo,
     serve

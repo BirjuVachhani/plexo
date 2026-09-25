@@ -1,8 +1,7 @@
 import type { Writable } from 'node:stream'
 import type { ClientRequest, IncomingMessage } from 'node:http'
 import { URL } from 'node:url'
-import type { NetworkInterfaceInfo } from '../../shared/types'
-import { requestOnInterface } from '../network/routes'
+import type { StreamConnection } from '../network/routes'
 import { testKnobs } from '../testKnobs'
 import { compareVersion, type FileVersion, type VersionCheck } from './fileVersion'
 
@@ -11,7 +10,8 @@ export interface ChunkDownloadOptions {
   rangeStart: number
   /** null = open-ended range, download to end of file. */
   rangeEnd: number | null
-  interfaceInfo: NetworkInterfaceInfo
+  /** The stream's connection, through the network it's bound to. */
+  connection: StreamConnection
   createDestination: () => Writable
   /** Network bytes received, before destination backpressure or disk writes. */
   onNetworkProgress: (bytesReceivedThisRun: number) => void
@@ -97,7 +97,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
     url,
     rangeStart,
     rangeEnd,
-    interfaceInfo,
+    connection,
     createDestination,
     onNetworkProgress,
     onProgress,
@@ -171,13 +171,8 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
     }
 
     const attempt = (targetUrl: URL, redirectsLeft: number): void => {
-      void requestOnInterface({
-        target: targetUrl,
-        iface: interfaceInfo,
-        headers,
-        signal,
-        timeoutMs: STALL_TIMEOUT_MS
-      })
+      void connection
+        .request(targetUrl, headers, signal)
         .then(({ req, res, sentAt }) => {
           if (settled) {
             req.destroy()
@@ -323,16 +318,12 @@ export function fetchRange(
   url: string,
   start: number,
   end: number,
-  interfaceInfo: NetworkInterfaceInfo
+  connection: StreamConnection
 ): Promise<{ body: Buffer; version: FileVersion }> {
   return new Promise((resolve, reject) => {
     const attempt = (target: URL, redirectsLeft: number): void => {
-      void requestOnInterface({
-        target,
-        iface: interfaceInfo,
-        headers: { 'User-Agent': 'Plexo/1.0', Range: `bytes=${start}-${end}` },
-        timeoutMs: STALL_TIMEOUT_MS
-      })
+      void connection
+        .request(target, { 'User-Agent': 'Plexo/1.0', Range: `bytes=${start}-${end}` })
         .then(({ req, res }) => {
           req.on('error', reject)
           const status = res.statusCode ?? 0

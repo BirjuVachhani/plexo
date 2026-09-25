@@ -26,6 +26,7 @@ import {
   compatibleInterfaces,
   NoCompatibleRouteError,
   resolveTargetWithin,
+  StreamConnection,
   targetHost
 } from '../network/routes'
 import {
@@ -86,6 +87,8 @@ type AttemptOutcome =
 interface ChunkRuntime {
   /** Aborts the whole stream: pause and cancel. */
   controller: AbortController
+  /** Its one connection to the server, reused from block to block. */
+  connection: StreamConnection
   /** What the stream is fetching right now, if anything. */
   attempt: Attempt | null
   /** When this connection last (re)connected; it isn't judged until SLOW_WARMUP_MS after. */
@@ -498,7 +501,7 @@ export class DownloadManager {
     const target = new URL(requestPayload.url)
     const interfaces = compatibleInterfaces(
       selected,
-      await resolveTargetWithin(target, testKnobs.stallTimeoutMs)
+      await resolveTargetWithin(targetHost(target), testKnobs.stallTimeoutMs)
     )
     if (interfaces.length === 0) throw new NoCompatibleRouteError(targetHost(target))
 
@@ -741,7 +744,7 @@ export class DownloadManager {
       try {
         runtime.activeInterfaces = compatibleInterfaces(
           runtime.activeInterfaces,
-          await resolveTargetWithin(new URL(url), testKnobs.stallTimeoutMs)
+          await resolveTargetWithin(targetHost(new URL(url)), testKnobs.stallTimeoutMs)
         )
       } catch {
         runtime.state.error = 'Could not resolve the download host. Try resuming again.'
@@ -1149,7 +1152,6 @@ export class DownloadManager {
     runtime: DownloadRuntime,
     chunk: ChunkState,
     self: ChunkRuntime,
-    iface: NetworkInterfaceInfo,
     attempt: Attempt
   ): Promise<AttemptOutcome> {
     const { block } = attempt
@@ -1181,7 +1183,7 @@ export class DownloadManager {
         url: runtime.requestPayload.url,
         rangeStart: block.rangeStart + attempt.startOffset,
         rangeEnd: block.rangeEnd,
-        interfaceInfo: iface,
+        connection: self.connection,
         createDestination: () =>
           attempt.kind === 'primary'
             ? runtime.file.writer(block.rangeStart + (attempt.startOffset ?? 0))
@@ -1282,7 +1284,7 @@ export class DownloadManager {
       case 'aborted':
         return this.finishAborted(runtime, chunk, self, attempt, outcome.reason)
       case 'failed':
-        return this.finishFailed(runtime, chunk, self, iface, attempt, outcome.error)
+        return this.finishFailed(runtime, chunk, self, attempt, outcome.error)
     }
   }
 
@@ -1410,7 +1412,6 @@ export class DownloadManager {
     runtime: DownloadRuntime,
     chunk: ChunkState,
     self: ChunkRuntime,
-    iface: NetworkInterfaceInfo,
     attempt: Attempt,
     error: unknown
   ): Promise<'continue' | 'stop'> {
@@ -1422,7 +1423,7 @@ export class DownloadManager {
       const verdict =
         error.check.kind === 'size'
           ? 'different'
-          : await this.confirmSameBytes(runtime, iface, error.seen)
+          : await this.confirmSameBytes(runtime, self.connection, error.seen)
       // The check takes a moment; the download may have been paused or stopped meanwhile.
       if ((runtime.state.status as DownloadStatus) !== 'downloading') {
         return this.finishStopped(runtime, chunk, self, attempt)
@@ -1561,6 +1562,7 @@ export class DownloadManager {
     const controller = new AbortController()
     const self: ChunkRuntime = {
       controller,
+      connection: new StreamConnection(iface, testKnobs.stallTimeoutMs),
       attempt: null,
       warmSince: Date.now(),
       slowSince: null,
@@ -1570,55 +1572,60 @@ export class DownloadManager {
     }
     runtime.chunkRuntimes.set(chunk.id, self)
 
-    while (runtime.state.status === 'downloading') {
-      if (controller.signal.aborted) break
+    try {
+      while (runtime.state.status === 'downloading') {
+        if (controller.signal.aborted) break
 
-      // Taken atomically: nothing between choosing the work and registering it can yield.
-      const work = pickWork(
-        {
-          blocks: runtime.blocks,
-          streams: runtime.state.chunks,
-          attempts: runtime.attempts,
-          avoid: runtime.avoidNetworkByBlock,
-          hedgesUsed: runtime.hedgesByBlock
-        },
-        { id: chunk.id, networkId: iface.id },
-        Date.now(),
-        SCHEDULER_POLICY
-      )
-      if (
-        work?.kind === 'hedge' &&
-        [...runtime.attempts.values()].flat().filter((attempt) => attempt.kind === 'hedge')
-          .length >= MAX_ACTIVE_HEDGES
-      ) {
-        this.goIdle(chunk)
-        await delay(250, controller.signal)
-        continue
-      }
-      if (!work) {
-        this.goIdle(chunk)
-        // While blocks are still in flight, stay available in case one fails and is handed back,
-        // or turns out to be slow enough to be worth racing.
-        if (runtime.blocks.some((b) => b.status === 'pending' || b.status === 'downloading')) {
-          this.scheduleUpdate(runtime)
+        // Taken atomically: nothing between choosing the work and registering it can yield.
+        const work = pickWork(
+          {
+            blocks: runtime.blocks,
+            streams: runtime.state.chunks,
+            attempts: runtime.attempts,
+            avoid: runtime.avoidNetworkByBlock,
+            hedgesUsed: runtime.hedgesByBlock
+          },
+          { id: chunk.id, networkId: iface.id },
+          Date.now(),
+          SCHEDULER_POLICY
+        )
+        if (
+          work?.kind === 'hedge' &&
+          [...runtime.attempts.values()].flat().filter((attempt) => attempt.kind === 'hedge')
+            .length >= MAX_ACTIVE_HEDGES
+        ) {
+          this.goIdle(chunk)
           await delay(250, controller.signal)
           continue
         }
-        chunk.status = 'completed'
-        this.scheduleUpdate(runtime)
-        break
-      }
+        if (!work) {
+          this.goIdle(chunk)
+          // While blocks are still in flight, stay available in case one fails and is handed back,
+          // or turns out to be slow enough to be worth racing.
+          if (runtime.blocks.some((b) => b.status === 'pending' || b.status === 'downloading')) {
+            this.scheduleUpdate(runtime)
+            await delay(250, controller.signal)
+            continue
+          }
+          chunk.status = 'completed'
+          this.scheduleUpdate(runtime)
+          break
+        }
 
-      const attempt = this.beginAttempt(runtime, chunk, self, iface, work)
-      this.scheduleUpdate(runtime)
-      const outcome = await this.executeAttempt(runtime, chunk, self, iface, attempt)
-      let next: 'continue' | 'stop'
-      try {
-        next = await this.finishAttempt(runtime, chunk, self, iface, attempt, outcome)
-      } finally {
-        this.endAttempt(runtime, self, attempt)
+        const attempt = this.beginAttempt(runtime, chunk, self, iface, work)
+        this.scheduleUpdate(runtime)
+        const outcome = await this.executeAttempt(runtime, chunk, self, attempt)
+        let next: 'continue' | 'stop'
+        try {
+          next = await this.finishAttempt(runtime, chunk, self, iface, attempt, outcome)
+        } finally {
+          this.endAttempt(runtime, self, attempt)
+        }
+        if (next === 'stop') break
       }
-      if (next === 'stop') break
+    } finally {
+      // Its sockets would otherwise stay open, kept alive for requests that will never come.
+      self.connection.close()
     }
 
     this.scheduleUpdate(runtime)
@@ -1635,7 +1642,7 @@ export class DownloadManager {
    */
   private async confirmSameBytes(
     runtime: DownloadRuntime,
-    iface: NetworkInterfaceInfo,
+    connection: StreamConnection,
     seen: FileVersion
   ): Promise<'same' | 'different' | 'unknown'> {
     if (compareVersion(runtime.acceptedVersions, seen).kind === 'same') return 'same'
@@ -1668,7 +1675,7 @@ export class DownloadManager {
             runtime.requestPayload.url,
             block.rangeStart,
             block.rangeStart + local.length - 1,
-            iface
+            connection
           )
           // A reply from a server still presenting an accepted label proves nothing here.
           if (compareVersion([seen], remote.version).kind !== 'same') continue

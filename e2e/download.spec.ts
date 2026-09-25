@@ -43,6 +43,10 @@ test.describe('happy paths @smoke', () => {
       await plexo.start(origin.url(), origin.sha256, { connections })
       const state = await plexo.waitForStatus('completed')
       expect(state.chunks).toHaveLength(connections)
+      // Each stream keeps its connection from one block to the next rather than reconnecting.
+      const requests = origin.chunkRequests()
+      expect(new Set(requests.map((request) => request.connection)).size).toBe(connections)
+      expect(requests.length).toBeGreaterThan(connections)
     })
   }
 

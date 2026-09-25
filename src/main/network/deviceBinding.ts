@@ -1,6 +1,4 @@
-import type { ClientRequestArgs } from 'node:http'
-import { connect, isIP, Socket, type SocketConstructorOpts } from 'node:net'
-import { checkServerIdentity, connect as tlsConnect } from 'node:tls'
+import { connect, Socket, type SocketConstructorOpts } from 'node:net'
 import type { NetworkRoute } from './routes'
 
 // Linux picks a socket's outgoing interface from the routing table alone: binding to an
@@ -90,34 +88,4 @@ export function connectRoute(route: NetworkRoute, port: number): Socket {
     localAddress,
     family
   })
-}
-
-/** Convert an explicit route into request options without changing the URL's HTTP authority. */
-export function routeFrom(
-  route: NetworkRoute,
-  target: URL
-): Pick<
-  ClientRequestArgs,
-  'localAddress' | 'family' | 'createConnection' | 'port' | 'defaultPort'
-> {
-  const secure = target.protocol === 'https:'
-  const defaultPort = secure ? 443 : 80
-  const port = Number(target.port) || defaultPort
-  const host = target.hostname.replace(/^\[|\]$/g, '')
-  return {
-    localAddress: route.localAddress,
-    family: route.family,
-    port,
-    defaultPort,
-    createConnection: () => {
-      const socket = connectRoute(route, port)
-      return secure
-        ? tlsConnect({
-            socket,
-            servername: isIP(host) ? undefined : host,
-            checkServerIdentity: (_name, cert) => checkServerIdentity(host, cert)
-          })
-        : socket
-    }
-  }
 }

@@ -39,6 +39,8 @@ export interface OriginRequest {
   path: string
   /** Source address — which "network" the request came in on. */
   from: string
+  /** Which TCP connection it arrived on, numbered in the order they opened. */
+  connection: number
   range: { start: number; end: number | null } | null
 }
 
@@ -105,6 +107,8 @@ export class Origin {
   private releasePromise: Promise<void> = Promise.resolve()
   private reachedPromise: Promise<void> = Promise.resolve()
   private sockets = new Set<Socket>()
+  private connectionIds = new WeakMap<Socket, number>()
+  private connections = 0
   private server = createServer((req, res) => void this.handle(req, res))
   private port = 0
 
@@ -113,6 +117,7 @@ export class Origin {
     this.etag = options.etag === undefined ? '"v1"' : options.etag
     this.lastModified = options.lastModified ?? null
     this.server.on('connection', (socket) => {
+      this.connectionIds.set(socket, ++this.connections)
       this.sockets.add(socket)
       socket.on('close', () => this.sockets.delete(socket))
     })
@@ -188,6 +193,7 @@ export class Origin {
       n: this.log.length + 1,
       path: req.url ?? '/',
       from: (req.socket.remoteAddress ?? '').replace(/^::ffff:/, ''),
+      connection: this.connectionIds.get(req.socket) ?? 0,
       range: parseRange(req.headers.range)
     }
     const fault = this.rule(request) ?? 'ok'

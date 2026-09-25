@@ -76,7 +76,7 @@ export function downloadChunkSimulated(options: ChunkDownloadOptions): Promise<v
     url,
     rangeStart,
     rangeEnd,
-    interfaceInfo,
+    connection,
     createDestination,
     onNetworkProgress,
     onProgress,
@@ -95,7 +95,7 @@ export function downloadChunkSimulated(options: ChunkDownloadOptions): Promise<v
       return
     }
 
-    const network = session.networks.get(interfaceInfo.id)
+    const network = session.networks.get(connection.iface.id)
     if (network && Math.random() * 100 < network.faultRatePercent) {
       reject(new Error(`Simulated drop on ${network.label}`))
       return

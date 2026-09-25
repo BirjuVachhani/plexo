@@ -511,6 +511,37 @@
         flex-direction: column;
         gap: 14px;
       }
+      /* Beside the hero, the panel takes the hero's height (height 0 keeps it from setting the row's
+         height; min-height then fills it) and the list scrolls. Stacked, it shows everything. */
+      @media (min-width: 961px) {
+        .whats-new {
+          align-self: stretch;
+          height: 0;
+          min-height: 100%;
+        }
+        .whats-new-head,
+        .older {
+          flex-shrink: 0;
+        }
+        .changes {
+          flex: 1;
+          min-height: 0;
+          overflow-y: auto;
+          padding-right: 8px;
+          margin-right: -8px;
+          padding-bottom: 18px;
+          scrollbar-width: thin;
+          scrollbar-color: #33383c transparent;
+          mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent);
+        }
+        .changes::-webkit-scrollbar {
+          width: 6px;
+        }
+        .changes::-webkit-scrollbar-thumb {
+          border-radius: 3px;
+          background: #33383c;
+        }
+      }
       .changes li {
         display: flex;
         flex-direction: column;
@@ -565,21 +596,6 @@
       .kind.fixed {
         background: #262a2d;
         color: #a9adb2;
-      }
-      .more-changes {
-        align-self: flex-start;
-        margin-top: -4px;
-        padding: 0;
-        border: 0;
-        background: none;
-        font:
-          600 12.5px/1.4 Manrope,
-          sans-serif;
-        color: #d8a44c;
-        cursor: pointer;
-      }
-      .more-changes:hover {
-        color: #e8bb6d;
       }
       .older {
         display: flex;
@@ -968,7 +984,6 @@
             <div class="ver" id="whats-new-ver"></div>
           </div>
           <ul class="changes" id="changes"></ul>
-          <button type="button" class="more-changes" id="more-changes" hidden></button>
           <div class="older">
             <div class="label" id="older-label" hidden>EARLIER VERSIONS</div>
             <ul id="older-list"></ul>
@@ -1417,22 +1432,8 @@
           $('whats-new-ver').textContent =
             latest.tag_name + (latest.published_at ? ' · ' + shortDate(latest.published_at) : '')
           var items = curated ? curated.items : itemsFromNotes(latest.body)
-          // Keep the panel about as tall as the hero beside it; the rest is one click away.
-          var SHOWN = 4
-          var more = $('more-changes')
-          var hiddenCount = items.length - SHOWN
-          more.hidden = hiddenCount <= 0
-          more.textContent =
-            'Show ' + hiddenCount + ' more ' + (hiddenCount === 1 ? 'change' : 'changes') + ' ↓'
-          more.onclick = function () {
-            Array.prototype.forEach.call(changes.children, function (li) {
-              li.hidden = false
-            })
-            more.hidden = true
-          }
-          items.forEach(function (item, i) {
+          items.forEach(function (item) {
             var li = el('li')
-            li.hidden = i >= SHOWN
             if (item.title) {
               var name = el('div', 'name')
               name.appendChild(el('span', 'kind ' + item.kind, item.kind))

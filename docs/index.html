@@ -62,6 +62,11 @@
       header a:hover {
         color: #eae7e2;
       }
+      @media (max-width: 440px) {
+        header .support-link {
+          display: none;
+        }
+      }
       .logo {
         width: 32px;
         height: 32px;
@@ -456,6 +461,356 @@
           sans-serif;
         color: #a9adb2;
       }
+      .top {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+        gap: 48px;
+        align-items: start;
+      }
+      @media (max-width: 960px) {
+        .top {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      .card {
+        border-radius: 13px;
+        border: 1px solid #2b2f33;
+        background: #1b1e20;
+      }
+      .whats-new {
+        display: flex;
+        flex-direction: column;
+        padding: 20px 20px 18px;
+        gap: 16px;
+      }
+      .whats-new-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .whats-new-head .title {
+        font:
+          700 16px/1.2 Manrope,
+          sans-serif;
+        letter-spacing: -0.01em;
+        color: #f5f2ed;
+      }
+      .whats-new-head .ver {
+        font:
+          500 10.5px/1 'Roboto Mono',
+          monospace;
+        color: #8d9196;
+        overflow-wrap: anywhere;
+      }
+      .changes {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .changes li {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .changes .name {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font:
+          600 13.5px/1.35 Manrope,
+          sans-serif;
+        color: #eae7e2;
+      }
+      .changes p {
+        margin: 0;
+        font:
+          400 12.5px/1.55 Manrope,
+          sans-serif;
+        color: #8d9196;
+        text-wrap: pretty;
+      }
+      .changes code {
+        padding: 0 5px;
+        border-radius: 4px;
+        background: #23262a;
+        color: #c9ccd0;
+        font:
+          400 11.5px/1.5 'Roboto Mono',
+          monospace;
+      }
+      .kind {
+        flex-shrink: 0;
+        padding: 3px 7px;
+        border-radius: 999px;
+        font:
+          600 9.5px/1 'Roboto Mono',
+          monospace;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        background: rgba(216, 164, 76, 0.14);
+        color: #d8a44c;
+      }
+      .kind.faster {
+        background: rgba(78, 168, 154, 0.15);
+        color: #6cc2b4;
+      }
+      .kind.improved {
+        background: rgba(126, 147, 189, 0.16);
+        color: #9aaed6;
+      }
+      .kind.fixed {
+        background: #262a2d;
+        color: #a9adb2;
+      }
+      .older {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding-top: 14px;
+        border-top: 1px solid #2b2f33;
+      }
+      .older .label {
+        font:
+          500 10.5px/1 'Roboto Mono',
+          monospace;
+        letter-spacing: 0.14em;
+        color: #6f7479;
+      }
+      .older ul {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .older li a {
+        display: flex;
+        gap: 10px;
+        font:
+          500 12px/1.4 'Roboto Mono',
+          monospace;
+        color: #a9adb2;
+      }
+      .older li a:hover {
+        color: #eae7e2;
+      }
+      .older li .date {
+        margin-left: auto;
+        color: #5d6165;
+        white-space: nowrap;
+      }
+      .older .all {
+        font:
+          600 12.5px/1.4 Manrope,
+          sans-serif;
+      }
+      .support {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        max-width: 760px;
+      }
+      .support > p {
+        margin: 0;
+        font:
+          400 14px/1.6 Manrope,
+          sans-serif;
+        color: #a9adb2;
+        text-wrap: pretty;
+      }
+      .poll {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 22px;
+      }
+      .poll .question {
+        margin: 0;
+        font:
+          700 17px/1.35 Manrope,
+          sans-serif;
+        letter-spacing: -0.01em;
+        color: #f5f2ed;
+        text-wrap: balance;
+      }
+      .poll .sub {
+        margin: -8px 0 0;
+        font:
+          400 13px/1.55 Manrope,
+          sans-serif;
+        color: #8d9196;
+      }
+      .poll-choices {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .poll-choices button {
+        flex: 1 1 180px;
+        padding: 13px 18px;
+        border-radius: 10px;
+        border: 1px solid #33383c;
+        background: #262a2d;
+        color: #eae7e2;
+        font:
+          600 14px/1.2 Manrope,
+          sans-serif;
+        cursor: pointer;
+      }
+      .poll-choices button:hover:not(:disabled) {
+        background: #2f3437;
+        border-color: #4a3a22;
+      }
+      .poll-choices button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .poll-results {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .bar {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .bar .row {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        font:
+          600 13.5px/1.3 Manrope,
+          sans-serif;
+        color: #eae7e2;
+      }
+      .bar .row .mine {
+        display: inline-block;
+        margin-left: 6px;
+        white-space: nowrap;
+        font:
+          500 10px/1 'Roboto Mono',
+          monospace;
+        letter-spacing: 0.1em;
+        color: #d8a44c;
+      }
+      .bar .row .num {
+        margin-left: auto;
+        font:
+          500 12px/1 'Roboto Mono',
+          monospace;
+        color: #a9adb2;
+        white-space: nowrap;
+      }
+      .bar .track {
+        height: 8px;
+        border-radius: 999px;
+        background: #262a2d;
+        overflow: hidden;
+      }
+      .bar .fill {
+        height: 100%;
+        width: 0;
+        border-radius: 999px;
+        background: #7e93bd;
+        transition: width 0.5s ease;
+      }
+      .bar.yes .fill {
+        background: #d8a44c;
+      }
+      .poll-meta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font:
+          400 11.5px/1.5 'Roboto Mono',
+          monospace;
+        color: #6f7479;
+      }
+      .live-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #4ea89a;
+        box-shadow: 0 0 0 0 rgba(78, 168, 154, 0.5);
+        animation: pulse 2s infinite;
+      }
+      .live-dot.off {
+        background: #5d6165;
+        animation: none;
+      }
+      @keyframes pulse {
+        70% {
+          box-shadow: 0 0 0 7px rgba(78, 168, 154, 0);
+        }
+        100% {
+          box-shadow: 0 0 0 0 rgba(78, 168, 154, 0);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .live-dot {
+          animation: none;
+        }
+        .bar .fill {
+          transition: none;
+        }
+      }
+      .ways {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .ways .lead {
+        margin: 0;
+        font:
+          600 14px/1.5 Manrope,
+          sans-serif;
+        color: #eae7e2;
+      }
+      .ways-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 10px;
+      }
+      .way {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 14px 16px;
+        border-radius: 11px;
+        border: 1px solid #2b2f33;
+        background: #1b1e20;
+        font:
+          400 12px/1.5 Manrope,
+          sans-serif;
+        color: #8d9196;
+        text-align: left;
+        cursor: pointer;
+      }
+      .way strong {
+        font:
+          600 13.5px/1.35 Manrope,
+          sans-serif;
+        color: #eae7e2;
+      }
+      a.way:hover,
+      button.way:hover {
+        border-color: #4a3a22;
+        background: #202428;
+        color: #a9adb2;
+      }
+      .way.primary {
+        border-color: #4a3a22;
+        background: #241f17;
+      }
+      [hidden] {
+        display: none !important;
+      }
       footer {
         display: flex;
         align-items: center;
@@ -520,49 +875,67 @@
         <div class="wordmark">Plexo</div>
         <div class="badge">PRE-RELEASE</div>
         <div class="spacer"></div>
+        <a class="support-link" href="#support">Support</a>
         <a href="https://github.com/anmolkapil/plexo">GitHub</a>
       </header>
 
-      <section class="hero">
-        <div class="eyebrow">DOWNLOAD MANAGER · MULTI-LINK</div>
-        <h1>One download.<br />Every network.</h1>
-        <p>Plexo combines all your available internet connections to download files faster.</p>
-        <ul class="use-cases">
-          <li>Wi-Fi + Ethernet.</li>
-          <li>Two tethered phones.</li>
-          <li>Wi-Fi, Ethernet, and a tethered phone.</li>
-          <li>Whatever your computer can connect to.</li>
-        </ul>
+      <div class="top">
+        <section class="hero">
+          <div class="eyebrow">DOWNLOAD MANAGER · MULTI-LINK</div>
+          <h1>One download.<br />Every network.</h1>
+          <p>Plexo combines all your available internet connections to download files faster.</p>
+          <ul class="use-cases">
+            <li>Wi-Fi + Ethernet.</li>
+            <li>Two tethered phones.</li>
+            <li>Wi-Fi, Ethernet, and a tethered phone.</li>
+            <li>Whatever your computer can connect to.</li>
+          </ul>
 
-        <div class="cta-row">
-          <a
-            class="primary-btn"
-            id="primary-btn"
-            href="https://github.com/anmolkapil/plexo/releases/latest"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              width="19"
-              height="19"
-              fill="none"
-              stroke="#1b1405"
-              stroke-width="2.2"
-              stroke-linecap="round"
+          <div class="cta-row">
+            <a
+              class="primary-btn"
+              id="primary-btn"
+              href="https://github.com/anmolkapil/plexo/releases/latest"
             >
-              <path d="M12 3v12" />
-              <path d="M6.5 11.5 12 17l5.5-5.5" />
-              <path d="M4 20h16" />
-            </svg>
-            <span class="label">
-              <span class="title" id="primary-title">Download for your OS</span>
-              <span class="meta" id="primary-meta">Loading latest release…</span>
-            </span>
-          </a>
-          <a href="#downloads">All downloads</a>
-        </div>
-        <div class="cta-alt" id="cta-alt"></div>
-        <div class="release-line" id="release-line">Checking GitHub for the latest release…</div>
-      </section>
+              <svg
+                viewBox="0 0 24 24"
+                width="19"
+                height="19"
+                fill="none"
+                stroke="#1b1405"
+                stroke-width="2.2"
+                stroke-linecap="round"
+              >
+                <path d="M12 3v12" />
+                <path d="M6.5 11.5 12 17l5.5-5.5" />
+                <path d="M4 20h16" />
+              </svg>
+              <span class="label">
+                <span class="title" id="primary-title">Download for your OS</span>
+                <span class="meta" id="primary-meta">Loading latest release…</span>
+              </span>
+            </a>
+            <a href="#downloads">All downloads</a>
+          </div>
+          <div class="cta-alt" id="cta-alt"></div>
+          <div class="release-line" id="release-line">Checking GitHub for the latest release…</div>
+        </section>
+
+        <aside class="card whats-new" id="whats-new" aria-labelledby="whats-new-title">
+          <div class="whats-new-head">
+            <div class="title" id="whats-new-title">What’s new</div>
+            <div class="ver" id="whats-new-ver"></div>
+          </div>
+          <ul class="changes" id="changes"></ul>
+          <div class="older">
+            <div class="label" id="older-label" hidden>EARLIER VERSIONS</div>
+            <ul id="older-list"></ul>
+            <a class="all" href="https://github.com/anmolkapil/plexo/releases"
+              >All releases on GitHub →</a
+            >
+          </div>
+        </aside>
+      </div>
 
       <section class="carousel">
         <ul class="carousel-track" id="shots-track">
@@ -694,6 +1067,71 @@
         </ol>
       </section>
 
+      <section class="support" id="support">
+        <div class="downloads-head">
+          <div class="title">Help keep Plexo free</div>
+        </div>
+        <p>
+          Plexo is free and open source, built and maintained by one developer. Keeping it going
+          costs real money: Apple and Microsoft developer licenses, so macOS and Windows stop
+          warning you when you install it, plus the time that goes into every release. I’d like your
+          honest take on how to cover that.
+        </p>
+
+        <div class="card poll" id="poll">
+          <p class="question">Would you be okay with small, non-intrusive ads in Plexo?</p>
+          <p class="sub">
+            Simple and out of the way: no pop-ups, no video, nothing that interrupts a download.
+          </p>
+          <div class="poll-choices" id="poll-choices">
+            <button type="button" data-vote="yes">Yes, that’s fine</button>
+            <button type="button" data-vote="no">No, I’d rather not</button>
+          </div>
+          <div class="poll-results" id="poll-results" hidden>
+            <div class="bar yes">
+              <div class="row">
+                <span>Yes, that’s fine <span class="mine" hidden>YOUR VOTE</span></span
+                ><span class="num"></span>
+              </div>
+              <div class="track"><div class="fill"></div></div>
+            </div>
+            <div class="bar no">
+              <div class="row">
+                <span>No, I’d rather not <span class="mine" hidden>YOUR VOTE</span></span
+                ><span class="num"></span>
+              </div>
+              <div class="track"><div class="fill"></div></div>
+            </div>
+          </div>
+          <div class="poll-meta">
+            <span class="live-dot off" id="poll-dot"></span>
+            <span id="poll-status">Anonymous · no sign-in, nothing about you is stored</span>
+          </div>
+        </div>
+
+        <div class="ways" id="ways" hidden>
+          <p class="lead" id="ways-lead">Other ways to support Plexo</p>
+          <div class="ways-grid">
+            <a class="way primary" href="https://github.com/sponsors/anmolkapil">
+              <strong>Sponsor on GitHub</strong>
+              One-off or monthly, any amount. Goes straight to licenses and development.
+            </a>
+            <a class="way" href="https://github.com/anmolkapil/plexo">
+              <strong>Star the repo</strong>
+              Helps more people find Plexo, and costs nothing.
+            </a>
+            <a class="way" href="https://github.com/anmolkapil/plexo/issues/new">
+              <strong>Report bugs, suggest features</strong>
+              Good reports make every release better.
+            </a>
+            <button type="button" class="way" id="share-btn">
+              <strong>Tell a friend</strong>
+              <span id="share-text">Copy a link to this page.</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
       <footer>
         <div class="ver" id="version-label">PLEXO</div>
         <div class="spacer"></div>
@@ -703,6 +1141,7 @@
     </div>
 
     <script src="downloads.js"></script>
+    <script src="changelog.js"></script>
     <script>
       ;(function () {
         var track = document.getElementById('shots-track')
@@ -893,8 +1332,75 @@
           }
         }
 
+        function shortDate(iso) {
+          return iso
+            ? new Date(iso).toLocaleDateString(undefined, {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+              })
+            : ''
+        }
+
+        // A release this page has no curated entry for: its own notes, minus the downloads table.
+        function itemsFromNotes(body) {
+          return String(body || '')
+            .split(/\n## |\*\*Full Changelog\*\*/)[0]
+            .split(/\n\s*\n/)
+            .map(function (p) {
+              return p.replace(/\*\*|__/g, '').trim()
+            })
+            .filter(Boolean)
+            .map(function (p) {
+              return { text: p }
+            })
+        }
+
+        // What's new in the latest release, and links to the ones before it on GitHub.
+        function renderChangelog(list) {
+          var changes = $('changes')
+          var older = $('older-list')
+          changes.textContent = ''
+          older.textContent = ''
+          var latest = list && list[0]
+          if (!latest) {
+            var li = el('li')
+            li.appendChild(el('p', '', 'Release notes for every version are on GitHub.'))
+            changes.appendChild(li)
+            return
+          }
+          var curated = (window.PlexoChangelog || []).filter(function (e) {
+            return e.version === latest.tag_name
+          })[0]
+          $('whats-new-ver').textContent =
+            latest.tag_name + (latest.published_at ? ' · ' + shortDate(latest.published_at) : '')
+          var items = curated ? curated.items : itemsFromNotes(latest.body)
+          items.forEach(function (item) {
+            var li = el('li')
+            if (item.title) {
+              var name = el('div', 'name')
+              name.appendChild(el('span', 'kind ' + item.kind, item.kind))
+              name.appendChild(document.createTextNode(item.title))
+              li.appendChild(name)
+            }
+            li.appendChild(withCode(el('p'), item.text))
+            changes.appendChild(li)
+          })
+          list.slice(1, 5).forEach(function (r) {
+            var a = el('a')
+            a.href = r.html_url
+            a.appendChild(el('span', '', r.tag_name))
+            a.appendChild(el('span', 'date', shortDate(r.published_at)))
+            var li = el('li')
+            li.appendChild(a)
+            older.appendChild(li)
+          })
+          $('older-label').hidden = list.length < 2
+        }
+
         if (!D) {
           fallback(true)
+          renderChangelog(null)
           return
         }
 
@@ -905,12 +1411,168 @@
           environment()
         ])
           .then(function (results) {
-            var list = results[0]
-            render(Array.isArray(list) ? list[0] : null, results[1])
+            var list = Array.isArray(results[0]) ? results[0] : []
+            render(list[0] || null, results[1])
+            renderChangelog(list)
           })
           .catch(function () {
             fallback(true)
+            renderChangelog(null)
           })
+      })()
+
+      // The ads poll. Votes are two public counters on Abacus (a free, keyless counter API), so
+      // nothing about the voter is sent or kept; this browser remembers its own vote so it can't
+      // vote twice by reloading.
+      ;(function () {
+        var API = 'https://abacus.jasoncameron.dev'
+        var NAMESPACE = 'anmolkapil-plexo'
+        var KEYS = { yes: 'ads-poll-yes', no: 'ads-poll-no' }
+        var STORE = 'plexo-ads-poll'
+        var REFRESH_MS = 15000
+
+        var poll = document.getElementById('poll')
+        var choices = poll.querySelectorAll('[data-vote]')
+        var results = document.getElementById('poll-results')
+        var statusEl = document.getElementById('poll-status')
+        var dot = document.getElementById('poll-dot')
+        var ways = document.getElementById('ways')
+        var waysLead = document.getElementById('ways-lead')
+        var counts = { yes: 0, no: 0 }
+
+        function stored() {
+          try {
+            var v = localStorage.getItem(STORE)
+            return v === 'yes' || v === 'no' ? v : null
+          } catch (e) {
+            return null
+          }
+        }
+
+        function remember(v) {
+          try {
+            localStorage.setItem(STORE, v)
+          } catch (e) {
+            /* Private mode: the vote still counts, it just isn't remembered. */
+          }
+        }
+
+        function counter(action, key) {
+          return fetch(API + '/' + action + '/' + NAMESPACE + '/' + key).then(function (r) {
+            // A counter nobody has hit yet doesn't exist.
+            if (r.status === 404) return 0
+            if (!r.ok) return Promise.reject()
+            return r.json().then(function (j) {
+              return Number(j.value) || 0
+            })
+          })
+        }
+
+        function live(ok, text) {
+          dot.classList.toggle('off', !ok)
+          statusEl.textContent = text
+        }
+
+        function paint() {
+          var total = counts.yes + counts.no
+          var mine = stored()
+          ;['yes', 'no'].forEach(function (k) {
+            var bar = results.querySelector('.bar.' + k)
+            var pct = total ? Math.round((counts[k] / total) * 100) : 0
+            bar.querySelector('.fill').style.width = pct + '%'
+            bar.querySelector('.num').textContent =
+              pct + '% · ' + counts[k] + (counts[k] === 1 ? ' vote' : ' votes')
+            bar.querySelector('.mine').hidden = mine !== k
+          })
+          if (mine) {
+            live(true, 'Live · ' + total + (total === 1 ? ' vote' : ' votes') + ' · anonymous')
+          } else if (total) {
+            live(
+              true,
+              total + (total === 1 ? ' vote' : ' votes') + ' so far · anonymous, no sign-in'
+            )
+          }
+        }
+
+        function refresh() {
+          if (document.hidden) return Promise.resolve()
+          return Promise.all([counter('get', KEYS.yes), counter('get', KEYS.no)])
+            .then(function (v) {
+              counts.yes = v[0]
+              counts.no = v[1]
+              paint()
+            })
+            .catch(function () {
+              if (stored())
+                live(false, 'Couldn’t load live results right now — your vote is saved.')
+            })
+        }
+
+        function showVoted(v) {
+          poll.querySelector('#poll-choices').hidden = true
+          results.hidden = false
+          ways.hidden = false
+          waysLead.textContent =
+            v === 'no'
+              ? 'Fair enough, thanks for saying so. Here’s how else you can help:'
+              : 'Thanks! And if you’d like to help in other ways too:'
+          paint()
+        }
+
+        function vote(v) {
+          Array.prototype.forEach.call(choices, function (b) {
+            b.disabled = true
+          })
+          live(true, 'Sending your vote…')
+          counter('hit', KEYS[v])
+            .then(function (n) {
+              counts[v] = Math.max(n, counts[v] + 1)
+              remember(v)
+              showVoted(v)
+              return refresh()
+            })
+            .catch(function () {
+              Array.prototype.forEach.call(choices, function (b) {
+                b.disabled = false
+              })
+              live(false, 'Couldn’t send your vote — check your connection and try again.')
+            })
+        }
+
+        Array.prototype.forEach.call(choices, function (b) {
+          b.addEventListener('click', function () {
+            vote(b.getAttribute('data-vote'))
+          })
+        })
+
+        var share = document.getElementById('share-btn')
+        share.addEventListener('click', function () {
+          var url = 'https://anmolkapil.github.io/plexo/'
+          var text = document.getElementById('share-text')
+          if (navigator.share) {
+            navigator.share({ title: 'Plexo', url: url }).catch(function () {})
+            return
+          }
+          if (!navigator.clipboard) {
+            text.textContent = url
+            return
+          }
+          navigator.clipboard.writeText(url).then(
+            function () {
+              text.textContent = 'Link copied — thank you!'
+            },
+            function () {
+              text.textContent = url
+            }
+          )
+        })
+
+        if (stored()) showVoted(stored())
+        refresh()
+        setInterval(refresh, REFRESH_MS)
+        document.addEventListener('visibilitychange', function () {
+          if (!document.hidden) refresh()
+        })
       })()
     </script>
   </body>

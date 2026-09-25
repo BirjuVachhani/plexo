@@ -263,23 +263,29 @@ export function NetworkRow({
                   </span>
                 )}
                 {isChunkActive ? (
-                  <ColorBadge
-                    bg={visual.bg}
-                    border={visual.border}
-                    text={visual.text}
-                    title={
-                      chunk.hedge
-                        ? 'Racing another stream for this chunk, which was running slowly'
-                        : undefined
-                    }
-                    // Height is pinned, not `h-auto`: this badge swaps in and out as a stream
-                    // goes active, and the cell is only as tall as "Stream #N" (13.2px). Left to
-                    // size itself the badge came out taller than that and grew the row on every
-                    // swap. 13px keeps it under, whatever line-height it ends up inheriting.
-                    className="h-[13px] rounded-[3px] px-[5px] py-px text-[9px] font-semibold tracking-[0.04em]"
-                  >
-                    {chunk.hedge ? 'BACKUP' : 'ACTIVE'}
-                  </ColorBadge>
+                  <Tooltip disabled={!chunk.hedge}>
+                    <TooltipTrigger
+                      render={
+                        <ColorBadge
+                          bg={visual.bg}
+                          border={visual.border}
+                          text={visual.text}
+                          tabIndex={chunk.hedge ? 0 : undefined}
+                          // Height is pinned, not `h-auto`: this badge swaps in and out as a
+                          // stream goes active, and the cell is only as tall as "Stream #N"
+                          // (13.2px). Left to size itself the badge came out taller than that and
+                          // grew the row on every swap. 13px keeps it under, whatever line-height
+                          // it ends up inheriting.
+                          className="h-[13px] rounded-[3px] px-[5px] py-px text-[9px] font-semibold tracking-[0.04em] outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                        >
+                          {chunk.hedge ? 'BACKUP' : 'ACTIVE'}
+                        </ColorBadge>
+                      }
+                    />
+                    <TooltipContent>
+                      Racing another stream for this chunk, which was running slowly
+                    </TooltipContent>
+                  </Tooltip>
                 ) : (
                   <span
                     className={`text-[9.5px] ${

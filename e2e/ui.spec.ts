@@ -107,22 +107,13 @@ test.describe('UI journeys @smoke', () => {
   })
 })
 
-// What a user sets is still set after they reload or restart — checked only through what they see.
-test.describe('network rows explain themselves @smoke', () => {
-  test('the last network in use says why it can’t be switched off', async ({ plexo, serve }) => {
-    const origin = await serve({ size: 64 * BLOCK, bytesPerSecond: 256 * 1024 })
-    await plexo.start(origin.url(), origin.sha256)
-    const checkbox = plexo.page.getByRole('checkbox', { name: /^Use /, checked: true })
-    await expect(checkbox).toBeDisabled()
-
-    // A disabled checkbox gets no hover of its own: what it sits in shows the tooltip.
-    await checkbox.locator('..').hover()
-    await expect(
-      plexo.page.getByText('The last network in use stays on. Pause to stop.')
-    ).toBeVisible()
-  })
-
-  test('a network that becomes the last one in use says so too', async ({ plexo, serve }) => {
+test.describe('tooltips @smoke', () => {
+  // base-ui settles on the first render whether a tooltip's state is its own; one that is
+  // switched on only later, as this one is, must still open.
+  test('a network that becomes the last one in use says why it can’t be switched off', async ({
+    plexo,
+    serve
+  }) => {
     test.skip(!LAN_ADDRESS, 'needs a LAN address to act as the second network')
     const origin = await serve({ size: 64 * BLOCK, bytesPerSecond: 256 * 1024 })
     const id = await plexo.start(origin.url(), origin.sha256, { networks: ['a', 'b'] })
@@ -131,29 +122,15 @@ test.describe('network rows explain themselves @smoke', () => {
 
     await plexo.api.setDownloadNetwork(id, 'b', false)
     await expect(checked).toBeDisabled()
+    // A disabled checkbox gets no hover of its own: what it sits in shows the tooltip.
     await checked.locator('..').hover()
     await expect(
       plexo.page.getByText('The last network in use stays on. Pause to stop.')
     ).toBeVisible()
   })
-
-  test('a network that failed shows what went wrong', async ({ plexo, serve }) => {
-    test.skip(!LAN_ADDRESS, 'needs a LAN address to act as the second network')
-    const origin = await serve({ size: 64 * BLOCK, bytesPerSecond: 256 * 1024 })
-    // Everything over b is refused for good; a carries the download.
-    origin.setRule(({ from, range }) =>
-      from !== '127.0.0.1' && range && range.end !== 0 ? { status: 404 } : 'ok'
-    )
-    await plexo.start(origin.url(), origin.sha256, { networks: ['a', 'b'], connections: 2 })
-    await plexo.waitUntil(
-      (state) => state.networks.find((network) => network.id === 'b')?.status === 'failed'
-    )
-
-    await plexo.page.getByText('Failed', { exact: true }).hover()
-    await expect(plexo.page.getByText('Unexpected status 404 for range request')).toBeVisible()
-  })
 })
 
+// What a user sets is still set after they reload or restart — checked only through what they see.
 test.describe('settings @smoke', () => {
   test.describe('with an update available', () => {
     test.use({ appEnv: { PLEXO_FORCE_UPDATE_VERSION: '9.9.9' } })

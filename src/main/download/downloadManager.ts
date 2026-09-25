@@ -34,7 +34,7 @@ import { pickWork, type SchedulerPolicy, type Work } from './scheduler'
 import {
   compatibleInterfaces,
   NoCompatibleRouteError,
-  resolveTarget,
+  resolveTargetWithin,
   targetHost
 } from '../network/routes'
 import {
@@ -462,7 +462,10 @@ export class DownloadManager {
       throw new Error('Select at least one network interface')
     }
     const target = new URL(requestPayload.url)
-    const interfaces = compatibleInterfaces(selected, await resolveTarget(target))
+    const interfaces = compatibleInterfaces(
+      selected,
+      await resolveTargetWithin(target, testKnobs.stallTimeoutMs)
+    )
     if (interfaces.length === 0) throw new NoCompatibleRouteError(targetHost(target))
 
     return this.startWithInterfaces(requestPayload, interfaces)
@@ -709,7 +712,7 @@ export class DownloadManager {
       try {
         runtime.activeInterfaces = compatibleInterfaces(
           runtime.activeInterfaces,
-          await resolveTarget(new URL(url))
+          await resolveTargetWithin(new URL(url), testKnobs.stallTimeoutMs)
         )
       } catch {
         runtime.state.error = 'Could not resolve the download host. Try resuming again.'

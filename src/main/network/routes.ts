@@ -19,7 +19,7 @@ export function targetHost(target: URL): string {
   return target.hostname.replace(/^\[|\]$/g, '')
 }
 
-export async function resolveTarget(
+async function resolveTarget(
   target: URL,
   resolveHost: (host: string) => Promise<RemoteAddress[]> = async (host) =>
     (await lookup(host, { all: true, order: 'verbatim' })) as RemoteAddress[]
@@ -60,6 +60,36 @@ export class NoCompatibleRouteError extends Error {
   }
 }
 
+/** DNS is part of opening a request, so it must not outlive the request's deadline. */
+export function resolveTargetWithin(
+  target: URL,
+  timeoutMs: number,
+  signal?: AbortSignal,
+  resolveHost?: (host: string) => Promise<RemoteAddress[]>
+): Promise<RemoteAddress[]> {
+  return new Promise((resolve, reject) => {
+    let done = false
+    const finish = (complete: () => void): void => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      complete()
+    }
+    const onAbort = (): void => finish(() => reject(new DOMException('Aborted', 'AbortError')))
+    const timer = setTimeout(
+      () => finish(() => reject(new Error('Could not resolve the download host in time'))),
+      timeoutMs
+    )
+    if (signal?.aborted) return onAbort()
+    signal?.addEventListener('abort', onAbort, { once: true })
+    void resolveTarget(target, resolveHost).then(
+      (addresses) => finish(() => resolve(addresses)),
+      (error) => finish(() => reject(error))
+    )
+  })
+}
+
 /** Try another compatible route only if no response headers have arrived yet. */
 interface RequestOptions {
   target: URL
@@ -79,18 +109,19 @@ export async function requestOnInterface({
   timeoutMs,
   resolveHost
 }: RequestOptions): Promise<{ req: ClientRequest; res: IncomingMessage; sentAt: number }> {
-  const routes = routesFor(iface, await resolveTarget(target, resolveHost))
-  if (routes.length === 0) throw new NoCompatibleRouteError(targetHost(target))
   const deadline = Date.now() + timeoutMs
+  const routes = routesFor(iface, await resolveTargetWithin(target, timeoutMs, signal, resolveHost))
+  if (routes.length === 0) throw new NoCompatibleRouteError(targetHost(target))
   let lastError: Error = new Error('Connection failed')
 
   for (const [index, route] of routes.entries()) {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
     const remaining = deadline - Date.now()
     if (remaining <= 0) break
-    // A stale local address can hang until timeout. Leave time for the other addresses
-    // on this interface instead of spending the entire budget on the first one.
-    const routeTimeout = Math.max(1, Math.floor(remaining / (routes.length - index)))
+    // A stale address gets a short connection window, but a connected server keeps
+    // the full remaining time to send headers. The final route gets all that remains.
+    const connectTimeout =
+      index === routes.length - 1 ? remaining : Math.min(3_000, Math.max(1, remaining / 2))
 
     try {
       return await new Promise((resolve, reject) => {
@@ -105,7 +136,7 @@ export async function requestOnInterface({
             ...routeFrom(route, target)
           },
           (res) => {
-            clearTimeout(timer)
+            clearTimers()
             signal?.removeEventListener('abort', onAbort)
             resolve({ req, res, sentAt })
           }
@@ -113,12 +144,29 @@ export async function requestOnInterface({
         const onAbort = (): void => {
           req.destroy(new DOMException('Aborted', 'AbortError'))
         }
-        const timer = setTimeout(
-          () => req.destroy(new Error('Connection stalled: no response from server')),
-          routeTimeout
+        const connected = (): void => clearTimeout(connectTimer)
+        const connectionEvent = target.protocol === 'https:' ? 'secureConnect' : 'connect'
+        let socket: ClientRequest['socket']
+        const clearTimers = (): void => {
+          clearTimeout(connectTimer)
+          clearTimeout(responseTimer)
+          socket?.removeListener(connectionEvent, connected)
+        }
+        const connectTimer = setTimeout(
+          () => req.destroy(new Error('Connection stalled: could not connect')),
+          connectTimeout
         )
+        const responseTimer = setTimeout(
+          () => req.destroy(new Error('Connection stalled: no response from server')),
+          remaining
+        )
+        req.once('socket', (assignedSocket) => {
+          socket = assignedSocket
+          if (req.reusedSocket) connected()
+          else socket.once(connectionEvent, connected)
+        })
         req.once('error', (error) => {
-          clearTimeout(timer)
+          clearTimers()
           signal?.removeEventListener('abort', onAbort)
           reject(error)
         })

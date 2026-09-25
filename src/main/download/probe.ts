@@ -36,14 +36,19 @@ function requestOneByte(url: URL): Promise<ProbeResponse> {
         headers: { 'User-Agent': USER_AGENT, Range: 'bytes=0-0' }
       },
       (res) => {
+        clearTimeout(timer)
         res.destroy()
         resolve({ statusCode: res.statusCode ?? 0, headers: res.headers as Headers })
       }
     )
-    req.on('error', reject)
-    req.setTimeout(PROBE_TIMEOUT_MS, () =>
-      req.destroy(new Error('The server did not respond — check the link and try again'))
+    const timer = setTimeout(
+      () => req.destroy(new Error('The server did not respond — check the link and try again')),
+      PROBE_TIMEOUT_MS
     )
+    req.on('error', (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
     req.end()
   })
 }

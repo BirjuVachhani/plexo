@@ -149,3 +149,57 @@ test.describe('a network that can’t reach the server @smoke', () => {
     expect(network((await plexo.current())!, 'b')!.bytesDownloaded).toBeGreaterThan(0)
   })
 })
+
+test.describe('a network that changes address', () => {
+  // Far longer than the test waits: a stream only retries in time if it is woken.
+  test.use({ appEnv: { PLEXO_E2E_RETRY_BASE_MS: '10000' } })
+
+  test('gets its streams going again at once, not when their backoff runs out @smoke', async ({
+    plexo,
+    serve
+  }) => {
+    test.skip(!LAN_ADDRESS, 'needs a LAN address to act as the second network')
+    const origin = await serve({ size: 192 * BLOCK, bytesPerSecond: 256 * 1024 })
+    // Every connection over b's first address drops before a byte of the file.
+    origin.setRule((request) =>
+      overB(request) && request.range && request.range.end !== 0 ? { cutAfter: 0 } : 'ok'
+    )
+    await plexo.start(origin.url(), origin.sha256, { networks: ['a', 'b'], connections: 2 })
+    await plexo.waitUntil((state) =>
+      state.chunks.some((chunk) => chunk.interfaceId === 'b' && chunk.status === 'retrying')
+    )
+
+    // A new DHCP lease, say: b is now reached at another address, which gets through.
+    await setNetworks(plexo, { a: NETWORKS['a'], b: '127.0.0.1' })
+    const changedAt = Date.now()
+    await plexo.waitUntil((state) => (network(state, 'b')?.bytesDownloaded ?? 0) > 0, 5000)
+    expect(Date.now() - changedAt, 'well before a backoff of 8 s or more').toBeLessThan(5000)
+    await plexo.waitForStatus('completed')
+  })
+})
+
+test.describe('the computer wakes from sleep', () => {
+  // Nothing else would notice the dead connection for a long while.
+  test.use({ appEnv: { PLEXO_E2E_STALL_MS: '60000', PLEXO_E2E_SILENT_MS: '60000' } })
+
+  test('a connection that died in its sleep is replaced at once @smoke', async ({
+    plexo,
+    serve
+  }) => {
+    const origin = await serve({ size: 16 * BLOCK })
+    let stalled = 0
+    // One block's answer stops after its headers, as a connection does across a sleep.
+    origin.setRule(({ range }) =>
+      range?.start === 3 * BLOCK && stalled++ === 0 ? 'stallBody' : 'ok'
+    )
+    await plexo.start(origin.url(), origin.sha256, { connections: 2 })
+    await plexo.waitUntil((state) => state.bytesDownloaded >= 15 * BLOCK)
+    expect((await plexo.current())!.status).toBe('downloading')
+
+    await plexo.evaluateMain((electron) => {
+      electron.powerMonitor.emit('resume')
+    }, null)
+    await plexo.waitForStatus('completed', 5000)
+    expect(stalled, 'the block was asked for again').toBeGreaterThan(1)
+  })
+})

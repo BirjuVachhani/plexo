@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { readFile, readdir, rename, rm, stat, statfs, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { BrowserWindow } from 'electron'
-import { app, Notification } from 'electron'
+import { app, Notification, powerSaveBlocker } from 'electron'
 import { IpcChannels } from '../../shared/ipc-channels'
 import type {
   BlockState,
@@ -23,7 +23,7 @@ import {
   type ConcurrencyPolicy,
   type Snapshot
 } from './concurrency'
-import { downloadChunk, fetchRange, RemoteChangedError } from './chunkDownloader'
+import { downloadChunk, fetchRange, HttpStatusError, RemoteChangedError } from './chunkDownloader'
 import { DownloadFile } from './downloadFile'
 import { compareVersion, type FileVersion } from './fileVersion'
 import { ensureDirectory, reserveDestinationPath } from './paths'
@@ -96,6 +96,9 @@ interface ChunkRuntime {
   /** Cuts its waits short — a backoff, a look for work — when the stream stops, or when the run
    * has nothing left for it to do. */
   wait: AbortSignal
+  /** Cuts a backoff short without stopping the stream: what it was waiting out has changed (see
+   * wake). Replaced once used. */
+  nudge: AbortController
   /** Its one connection to the server, reused from block to block. */
   connection: StreamConnection
   /** What the stream is fetching right now, if anything. */
@@ -113,6 +116,9 @@ interface ChunkRuntime {
   /** Of those, the ones the server answered wrongly: MAX_CHUNK_RETRIES of them and it gives up.
    * A connection that failed isn't one — see finishFailed. */
   strikes: number
+  /** When the server first answered busy (see HttpStatusError.transient) since this stream last
+   * made progress: a busy server is waited out for SERVER_BUSY_FOR_MS, not MAX_CHUNK_RETRIES. */
+  busySince: number | null
   /** Stopped for good, and to leave the list once its worker has (see retireStreams). */
   retiring: boolean
 }
@@ -163,6 +169,9 @@ interface DownloadRuntime {
    * judged by (see concurrency.ts), and when it last showed it was alive — received something,
    * or came into use. */
   traffic: Map<string, { received: number; aliveAt: number }>
+  /** By network id: until when the server asked (Retry-After) not to be sent new requests over
+   * it. */
+  holdUntil: Map<string, number>
   /** Decides how many streams each network runs; kept for the whole download, so a pause and
    * resume doesn't forget what it has found out. */
   concurrency: ConcurrencyController | null
@@ -242,9 +251,20 @@ function calculateCurrentSpeed(samples: SpeedSample[] | undefined, time: number)
 const MAX_CHUNK_RETRIES = 5
 const RETRY_BASE_DELAY_MS = testKnobs.retryBaseDelayMs
 const RETRY_MAX_DELAY_MS = 15_000
+// A network that can't reach the server keeps one stream asking (see reconcile). That is one
+// cheap connection, so it asks often enough to find out soon after the network gets through.
+const UNREACHABLE_RETRY_MS = 5_000
+// A server that answers busy (429, 503, …) is waited out this long before a stream gives up on
+// it, however many retries that takes; what it asks for in Retry-After is waited, up to
+// RETRY_AFTER_MAX_MS.
+const SERVER_BUSY_FOR_MS = testKnobs.serverBusyForMs
+const RETRY_AFTER_MAX_MS = 120_000
 
+/** Doubling from RETRY_BASE_DELAY_MS, with ±20% jitter as gRPC's backoff has: a network that
+ * drops fails all its streams at once, and they shouldn't all come back at the same instant. */
 function retryDelayMs(attempt: number): number {
-  return Math.min(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), RETRY_MAX_DELAY_MS)
+  const exact = Math.min(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), RETRY_MAX_DELAY_MS)
+  return exact * (0.8 + 0.4 * Math.random())
 }
 
 // A single TCP stream can get stuck at a crawl (loss-collapsed congestion window, a bad CDN node
@@ -286,9 +306,11 @@ function concurrencyFor(request: StartDownloadRequest): ConcurrencyController | 
     ? new ConcurrencyController(CONCURRENCY_POLICY)
     : null
 }
-// Idle connections look for work every 250 ms, so waiting a bit longer hands a refreshed block
-// to a connection that is already proven fast, if there is one.
-const REFRESH_HANDOFF_MS = 300
+/** How often a stream with nothing to do looks for work again. */
+const IDLE_POLL_MS = 250
+// Just longer than an idle stream takes to look for work, so a refreshed block goes to a
+// connection that is already proven fast, if there is one.
+const REFRESH_HANDOFF_MS = IDLE_POLL_MS + 50
 
 function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b)
@@ -396,6 +418,7 @@ function newRuntime(
     attempts: new Map(),
     hedgesByBlock: new Map(),
     traffic: new Map(),
+    holdUntil: new Map(),
     concurrency: concurrencyFor(requestPayload),
     sentUpdates: 0,
     sentBlocks: []
@@ -434,6 +457,10 @@ export class DownloadManager {
   private runtimes = new Map<string, DownloadRuntime>()
   private readonly initialization: Promise<void>
   private suspending = false
+  /** Each network's addresses as last seen, by id: what tells a network that has changed. */
+  private seenAddresses = new Map<string, string[]>()
+  /** The powerSaveBlocker keeping the computer awake while a download runs (see keepAwake). */
+  private awakeBlocker: number | null = null
 
   constructor(
     private getWindow: () => BrowserWindow | null,
@@ -796,13 +823,104 @@ export class DownloadManager {
     this.pushUpdate(runtime)
   }
 
-  /** The computer's networks changed (see NetworkMonitor). */
+  /** The computer's networks changed (see NetworkMonitor). A network whose addresses changed
+   * gets its streams going again at once: what they were waiting out may be what changed. One
+   * that lost an address also drops its sockets, which may be bound to it. Chrome does the same
+   * when its IP address changes (ERR_NETWORK_CHANGED). */
   networksChanged(): void {
+    const changed = new Set<string>()
+    const moved = new Set<string>()
+    const seen = new Map<string, string[]>()
+    for (const iface of this.networks.current ?? []) {
+      const addresses = iface.addresses.map((entry) => entry.address)
+      const before = this.seenAddresses.get(iface.id)
+      seen.set(iface.id, addresses)
+      if (before?.length === addresses.length && before.every((a) => addresses.includes(a))) {
+        continue
+      }
+      changed.add(iface.id)
+      if (before?.some((address) => !addresses.includes(address))) moved.add(iface.id)
+    }
+    this.seenAddresses = seen
+
     for (const runtime of this.runtimes.values()) {
       const { status } = runtime.state
       if (status !== 'downloading' && status !== 'paused') continue
       this.reconcile(runtime)
+      this.wake(
+        runtime,
+        (id) => changed.has(id),
+        (id) => moved.has(id)
+      )
       this.scheduleUpdate(runtime)
+    }
+  }
+
+  /** The computer woke from sleep. Its sockets are likely dead, though nothing will say so until
+   * a stall watchdog runs out, and every judgement made by the clock (a silent network, a
+   * crawling connection, a step of the stream-count controller) spans the sleep. All of it starts
+   * over. */
+  systemResumed(): void {
+    const now = Date.now()
+    for (const runtime of this.runtimes.values()) {
+      if (runtime.state.status !== 'downloading') continue
+      for (const traffic of runtime.traffic.values()) traffic.aliveAt = now
+      for (const self of runtime.chunkRuntimes.values()) {
+        self.warmSince = now
+        self.slowSince = null
+      }
+      this.adjustStreams(runtime, runtime.concurrency?.interrupt())
+      this.wake(
+        runtime,
+        () => true,
+        () => true
+      )
+    }
+  }
+
+  /**
+   * Gets streams going again now, rather than when their backoff runs out: what held them back
+   * has changed. The ones `reconnect` picks also drop their sockets, and what they were fetching
+   * is taken up again on a new one: a refresh, so nothing is lost and no retry is counted.
+   */
+  private wake(
+    runtime: DownloadRuntime,
+    pick: (networkId: string) => boolean,
+    reconnect: (networkId: string) => boolean
+  ): void {
+    for (const chunk of runtime.state.chunks) {
+      const self = runtime.chunkRuntimes.get(chunk.id)
+      if (!self || self.retiring || !pick(chunk.interfaceId)) continue
+      self.failures = 0
+      if (reconnect(chunk.interfaceId)) {
+        if (self.attempt) this.abortAttempt(self.attempt, 'refresh')
+        self.connection.reconnect()
+      }
+      self.nudge.abort()
+    }
+  }
+
+  /** Waits out a backoff; cut short when the stream stops, or is woken (see wake). */
+  private async backOff(self: ChunkRuntime, ms: number): Promise<void> {
+    await delay(ms, AbortSignal.any([self.wait, self.nudge.signal]))
+    if (self.nudge.signal.aborted) self.nudge = new AbortController()
+  }
+
+  /** Keeps the computer from sleeping while a download runs, which would stop it — as
+   * qBittorrent and Transmission offer to. The display can still sleep. */
+  private keepAwake(): void {
+    const running = [...this.runtimes.values()].some(
+      (runtime) => runtime.state.status === 'downloading'
+    )
+    try {
+      if (running && this.awakeBlocker === null) {
+        this.awakeBlocker = powerSaveBlocker.start('prevent-app-suspension')
+      } else if (!running && this.awakeBlocker !== null) {
+        powerSaveBlocker.stop(this.awakeBlocker)
+        this.awakeBlocker = null
+      }
+    } catch {
+      // Not every desktop can be kept awake; the download runs regardless.
     }
   }
 
@@ -1130,10 +1248,19 @@ export class DownloadManager {
     // Without ranges a reconnect restarts the whole file from byte 0.
     if (!runtime.requestPayload.supportsRanges) return
 
+    let unreachable = false
     for (const chunk of runtime.state.chunks) {
       const self = runtime.chunkRuntimes.get(chunk.id)
       const attempt = self?.attempt
       if (!self || !attempt || attempt.abortReason) continue
+
+      const silent = this.isSilent(runtime, attempt, now)
+      // A refresh isn't a failure, so no failed request would say that the network can't get
+      // through; a connection gone silent with the rest of its network says it instead, as soon
+      // as SILENT_AFTER_MS rather than once a connect or stall timeout has run out.
+      if (silent && this.markUnreachable(runtime, this.network(runtime, attempt.networkId), now)) {
+        unreachable = true
+      }
 
       const index = attempt.block.index
       const refreshes = runtime.refreshesByBlock.get(index) ?? 0
@@ -1141,14 +1268,25 @@ export class DownloadManager {
       const isPrimary = attempt.kind === 'primary'
       if (isPrimary && refreshes >= MAX_REFRESHES_PER_BLOCK) continue
 
-      if (
-        this.isSilent(runtime, attempt, now) ||
-        (isPrimary && this.isCrawling(runtime, chunk, self, now))
-      ) {
+      if (silent || (isPrimary && this.isCrawling(runtime, chunk, self, now))) {
         if (isPrimary) runtime.refreshesByBlock.set(index, refreshes + 1)
         this.abortAttempt(attempt, 'refresh')
       }
     }
+    if (unreachable) this.reconcile(runtime)
+  }
+
+  /** Marks a network in use that has received nothing for SILENT_AFTER_MS as unable to reach the
+   * server. Whether it did. */
+  private markUnreachable(
+    runtime: DownloadRuntime,
+    network: DownloadNetwork,
+    now: number
+  ): boolean {
+    if (network.status !== 'on') return false
+    if (now - this.traffic(runtime, network.id).aliveAt < SILENT_AFTER_MS) return false
+    network.status = 'unreachable'
+    return true
   }
 
   private isSilent(runtime: DownloadRuntime, attempt: Attempt, now: number): boolean {
@@ -1553,12 +1691,7 @@ export class DownloadManager {
     // What the server's answer says about the network: a connection failing while the whole
     // network has gone quiet means the network can't reach the server — dropped, or connected
     // with no way through. It stops being used, bar one stream that keeps trying (see reconcile).
-    if (
-      error instanceof ConnectionError &&
-      network.status === 'on' &&
-      Date.now() - this.traffic(runtime, network.id).aliveAt >= SILENT_AFTER_MS
-    ) {
-      network.status = 'unreachable'
+    if (error instanceof ConnectionError && this.markUnreachable(runtime, network, Date.now())) {
       this.reconcile(runtime)
     }
 
@@ -1570,14 +1703,26 @@ export class DownloadManager {
 
     // A network that can't get through retries as a matter of course: that's not news.
     if (network.status === 'on') network.retries += 1
+    // What arrived before it failed shows the network works, and what was written shows the
+    // server does: the count in a row starts over, and so does the backoff.
+    if (attempt.networkReceived > 0) self.failures = 0
+    if (attempt.received > 0) {
+      self.strikes = 0
+      self.busySince = null
+    }
     self.failures += 1
     // Back to the queue, so any available worker can pick it up.
     this.letGo(runtime, chunk, self, attempt, deliveredNothing)
 
     // A connection that failed is the network's doing, and is tried again for as long as the
-    // network is there. A server that answered wrongly gets MAX_CHUNK_RETRIES in a row; then this
-    // stream gives up, and once all its network's have, so does the network.
-    if (!(error instanceof ConnectionError) && ++self.strikes > MAX_CHUNK_RETRIES) {
+    // network is there. A server that answered wrongly gets MAX_CHUNK_RETRIES in a row, and one
+    // that answered busy is waited out for SERVER_BUSY_FOR_MS as well; then this stream gives up,
+    // and once all its network's have, so does the network.
+    const now = Date.now()
+    const busy = error instanceof HttpStatusError && error.transient
+    if (busy) self.busySince ??= now
+    const waitingOut = busy && now - (self.busySince ?? now) < SERVER_BUSY_FOR_MS
+    if (!(error instanceof ConnectionError) && ++self.strikes > MAX_CHUNK_RETRIES && !waitingOut) {
       self.retiring = true
       if (this.liveStreams(runtime, network.id).length === 0) {
         this.failNetwork(runtime, network, message)
@@ -1585,9 +1730,22 @@ export class DownloadManager {
       return 'stop'
     }
 
+    let wait = retryDelayMs(self.failures)
+    if (network.status === 'unreachable') wait = Math.min(wait, UNREACHABLE_RETRY_MS)
+    if (error instanceof HttpStatusError && error.transient && error.retryAfterMs !== null) {
+      // Asked of whoever sent it — this network's address, to the server — not of this one
+      // request: none of the network's streams sends another until then.
+      const asked = Math.min(error.retryAfterMs, RETRY_AFTER_MAX_MS)
+      wait = Math.max(wait, asked)
+      runtime.holdUntil.set(
+        network.id,
+        Math.max(runtime.holdUntil.get(network.id) ?? 0, now + asked)
+      )
+    }
+
     chunk.status = 'retrying'
     this.scheduleUpdate(runtime)
-    await delay(retryDelayMs(self.failures), self.wait)
+    await this.backOff(self, wait)
     const statusAfterDelay = runtime.state.status as DownloadStatus
     if (self.controller.signal.aborted || statusAfterDelay !== 'downloading') {
       chunk.status = statusAfterDelay === 'paused' ? 'paused' : 'cancelled'
@@ -1685,10 +1843,11 @@ export class DownloadManager {
     const self: ChunkRuntime = {
       controller,
       wait: AbortSignal.any([controller.signal, runtime.stop.signal]),
-      connection: new StreamConnection(
-        () => this.networks.find(chunk.interfaceId),
-        testKnobs.stallTimeoutMs
-      ),
+      nudge: new AbortController(),
+      connection: new StreamConnection(() => this.networks.find(chunk.interfaceId), {
+        timeoutMs: testKnobs.stallTimeoutMs,
+        connectTimeoutMs: testKnobs.connectTimeoutMs
+      }),
       attempt: null,
       warmSince: Date.now(),
       slowSince: null,
@@ -1696,6 +1855,7 @@ export class DownloadManager {
       receivedBytes: 0,
       failures: 0,
       strikes: 0,
+      busySince: null,
       retiring: false
     }
     runtime.chunkRuntimes.set(chunk.id, self)
@@ -1703,6 +1863,17 @@ export class DownloadManager {
     try {
       while (runtime.state.status === 'downloading') {
         if (controller.signal.aborted || self.retiring) break
+
+        // The server asked this network to hold off: no new request over it until then. Each
+        // stream comes back a little apart from the others.
+        const holdFor = (runtime.holdUntil.get(chunk.interfaceId) ?? 0) - Date.now()
+        if (holdFor > 0) {
+          this.goIdle(chunk)
+          chunk.status = 'retrying'
+          this.scheduleUpdate(runtime)
+          await this.backOff(self, holdFor + Math.random() * Math.min(1000, holdFor / 10))
+          continue
+        }
 
         // Taken atomically: nothing between choosing the work and registering it can yield.
         const work = pickWork(
@@ -1723,7 +1894,7 @@ export class DownloadManager {
           // or turns out to be slow enough to be worth racing.
           if (runtime.blocks.some((b) => b.status === 'pending' || b.status === 'downloading')) {
             this.scheduleUpdate(runtime)
-            await delay(250, self.wait)
+            await delay(IDLE_POLL_MS, self.wait)
             continue
           }
           chunk.status = 'completed'
@@ -1836,6 +2007,7 @@ export class DownloadManager {
   }
 
   private pushUpdate(runtime: DownloadRuntime, persist = true): void {
+    this.keepAwake()
     // A removed download can still be winding down (workers finishing, cleanup). Its updates
     // would put it back on screen after the renderer has already moved on.
     if (this.runtimes.get(runtime.state.id) !== runtime) return

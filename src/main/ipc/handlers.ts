@@ -5,6 +5,7 @@ import {
   dialog,
   ipcMain,
   nativeTheme,
+  powerMonitor,
   shell,
   type BrowserWindow,
   type IpcMainInvokeEvent
@@ -63,6 +64,11 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
     if (window && !window.isDestroyed()) window.webContents.send(IpcChannels.networksChanged, list)
   })
   const manager = new DownloadManager(getWindow, networks)
+  // Waking from sleep, the networks may have changed without a poll in between to see it.
+  powerMonitor.on('resume', () => {
+    manager.systemResumed()
+    void networks.refresh()
+  })
 
   handle('listInterfaces', () => networks.refresh())
 

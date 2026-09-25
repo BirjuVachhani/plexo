@@ -150,6 +150,37 @@ test('one network dies for good mid-download; the other finishes it @smoke', asy
   expect(failedOverB.length, 'network b really did fail').toBeGreaterThan(0)
 })
 
+test.describe('a busy server @smoke', () => {
+  test.use({ appEnv: { PLEXO_E2E_SERVER_BUSY_MS: '60000' } })
+
+  test('is waited out for as long as it asks, past the retries a wrong answer gets', async ({
+    plexo,
+    serve
+  }) => {
+    const origin = await serve({ size: SIZE })
+    let busy = 0
+    // More busy answers than both streams' retries together: a wrong answer this many times
+    // would end the download.
+    origin.setRule(({ range }) =>
+      range && range.start > 0 && busy++ < 14
+        ? { status: 503, headers: { 'Retry-After': '1' } }
+        : 'ok'
+    )
+    await plexo.start(origin.url(), origin.sha256, { connections: 2 })
+    await plexo.waitForStatus('completed')
+    expect(busy).toBeGreaterThan(14)
+
+    // It asked the network to wait, so no stream asked again within the second, save a request
+    // already on its way.
+    for (const answer of origin.log.filter((entry) => entry.status === 503)) {
+      const tooSoon = origin.log.filter(
+        (entry) => entry.at > answer.at + 100 && entry.at < answer.at + 950
+      )
+      expect(tooSoon, `asked again within a second of request ${answer.n}`).toEqual([])
+    }
+  })
+})
+
 test.describe('permanent faults end in a clean error @smoke', () => {
   const PERMANENT: [string, Fault][] = [
     ['every chunk request fails with 500', { status: 500 }],

@@ -35,8 +35,7 @@ test('AAAA-only hostname connects over IPv6 and keeps its HTTP Host header @smok
   await new Promise<void>((resolve) => server.listen(0, '::1', resolve))
   const connection = new StreamConnection(
     () => ({ ...iface, addresses: [{ address: '::1', family: 6 }] }),
-    2000,
-    async () => [{ address: '::1', family: 6 }]
+    { timeoutMs: 2000, resolveHost: async () => [{ address: '::1', family: 6 }] }
   )
   try {
     const port = (server.address() as AddressInfo).port
@@ -62,12 +61,14 @@ test('a working route gets time to answer after an earlier route fails @smoke', 
         { address: '::1', family: 6 }
       ]
     }),
-    3000,
-    async () => [
-      { address: '127.0.0.1', family: 4 },
-      { address: '::1', family: 6 },
-      { address: '127.0.0.2', family: 4 }
-    ]
+    {
+      timeoutMs: 3000,
+      resolveHost: async () => [
+        { address: '127.0.0.1', family: 4 },
+        { address: '::1', family: 6 },
+        { address: '127.0.0.2', family: 4 }
+      ]
+    }
   )
   try {
     const port = (server.address() as AddressInfo).port
@@ -80,11 +81,10 @@ test('a working route gets time to answer after an earlier route fails @smoke', 
 })
 
 test('DNS resolution obeys the request deadline @smoke', async () => {
-  const connection = new StreamConnection(
-    () => iface,
-    100,
-    () => new Promise(() => {})
-  )
+  const connection = new StreamConnection(() => iface, {
+    timeoutMs: 100,
+    resolveHost: () => new Promise(() => {})
+  })
   await expect(
     connection.request(new URL('http://unresolved.example.test/file'), {})
   ).rejects.toThrow('Could not resolve the download host in time')
@@ -102,7 +102,7 @@ test('a kept-alive connection the server dropped is replaced without failing the
   })
   server.on('connection', () => connections++)
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-  const connection = new StreamConnection(() => loopback, 2000)
+  const connection = new StreamConnection(() => loopback, { timeoutMs: 2000 })
   try {
     const url = new URL(`http://127.0.0.1:${(server.address() as AddressInfo).port}/`)
     expect(await body((await connection.request(url, {})).res)).toBe('answer 1')
@@ -117,11 +117,10 @@ test('a kept-alive connection the server dropped is replaced without failing the
 test('a request abandoned while still connecting gives up the connection with it @smoke', async () => {
   // DNS that never answers stands in for any connect that hangs: the abort has to end it, not the
   // deadline.
-  const connection = new StreamConnection(
-    () => iface,
-    5000,
-    () => new Promise(() => {})
-  )
+  const connection = new StreamConnection(() => iface, {
+    timeoutMs: 5000,
+    resolveHost: () => new Promise(() => {})
+  })
   const abort = new AbortController()
   const started = Date.now()
   setTimeout(() => abort.abort(), 100)
@@ -137,13 +136,33 @@ test('a network that comes back with a new address is reached at that one @smoke
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   // Gone, and then back: every new socket asks for the network as it is now.
   let current: NetworkInterfaceInfo | undefined
-  const connection = new StreamConnection(() => current, 2000)
+  const connection = new StreamConnection(() => current, { timeoutMs: 2000 })
   try {
     const url = new URL(`http://127.0.0.1:${(server.address() as AddressInfo).port}/`)
     await expect(connection.request(url, {})).rejects.toThrow(/not connected/)
     current = loopback
     const { res } = await connection.request(url, {})
     expect(await body(res)).toBe('ok')
+  } finally {
+    connection.close()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  }
+})
+
+test('reconnect drops its sockets, and the next request opens a new one @smoke', async () => {
+  let connections = 0
+  const server = createServer((_req, res) => res.end('ok'))
+  server.on('connection', () => connections++)
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const connection = new StreamConnection(() => loopback, { timeoutMs: 2000 })
+  try {
+    const url = new URL(`http://127.0.0.1:${(server.address() as AddressInfo).port}/`)
+    expect(await body((await connection.request(url, {})).res)).toBe('ok')
+    expect(await body((await connection.request(url, {})).res)).toBe('ok')
+    expect(connections, 'kept alive until then').toBe(1)
+    connection.reconnect()
+    expect(await body((await connection.request(url, {})).res)).toBe('ok')
+    expect(connections).toBe(2)
   } finally {
     connection.close()
     await new Promise<void>((resolve) => server.close(() => resolve()))

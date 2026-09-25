@@ -96,6 +96,9 @@ export class PlexoApp {
             PLEXO_E2E_BLOCK_BYTES: String(BLOCK),
             PLEXO_E2E_RETRY_BASE_MS: '20',
             PLEXO_E2E_STALL_MS: '1500',
+            // A busy server gives up after its retries alone, as any other wrong answer does,
+            // unless a test waits it out on purpose.
+            PLEXO_E2E_SERVER_BUSY_MS: '1',
             // Off unless a test asks for it: a hedge is an extra request, and most tests count them.
             PLEXO_E2E_HEDGE_MS: '600000',
             // Fixed for the same reason, and for downloads started through the UI.

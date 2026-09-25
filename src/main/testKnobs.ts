@@ -18,6 +18,10 @@ export const testKnobs = {
   blockBytes: positiveNumber('PLEXO_E2E_BLOCK_BYTES', 8 * 1024 * 1024),
   retryBaseDelayMs: positiveNumber('PLEXO_E2E_RETRY_BASE_MS', 1000),
   stallTimeoutMs: positiveNumber('PLEXO_E2E_STALL_MS', 20_000),
+  connectTimeoutMs: positiveNumber('PLEXO_E2E_CONNECT_MS', 10_000),
+  /** How long a server that keeps answering busy (429, 503, …) is waited out; see
+   * downloadManager.ts. */
+  serverBusyForMs: positiveNumber('PLEXO_E2E_SERVER_BUSY_MS', 5 * 60_000),
   slowWarmupMs: positiveNumber('PLEXO_E2E_SLOW_WARMUP_MS', 5_000),
   slowForMs: positiveNumber('PLEXO_E2E_SLOW_FOR_MS', 10_000),
   silentAfterMs: positiveNumber('PLEXO_E2E_SILENT_MS', 5_000),

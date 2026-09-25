@@ -118,10 +118,35 @@ export function resolveTargetWithin(
 
 const abortError = (): DOMException => new DOMException('Aborted', 'AbortError')
 
+// RFC 8305 (Happy Eyeballs): each next address starts this long after the one before, unless
+// that one has already failed, and the first to finish its handshake wins. An address that
+// doesn't answer (IPv6 with no way out, a stale record) then costs a new connection 250 ms, not
+// its whole timeout. It is also Node's autoSelectFamilyAttemptTimeout.
+const ATTEMPT_DELAY_MS = 250
+
+/** By network and host, the route that last connected: where the next connection starts. */
+const lastGoodRoute = new Map<string, string>()
+const routeKey = (route: NetworkRoute): string => `${route.localAddress} ${route.remoteAddress}`
+
+/** The route that last worked first, then the rest alternating between address families, as
+ * RFC 8305 §4 orders them. */
+function attemptOrder(routes: NetworkRoute[], preferred: string | undefined): NetworkRoute[] {
+  const first = routes.find((route) => routeKey(route) === preferred)
+  const rest = routes.filter((route) => route !== first)
+  const families = [...new Set(rest.map((route) => route.family))]
+  const byFamily = families.map((family) => rest.filter((route) => route.family === family))
+  const ordered: NetworkRoute[] = first ? [first] : []
+  for (let i = 0; byFamily.some((list) => i < list.length); i++) {
+    for (const list of byFamily) if (i < list.length) ordered.push(list[i])
+  }
+  return ordered
+}
+
 /**
- * A socket to `host` through `iface`, trying each compatible route in DNS order until one
- * completes its handshake. `secure` wraps the TCP socket in TLS before that point, so a route
- * whose TLS handshake never finishes is given up on just like one that never connects.
+ * A socket to `host` through `iface`, racing its compatible routes as RFC 8305 does: whichever
+ * completes its handshake first is kept, and the others are dropped. `secure` wraps the TCP
+ * socket in TLS before that point, so a route whose TLS handshake never finishes is given up on
+ * just like one that never connects.
  */
 async function connectOnInterface(
   iface: NetworkInterfaceInfo,
@@ -133,52 +158,80 @@ async function connectOnInterface(
   resolveHost?: ResolveHost
 ): Promise<Socket> {
   const deadline = Date.now() + timeoutMs
-  const routes = routesFor(iface, await resolveTargetWithin(host, timeoutMs, signal, resolveHost))
-  if (routes.length === 0) throw new NoCompatibleRouteError(host)
-  let lastError: Error = new Error('Connection failed')
+  const found = routesFor(iface, await resolveTargetWithin(host, timeoutMs, signal, resolveHost))
+  if (found.length === 0) throw new NoCompatibleRouteError(host)
+  const memory = `${iface.id} ${host}:${port}`
+  const routes = attemptOrder(found, lastGoodRoute.get(memory))
 
-  for (const [index, route] of routes.entries()) {
-    const remaining = deadline - Date.now()
-    if (remaining <= 0) break
-    // A stale address gets a short window, so the next can still be tried; the last route gets
-    // all that remains.
-    const window =
-      index === routes.length - 1 ? remaining : Math.min(3_000, Math.max(1, remaining / 2))
-    const tcp = connectRoute(route, port)
-    const socket = secure ? secure(tcp) : tcp
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const settle = (error?: Error): void => {
-          clearTimeout(timer)
-          signal.removeEventListener('abort', onAbort)
-          socket.off(secure ? 'secureConnect' : 'connect', onConnected)
-          socket.off('error', settle)
-          tcp.off('error', settle)
-          if (error) reject(error)
-          else resolve()
-        }
-        const onConnected = (): void => settle()
-        const onAbort = (): void => settle(abortError())
-        const timer = setTimeout(
-          () => settle(new Error('Connection stalled: could not connect')),
-          window
-        )
-        socket.once(secure ? 'secureConnect' : 'connect', onConnected)
-        // A refused TCP connection is reported on the raw socket, not always on its TLS wrapper.
-        socket.once('error', settle)
-        tcp.once('error', settle)
-        if (signal.aborted) onAbort()
-        else signal.addEventListener('abort', onAbort, { once: true })
-      })
-      return socket
-    } catch (error) {
-      socket.destroy()
-      tcp.destroy()
-      if (signal.aborted) throw abortError()
-      lastError = error instanceof Error ? error : new Error(String(error))
+  return new Promise<Socket>((resolve, reject) => {
+    const racing = new Set<{ tcp: Socket; socket: Socket }>()
+    let next = 0
+    let done = false
+    let lastError: Error = new Error('Connection failed')
+    let stagger: NodeJS.Timeout | undefined
+
+    const finish = (error: Error | null, winner?: Socket): void => {
+      if (done) return
+      done = true
+      clearTimeout(stagger)
+      clearTimeout(timer)
+      signal.removeEventListener('abort', onAbort)
+      for (const { tcp, socket } of racing) {
+        socket.destroy()
+        tcp.destroy()
+      }
+      racing.clear()
+      if (winner) resolve(winner)
+      else reject(error)
     }
-  }
-  throw lastError
+    const onAbort = (): void => finish(abortError())
+    const timer = setTimeout(
+      () => finish(new Error('Connection stalled: could not connect')),
+      Math.max(1, deadline - Date.now())
+    )
+
+    const launch = (): void => {
+      clearTimeout(stagger)
+      if (done || next >= routes.length) return
+      const route = routes[next++]
+      const tcp = connectRoute(route, port)
+      const socket = secure ? secure(tcp) : tcp
+      const entry = { tcp, socket }
+      racing.add(entry)
+      const connected = secure ? 'secureConnect' : 'connect'
+
+      const detach = (): void => {
+        socket.off(connected, onConnected)
+        socket.off('error', onError)
+        tcp.off('error', onError)
+        racing.delete(entry)
+      }
+      const onConnected = (): void => {
+        detach()
+        lastGoodRoute.set(memory, routeKey(route))
+        finish(null, socket)
+      }
+      const onError = (error: Error): void => {
+        detach()
+        socket.destroy()
+        tcp.destroy()
+        lastError = error
+        if (lastGoodRoute.get(memory) === routeKey(route)) lastGoodRoute.delete(memory)
+        // A route that fails hands over at once rather than after its delay.
+        if (next < routes.length) launch()
+        else if (racing.size === 0) finish(lastError)
+      }
+      socket.once(connected, onConnected)
+      // A refused TCP connection is reported on the raw socket, not always on its TLS wrapper.
+      socket.once('error', onError)
+      tcp.once('error', onError)
+      if (next < routes.length) stagger = setTimeout(launch, ATTEMPT_DELAY_MS)
+    }
+
+    if (signal.aborted) return onAbort()
+    signal.addEventListener('abort', onAbort, { once: true })
+    launch()
+  })
 }
 
 /** What a request passes its agent: Node hands a request's options to the agent's
@@ -249,13 +302,25 @@ export class StreamConnection {
   private readonly http: HttpAgent
   private readonly https: HttpsAgent
 
+  private readonly timeoutMs: number
+
   constructor(
     /** The network, or undefined while it isn't connected. */
     network: () => NetworkInterfaceInfo | undefined,
-    /** How long a request may take to get its response headers, connecting included. */
-    private readonly timeoutMs: number,
-    resolveHost?: ResolveHost
+    {
+      timeoutMs,
+      connectTimeoutMs = timeoutMs,
+      resolveHost
+    }: {
+      /** How long a request may take to get its response headers, connecting included. */
+      timeoutMs: number
+      /** How long opening a socket may take: DNS, TCP and TLS. Shorter than `timeoutMs`, so a
+       * network that can't get through is found out before a slow server would be. */
+      connectTimeoutMs?: number
+      resolveHost?: ResolveHost
+    }
   ) {
+    this.timeoutMs = timeoutMs
     const open: Open = async (options, secure) => {
       const iface = network()
       if (!iface) throw new Error('The network is not connected')
@@ -264,7 +329,7 @@ export class StreamConnection {
         options.host ?? '',
         Number(options.port),
         secure,
-        timeoutMs,
+        Math.min(connectTimeoutMs, timeoutMs),
         // Given up on when its request is, not only when the stream closes: a request abandoned
         // mid-connect (a stuck connection being replaced) shouldn't leave a handshake running.
         options.connectSignal
@@ -283,6 +348,14 @@ export class StreamConnection {
     signal?: AbortSignal
   ): Promise<ResponseStart> {
     return this.send(target, headers, signal, true)
+  }
+
+  /** Drops its sockets, in use or kept for reuse, so the next request opens a new one: they may
+   * be bound to an address the network no longer has, or have died while the computer slept.
+   * Unlike close, it stays usable. */
+  reconnect(): void {
+    this.http.destroy()
+    this.https.destroy()
   }
 
   /** Closes its sockets, and gives up on any still connecting. */

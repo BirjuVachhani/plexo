@@ -73,8 +73,9 @@ File ──→ Split ─────┤                                  ├─�
 - ⏸️ **Resumable downloads** — cleanly pause and resume downloads with progress saved in a destination-side staging file.
 - 💾 **Relaunch recovery** — interrupted downloads are restored as paused after Plexo restarts, with a small manifest in application data.
 - 🛡️ **Safe, integrity-checked resume** — re-verifies remote `ETag` and `Last-Modified` validators before resuming, refusing to resume (rather than corrupting the file) if the server-side file has changed.
-- 🔁 **Automatic retry with backoff** — failed chunks are automatically returned to the queue and retried with exponential backoff (up to 5 retries, 1s–15s backoff).
-- 💤 **Stall detection & watchdog** — automatically drops and re-queues connections that remain open but silent (>20s without incoming data).
+- 🔁 **Automatic retry with backoff** — failed chunks go back to the queue and are retried with jittered exponential backoff (1s–15s). A dropped connection is retried for as long as its network is there; a busy server (429, 503, …) is waited out, honouring `Retry-After`; a server that answers wrongly gets 5 retries.
+- 🔄 **Network changes and sleep** — a network that gets a new address, or a computer that wakes from sleep, gets its connections going again at once instead of waiting out a backoff; the computer is kept awake while a download runs.
+- 💤 **Stall detection & watchdog** — automatically drops and re-queues connections that remain open but silent (>20s without incoming data, not counting time spent waiting on the disk).
 - 🔔 **Desktop notifications** — native desktop alerts when downloads complete or encounter errors.
 - 💾 **Upfront disk-space verification** — checks the destination volume before writing the staging file.
 - 🔀 **Mid-download redirect handling** — transparently follows 3xx HTTP redirects (up to 5 hops) during probing and individual chunk downloads.

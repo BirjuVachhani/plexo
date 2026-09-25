@@ -84,10 +84,13 @@ export async function requestOnInterface({
   const deadline = Date.now() + timeoutMs
   let lastError: Error = new Error('Connection failed')
 
-  for (const route of routes) {
+  for (const [index, route] of routes.entries()) {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
     const remaining = deadline - Date.now()
     if (remaining <= 0) break
+    // A stale local address can hang until timeout. Leave time for the other addresses
+    // on this interface instead of spending the entire budget on the first one.
+    const routeTimeout = Math.max(1, Math.floor(remaining / (routes.length - index)))
 
     try {
       return await new Promise((resolve, reject) => {
@@ -112,7 +115,7 @@ export async function requestOnInterface({
         }
         const timer = setTimeout(
           () => req.destroy(new Error('Connection stalled: no response from server')),
-          remaining
+          routeTimeout
         )
         req.once('error', (error) => {
           clearTimeout(timer)

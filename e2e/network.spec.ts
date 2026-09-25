@@ -95,3 +95,37 @@ test('falls back to IPv6 when an IPv4 connection fails before headers', async ()
     await new Promise<void>((resolve) => server.close(() => resolve()))
   }
 })
+
+test('a silent route leaves time to try another address', async () => {
+  const silent = createServer(() => {})
+  await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
+  const port = (silent.address() as AddressInfo).port
+  const working = createServer((_req, res) => res.end('ok'))
+  await new Promise<void>((resolve) => working.listen(port, '::1', resolve))
+  try {
+    const { res } = await requestOnInterface({
+      target: new URL(`http://dual.example.test:${port}/`),
+      iface: {
+        ...iface,
+        addresses: [
+          { address: '127.0.0.1', family: 4 },
+          { address: '::1', family: 6 }
+        ]
+      },
+      headers: {},
+      timeoutMs: 2000,
+      resolveHost: async () => [
+        { address: '127.0.0.1', family: 4 },
+        { address: '::1', family: 6 }
+      ]
+    })
+    let body = ''
+    for await (const chunk of res) body += chunk
+    expect(body).toBe('ok')
+  } finally {
+    await Promise.all([
+      new Promise<void>((resolve) => silent.close(() => resolve())),
+      new Promise<void>((resolve) => working.close(() => resolve()))
+    ])
+  }
+})

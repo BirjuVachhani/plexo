@@ -21,6 +21,16 @@
     !define MUI_FINISHPAGE_RUN_FUNCTION "StartApp"
   !endif
 
+  # MUI only offers a "Show Readme" checkbox here; we relabel it and point it at our function.
+  !define MUI_FINISHPAGE_SHOWREADME ""
+  !define MUI_FINISHPAGE_SHOWREADME_TEXT "Create a desktop shortcut"
+  !define MUI_FINISHPAGE_SHOWREADME_FUNCTION "CreateDesktopShortcut"
+  !define MUI_PAGE_CUSTOMFUNCTION_LEAVE "RemoveDesktopShortcutIfUnchecked"
+
+  !insertmacro MUI_PAGE_FINISH
+
+  # Defined after MUI_PAGE_FINISH because that is what declares $mui.FinishPage.ShowReadme.
+
   # Called by the finish page only when the checkbox is checked.
   Function CreateDesktopShortcut
     ${ifNot} ${FileExists} "$newDesktopLink"
@@ -40,12 +50,4 @@
       System::Call 'Shell32::SHChangeNotify(i 0x8000000, i 0, i 0, i 0)'
     ${endIf}
   FunctionEnd
-
-  # MUI only offers a "Show Readme" checkbox here; we relabel it and point it at our function.
-  !define MUI_FINISHPAGE_SHOWREADME ""
-  !define MUI_FINISHPAGE_SHOWREADME_TEXT "Create a desktop shortcut"
-  !define MUI_FINISHPAGE_SHOWREADME_FUNCTION "CreateDesktopShortcut"
-  !define MUI_PAGE_CUSTOMFUNCTION_LEAVE "RemoveDesktopShortcutIfUnchecked"
-
-  !insertmacro MUI_PAGE_FINISH
 !macroend

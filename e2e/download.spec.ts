@@ -9,7 +9,7 @@ test.describe('happy paths @smoke', () => {
     await plexo.relaunch({ PLEXO_E2E_INTERFACES: 'a=::1' })
     await plexo.start(origin.url(), origin.sha256)
     const state = await plexo.waitForStatus('completed')
-    expect(state.chunks.every((chunk) => chunk.retryCount === 0)).toBe(true)
+    expect(state.networks.every((network) => network.retries === 0)).toBe(true)
     expect(origin.chunkRequests().every((request) => request.from === '::1')).toBe(true)
   })
 

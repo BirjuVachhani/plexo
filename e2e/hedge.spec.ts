@@ -77,7 +77,7 @@ test.describe('racing a slow block', () => {
     const state = await plexo.waitForStatus('completed', 10_000)
 
     expect(
-      state.chunks.reduce((sum, chunk) => sum + chunk.retryCount, 0),
+      state.networks.reduce((sum, network) => sum + network.retries, 0),
       'a failed hedge is not a retry'
     ).toBe(0)
     // It was tried, once: the only network there is had just got nothing from the block.

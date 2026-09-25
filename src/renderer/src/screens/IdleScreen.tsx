@@ -6,7 +6,7 @@ import { NetworkCard } from '../components/NetworkCard'
 import { ScreenFooter } from '../components/ScreenFooter'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Button } from '../components/ui/button'
-import { useNetworkPolling } from '../hooks/useNetworkPolling'
+import { useLatencyPolling } from '../hooks/useNetworks'
 import { useAppStore } from '../store/useAppStore'
 import { describeError, formatBytes, toDisplayPath } from '../utils/format'
 
@@ -55,7 +55,7 @@ function InfoAlert({ title, message }: { title?: string; message: string }): Rea
 }
 
 export function IdleScreen(): React.JSX.Element {
-  useNetworkPolling(true)
+  useLatencyPolling()
 
   const interfaces = useAppStore((store) => store.interfaces)
   const homeDir = useAppStore((store) => store.homeDir)

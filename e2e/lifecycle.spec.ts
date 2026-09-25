@@ -214,7 +214,7 @@ test.describe('resume safety checks @smoke', () => {
     await plexo.waitForStatus('completed')
   })
 
-  test('network gone while paused → stays paused with a message, resumes once it is back', async ({
+  test('network gone while paused → resumes waiting for it, and finishes once it is back', async ({
     plexo,
     serve
   }) => {
@@ -234,13 +234,20 @@ test.describe('resume safety checks @smoke', () => {
 
     await setInterfaces(interfacesEnv({ b: NETWORKS['b'] }))
     await plexo.api.resumeDownload(id)
-    const stuck = await plexo.waitUntil((state) => Boolean(state.error))
-    expect(stuck.status).toBe('paused')
-    expect(stuck.error).toMatch(/not currently available|None of the networks/)
+    const waiting = await plexo.waitUntil(
+      (state) => state.networks.find((network) => network.id === 'a')?.status === 'offline'
+    )
+    expect(waiting.status).toBe('downloading')
+    expect(waiting.chunks, 'no streams on a network that is not there').toHaveLength(0)
+    // b turned up meanwhile: listed, but off, since it wasn't picked.
+    expect(waiting.networks.find((network) => network.id === 'b')).toMatchObject({
+      enabled: false,
+      status: 'off'
+    })
 
     await setInterfaces(interfacesEnv(NETWORKS))
-    await plexo.api.resumeDownload(id)
     await plexo.waitForStatus('completed')
+    expect(origin.chunkRequests().every((request) => request.from === '127.0.0.1')).toBe(true)
   })
 
   test('resume against a server without range support', async ({ plexo, serve }) => {

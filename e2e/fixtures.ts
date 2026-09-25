@@ -248,13 +248,14 @@ export class PlexoApp {
       if (state && predicate(state)) return state
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
-    const chunks = state?.chunks.map(
-      (chunk) => `${chunk.status}${chunk.error ? ` (${chunk.error})` : ''}`
+    const networks = state?.networks.map(
+      (network) => `${network.id}:${network.status}${network.error ? ` (${network.error})` : ''}`
     )
+    const chunks = state?.chunks.map((chunk) => `${chunk.interfaceId}:${chunk.status}`)
     throw new Error(
       `Timed out after ${timeout} ms waiting on the download. Last seen: ${
         state
-          ? `status=${state.status}${state.error ? `, error="${state.error}"` : ''}, bytes=${state.bytesDownloaded}/${state.totalBytes}, chunks=[${chunks?.join(', ')}]`
+          ? `status=${state.status}${state.error ? `, error="${state.error}"` : ''}, bytes=${state.bytesDownloaded}/${state.totalBytes}, networks=[${networks?.join(', ')}], chunks=[${chunks?.join(', ')}]`
           : 'no current download'
       }`
     )
@@ -267,7 +268,8 @@ const ALLOWED_NEXT: Record<DownloadStatus, DownloadStatus[]> = {
   downloading: ['downloading', 'paused', 'completed', 'error', 'cancelled'],
   paused: ['paused', 'downloading', 'error', 'cancelled'],
   completed: ['completed'],
-  error: ['error'],
+  // Resumed.
+  error: ['error', 'downloading'],
   cancelled: ['cancelled']
 }
 
@@ -366,6 +368,9 @@ export async function checkFinalState(app: PlexoApp): Promise<void> {
   const tracked = app.tracked.get(state.id) ?? app.nextDownload
   const terminal = ['completed', 'error', 'cancelled'].includes(state.status)
   if (!tracked || !terminal) return
+  // A failed download keeps its progress to be resumed until the user moves on, as the window's
+  // New Download does: after that, nothing may be left.
+  if (state.status === 'error') await app.api.removeDownload(state.id)
 
   if (state.status === 'completed') {
     const bytes = await readFile(state.destinationPath)

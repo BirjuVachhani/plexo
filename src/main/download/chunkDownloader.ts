@@ -1,7 +1,7 @@
 import type { Writable } from 'node:stream'
 import type { ClientRequest, IncomingMessage } from 'node:http'
 import { URL } from 'node:url'
-import type { StreamConnection } from '../network/routes'
+import { asConnectionError, type StreamConnection } from '../network/routes'
 import { testKnobs } from '../testKnobs'
 import { compareVersion, type FileVersion, type VersionCheck } from './fileVersion'
 
@@ -130,7 +130,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
     const resetWatchdog = (): void => {
       clearWatchdog()
       stallWatchdog = setTimeout(() => {
-        fail(new Error('Connection stalled: no response from server'))
+        fail(asConnectionError(new Error('Connection stalled: no response from server')))
       }, STALL_TIMEOUT_MS)
     }
 
@@ -179,7 +179,9 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
             return
           }
           currentReq = req
-          req.on('error', fail)
+          // The connection dropping mid-answer; one the server answered wrongly fails below.
+          const dropped = (error: Error): void => fail(asConnectionError(error))
+          req.on('error', dropped)
           const status = res.statusCode ?? 0
 
           if (status >= 300 && status < 400) {
@@ -248,7 +250,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
           const fileStream = createDestination()
           currentFileStream = fileStream
 
-          res.on('error', fail)
+          res.on('error', dropped)
           fileStream.on('error', fail)
 
           // Arm watchdog for incoming body bytes — drops and retries if the server sends

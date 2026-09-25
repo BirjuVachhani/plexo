@@ -17,6 +17,9 @@
 // - A step that doesn't pay is undone and that network grows no further. So is one whose new
 //   streams are turned away: failing before they receive anything is how a server says it wants
 //   fewer connections.
+// - Networks join and leave while a download runs. Speeds measured before say nothing about
+//   the networks there are now, so a step under way is then undone unjudged and measuring starts
+//   over; a network that joins (or comes back) is new to it, whatever was found out before.
 //
 // No I/O and no clock of its own: it reads a snapshot and says what to do, so every rule can be
 // checked against exact situations.
@@ -33,6 +36,7 @@ export interface NetworkSnapshot {
 
 export interface Snapshot {
   now: number
+  /** The networks in use: the ones it may grow. */
   networks: readonly NetworkSnapshot[]
   /** How many more streams the waiting blocks could keep busy. */
   spareWork: number
@@ -95,10 +99,18 @@ export class ConcurrencyController {
   private readonly settled = new Set<string>()
   /** Where the next look for a network to grow starts, so each gets its turn. */
   private next = 0
+  /** The networks the last tick saw. */
+  private members: Set<string> | null = null
 
   constructor(private readonly policy: ConcurrencyPolicy) {}
 
   tick(snapshot: Snapshot): Action | undefined {
+    const known = this.members
+    const members = (this.members = new Set(snapshot.networks.map((network) => network.id)))
+    if (known && (known.size !== members.size || [...members].some((id) => !known.has(id)))) {
+      return this.regroup(snapshot, known)
+    }
+
     const phase = (this.phase ??= { kind: 'measure', measurement: this.measurement(snapshot) })
     switch (phase.kind) {
       case 'measure': {
@@ -139,6 +151,16 @@ export class ConcurrencyController {
   interrupt(): Action | undefined {
     const phase = this.phase
     this.phase = phase?.kind === 'done' ? phase : null
+    return phase?.kind === 'trial'
+      ? { kind: 'retire', networkId: phase.networkId, count: phase.added }
+      : undefined
+  }
+
+  /** Networks joined or left: see the top of this file. */
+  private regroup(snapshot: Snapshot, known: Set<string>): Action | undefined {
+    for (const { id } of snapshot.networks) if (!known.has(id)) this.settled.delete(id)
+    const phase = this.phase
+    this.phase = { kind: 'measure', measurement: this.measurement(snapshot) }
     return phase?.kind === 'trial'
       ? { kind: 'retire', networkId: phase.networkId, count: phase.added }
       : undefined

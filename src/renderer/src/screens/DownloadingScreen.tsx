@@ -22,7 +22,6 @@ import {
 } from '../components/ui/alert-dialog'
 import { Button, buttonVariants } from '../components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip'
-import { useNetworkPolling } from '../hooks/useNetworkPolling'
 import { useNetworkVisuals } from '../hooks/useNetworkVisuals'
 import { useAppStore } from '../store/useAppStore'
 import { KIND_PALETTE, NETWORK_ROW_GRID_COLUMNS } from '../theme'
@@ -33,7 +32,8 @@ import {
   formatEta,
   formatPercent,
   formatSpeed,
-  groupChunksByInterface,
+  groupByNetwork,
+  networksInPlay,
   splitFormattedBytes,
   toDisplayPath
 } from '../utils/format'
@@ -85,9 +85,17 @@ function BigStat({
   )
 }
 
-export function DownloadingScreen({ download }: { download: DownloadState }): React.JSX.Element {
-  useNetworkPolling(true)
+/** What the download is waiting on, when no network is carrying it. */
+function waitingFor(download: DownloadState): string | null {
+  if (download.status !== 'downloading') return null
+  const enabled = download.networks.filter((network) => network.enabled)
+  if (enabled.some((network) => network.status === 'on')) return null
+  return enabled.some((network) => network.status === 'unreachable')
+    ? 'Can’t reach the server. Retrying…'
+    : 'Waiting for a network. Reconnect one or switch one on.'
+}
 
+export function DownloadingScreen({ download }: { download: DownloadState }): React.JSX.Element {
   const homeDir = useAppStore((store) => store.homeDir)
   const speedHistory = useAppStore((store) => store.speedHistory)
   const speedHistoryByInterface = useAppStore((store) => store.speedHistoryByInterface)
@@ -145,14 +153,17 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
 
   const effectiveSpeed = isPaused ? 0 : download.speedBytesPerSec
   const speed = splitFormattedBytes(effectiveSpeed)
-  const groups = groupChunksByInterface(download.chunks)
-  const totalDownloadedByNetworks = groups.reduce((sum, g) => sum + g.bytesDownloaded, 0)
-  const visuals = groups.map((group) =>
-    networkVisual(group.interfaceId, group.interfaceKind, group.interfaceLabel)
-  )
+  // Every network is a row, for switching it on or off; the charts draw only those in play.
+  const rows = groupByNetwork(download)
+  const rowVisuals = rows.map((row) => networkVisual(row.id, row.kind, row.label))
+  const enabledCount = rows.filter((row) => row.enabled).length
+  const groups = networksInPlay(rows)
+  const visuals = groups.map((group) => networkVisual(group.id, group.kind, group.label))
+  const totalDownloadedByNetworks = rows.reduce((sum, row) => sum + row.bytesDownloaded, 0)
   const [chipModeIndex, setChipModeIndex] = useState(0)
+  const waiting = waitingFor(download)
 
-  const totalRetries = download.chunks.reduce((sum, chunk) => sum + chunk.retryCount, 0)
+  const totalRetries = rows.reduce((sum, row) => sum + row.retries, 0)
   const remainingBytes = knownSize ? Math.max(0, download.totalBytes - download.bytesDownloaded) : 0
 
   const avgSpeedBytesPerSec = elapsedSeconds > 0 ? download.bytesDownloaded / elapsedSeconds : 0
@@ -216,13 +227,13 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                 <Dot />
                 <InlineStat label="PEAK" value={formatSpeed(peakSpeedBytesPerSec)} />
               </div>
-              {isPaused
-                ? download.error && (
+              {isPaused || waiting
+                ? (download.error || waiting) && (
                     <div
                       role="alert"
                       className="mt-0.5 font-sans text-[11px] leading-[1.2] font-medium text-destructive"
                     >
-                      {download.error}
+                      {download.error ?? waiting}
                     </div>
                   )
                 : activeChipOption && (
@@ -249,7 +260,7 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
             </div>
             <ThroughputChart
               order={groups.map((g, i) => ({
-                interfaceId: g.interfaceId,
+                interfaceId: g.id,
                 solid: visuals[i].solid
               }))}
               historyByInterface={speedHistoryByInterface}
@@ -342,18 +353,23 @@ export function DownloadingScreen({ download }: { download: DownloadState }): Re
                 Downloaded
               </div>
             </div>
-            {groups.map((group, index) => (
+            {rows.map((row, index) => (
               <NetworkRow
-                key={group.interfaceId}
-                group={group}
-                visual={visuals[index]}
+                key={row.id}
+                group={row}
+                visual={rowVisuals[index]}
                 sharePercent={
                   totalDownloadedByNetworks > 0
-                    ? (group.bytesDownloaded / totalDownloadedByNetworks) * 100
+                    ? (row.bytesDownloaded / totalDownloadedByNetworks) * 100
                     : 0
                 }
                 totalBytes={download.totalBytes}
                 blocks={download.blocks}
+                // The last network in use stays on: Pause is how a download stops.
+                canSwitch={!(row.enabled && enabledCount === 1)}
+                onSwitch={(enabled) =>
+                  void window.plexo.setDownloadNetwork(download.id, row.id, enabled)
+                }
               />
             ))}
           </div>

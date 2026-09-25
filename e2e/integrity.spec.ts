@@ -32,7 +32,7 @@ test.describe('transient server faults are retried to a correct file @smoke', ()
       await plexo.start(origin.url(), origin.sha256, { connections: 2 })
       const state = await plexo.waitForStatus('completed')
       expect(faulted, 'the fault was actually injected').toBeGreaterThanOrEqual(3)
-      expect(state.chunks.reduce((sum, chunk) => sum + chunk.retryCount, 0)).toBeGreaterThan(0)
+      expect(state.networks.reduce((sum, network) => sum + network.retries, 0)).toBeGreaterThan(0)
     })
   }
 
@@ -80,7 +80,7 @@ test.describe('a connection stuck at a crawl @smoke', () => {
           entry.range!.start <= slow.range!.end!
       )
       expect(resumed, 'the block resumed from where the slow connection stopped').toBeTruthy()
-      expect(state.chunks.reduce((sum, chunk) => sum + chunk.retryCount, 0)).toBe(0)
+      expect(state.networks.reduce((sum, network) => sum + network.retries, 0)).toBe(0)
     })
   }
 

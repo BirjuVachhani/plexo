@@ -5,6 +5,7 @@ import { NetworkBindingDialog } from './components/NetworkBindingDialog'
 import { UpdateDialog } from './components/UpdateDialog'
 import { TooltipProvider } from './components/ui/tooltip'
 import { useDownloadEvents } from './hooks/useDownloadEvents'
+import { useNetworkEvents } from './hooks/useNetworks'
 import { CompleteScreen } from './screens/CompleteScreen'
 import { DownloadingScreen } from './screens/DownloadingScreen'
 import { ErrorScreen } from './screens/ErrorScreen'
@@ -29,7 +30,7 @@ function renderDownload(
         screen: <DownloadingScreen download={download} />,
         titleBarStatus: {
           kind: 'combined',
-          networkCount: new Set(download.chunks.map((chunk) => chunk.interfaceId)).size
+          networkCount: download.networks.filter((network) => network.status === 'on').length
         }
       }
     case 'paused':
@@ -37,7 +38,7 @@ function renderDownload(
         screen: <DownloadingScreen download={download} />,
         titleBarStatus: {
           kind: 'paused',
-          networkCount: new Set(download.chunks.map((chunk) => chunk.interfaceId)).size
+          networkCount: download.networks.filter((network) => network.enabled).length
         }
       }
     case 'completed':
@@ -64,6 +65,7 @@ function renderDownload(
 
 function App(): React.JSX.Element {
   useDownloadEvents()
+  useNetworkEvents()
 
   const interfaces = useAppStore((store) => store.interfaces)
   const interfacesStatus = useAppStore((store) => store.interfacesStatus)

@@ -5,14 +5,7 @@ import { ThroughputChart } from '../components/ThroughputChart'
 import { Button } from '../components/ui/button'
 import { useNetworkVisuals } from '../hooks/useNetworkVisuals'
 import { useAppStore } from '../store/useAppStore'
-import {
-  dirnameOf,
-  formatBytes,
-  formatDuration,
-  formatSpeed,
-  groupChunksByInterface,
-  toDisplayPath
-} from '../utils/format'
+import { dirnameOf, formatBytes, formatDuration, formatSpeed, toDisplayPath } from '../utils/format'
 
 const sectionHeaderClass =
   'font-mono text-[10px] leading-none tracking-[0.16em] text-muted-foreground uppercase'
@@ -40,12 +33,11 @@ export function CompleteScreen({
   const avgSpeed = elapsedSeconds > 0 ? finalSize / elapsedSeconds : 0
   const [avgSpeedValue, avgSpeedUnit] = formatSpeed(avgSpeed).split(' ')
 
-  const groups = groupChunksByInterface(download.chunks)
-  const visuals = groups.map((group) =>
-    networkVisual(group.interfaceId, group.interfaceKind, group.interfaceLabel)
-  )
+  // The networks that carried part of the file.
+  const groups = download.networks.filter((network) => network.bytesDownloaded > 0)
+  const visuals = groups.map((group) => networkVisual(group.id, group.kind, group.label))
   const totalWeight = groups.reduce((sum, group) => sum + group.bytesDownloaded, 0) || 1
-  const totalRetries = download.chunks.reduce((sum, chunk) => sum + chunk.retryCount, 0)
+  const totalRetries = download.networks.reduce((sum, network) => sum + network.retries, 0)
   // "Chunks" in the block grid means byte ranges, not parallel connections.
   const totalChunkCount = download.totalBlocks ?? download.blocks?.length ?? 1
 
@@ -123,7 +115,7 @@ export function CompleteScreen({
       <div className="mx-5 mb-4 flex flex-col gap-2">
         <h2 className={sectionHeaderClass}>Speed over the download</h2>
         <ThroughputChart
-          order={groups.map((g, i) => ({ interfaceId: g.interfaceId, solid: visuals[i].solid }))}
+          order={groups.map((g, i) => ({ interfaceId: g.id, solid: visuals[i].solid }))}
           historyByInterface={speedHistoryByInterface}
         />
       </div>
@@ -133,14 +125,14 @@ export function CompleteScreen({
         <div className="flex h-2.5 gap-0.5 overflow-hidden rounded-full bg-muted">
           {groups.map((group, index) => (
             <div
-              key={group.interfaceId}
+              key={group.id}
               style={{ flex: group.bytesDownloaded || 0.0001, background: visuals[index].solid }}
             />
           ))}
         </div>
         <div className="flex flex-col gap-[9px]">
           {groups.map((group, index) => (
-            <div key={group.interfaceId} className="flex items-center gap-[9px]">
+            <div key={group.id} className="flex items-center gap-[9px]">
               <div
                 className="size-[7px] shrink-0 rounded-full"
                 style={{ background: visuals[index].solid }}

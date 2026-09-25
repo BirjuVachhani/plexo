@@ -39,24 +39,24 @@ export type DownloadStatus = 'downloading' | 'paused' | 'completed' | 'error' | 
 
 /** A stream's state. `pending` means it is waiting for work: it holds no block, either because
  * none is free for it right now or because it hasn't started. `downloading` always means it is
- * fetching one (`currentBlockIndex` says which). */
+ * fetching one (`currentBlockIndex` says which). A stream that fails for good leaves the list;
+ * what went wrong is its network's to report (see DownloadNetwork). */
 export type ChunkStatus =
-  'pending' | 'downloading' | 'retrying' | 'paused' | 'completed' | 'error' | 'cancelled'
+  'pending' | 'downloading' | 'retrying' | 'paused' | 'completed' | 'cancelled'
 
+/** One connection to the server, through one network. Streams come and go as the download
+ * runs; what a network has done is kept on its DownloadNetwork. */
 export interface ChunkState {
   id: number
+  /** The network it runs on: a DownloadNetwork's id. */
   interfaceId: string
-  interfaceLabel: string
-  interfaceKind: NetworkInterfaceKind
   rangeStart: number
   /** null means an open-ended range (download to end of file). */
   rangeEnd: number | null
+  /** New bytes it has delivered. */
   bytesDownloaded: number
   speedBytesPerSec: number
   status: ChunkStatus
-  error?: string
-  /** Number of times this chunk's connection has been retried after a dropped/failed attempt. */
-  retryCount: number
   /** The block this stream is fetching. Unset whenever it holds none (idle, retrying, paused, done). */
   currentBlockIndex?: number
   /** True while this stream is racing another stream for `currentBlockIndex`, because that one
@@ -83,6 +83,35 @@ export interface BlockState {
   bytesByInterface: Record<string, number>
 }
 
+/**
+ * - on: in use.
+ * - off: the user switched it off. A network that turns up mid-download starts off.
+ * - offline: not connected to this computer. It's used again as soon as it is.
+ * - unreachable: connected, but the server can't be reached through it. One connection keeps
+ *   trying, and the rest follow once it gets through.
+ * - failed: the server kept refusing requests over it (`error` says how). Switching it off and
+ *   on, reconnecting it, or resuming tries again.
+ */
+export type NetworkStatus = 'on' | 'off' | 'offline' | 'unreachable' | 'failed'
+
+/** A network as one download sees it: whether the user has it on, and how it is doing. */
+export interface DownloadNetwork {
+  /** A NetworkInterfaceInfo id. */
+  id: string
+  /** Its name and kind as the OS last reported them. */
+  label: string
+  kind: NetworkInterfaceKind
+  /** The user's choice; `status` is what came of it. */
+  enabled: boolean
+  status: NetworkStatus
+  error?: string
+  /** Bytes of the file it delivered. */
+  bytesDownloaded: number
+  speedBytesPerSec: number
+  /** Requests over it that failed and were tried again. */
+  retries: number
+}
+
 export interface DownloadState {
   id: string
   url: string
@@ -93,6 +122,9 @@ export interface DownloadState {
   bytesDownloaded: number
   speedBytesPerSec: number
   status: DownloadStatus
+  /** Every network on this computer, and any the download used that has since gone, in the
+   * order it first saw them. */
+  networks: DownloadNetwork[]
   chunks: ChunkState[]
   /** The most streams it has run at once. */
   peakStreams?: number
@@ -100,6 +132,9 @@ export interface DownloadState {
   totalBlocks?: number
   blockSizeBytes?: number
   error?: string
+  /** For an error: whether resuming can pick up where it stopped. False when the progress was
+   * thrown away, e.g. the file changed on the server. */
+  resumable?: boolean
   startedAt: number
   pausedAt?: number
   totalPausedMs?: number
@@ -170,6 +205,7 @@ export interface StartDownloadRequest {
   /** 0 means unknown. */
   totalBytes: number
   supportsRanges: boolean
+  /** The networks to start on. Every other one starts switched off. */
   interfaceIds: string[]
   etag: string | null
   lastModified: string | null

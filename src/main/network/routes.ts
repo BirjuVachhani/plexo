@@ -69,6 +69,23 @@ export class NoCompatibleRouteError extends Error {
   }
 }
 
+/** The connection failed — it couldn't be opened, or it dropped or went silent before the
+ * server had finished — rather than the server answering wrongly. It says something about the
+ * network, not the server, so a download never gives up on it (see downloadManager.ts). */
+export class ConnectionError extends Error {
+  constructor(cause: Error) {
+    super(cause.message, { cause })
+  }
+}
+
+/** `error` as a ConnectionError, unless it is one already or means something else: an abort,
+ * or a network that has no route to the host. */
+export function asConnectionError(error: unknown): Error {
+  if (error instanceof ConnectionError || error instanceof NoCompatibleRouteError) return error
+  if (error instanceof Error && error.name === 'AbortError') return error
+  return new ConnectionError(error instanceof Error ? error : new Error(String(error)))
+}
+
 /** DNS is part of opening a connection, so it must not outlive the connection's deadline. */
 export function resolveTargetWithin(
   host: string,
@@ -223,6 +240,9 @@ export interface ResponseStart {
  * rather than on every block. A new socket is only opened when there is none to reuse: the first
  * request, after the server closes an idle one, or after an abort destroyed it, which is how a
  * stuck connection gets swapped for a fresh one.
+ *
+ * Every new socket asks for the network as it is now, so one that comes back with a new
+ * address is reached at that one.
  */
 export class StreamConnection {
   private readonly lifetime = new AbortController()
@@ -230,13 +250,16 @@ export class StreamConnection {
   private readonly https: HttpsAgent
 
   constructor(
-    readonly iface: NetworkInterfaceInfo,
+    /** The network, or undefined while it isn't connected. */
+    network: () => NetworkInterfaceInfo | undefined,
     /** How long a request may take to get its response headers, connecting included. */
     private readonly timeoutMs: number,
     resolveHost?: ResolveHost
   ) {
-    const open: Open = (options, secure) =>
-      connectOnInterface(
+    const open: Open = async (options, secure) => {
+      const iface = network()
+      if (!iface) throw new Error('The network is not connected')
+      return connectOnInterface(
         iface,
         options.host ?? '',
         Number(options.port),
@@ -249,6 +272,7 @@ export class StreamConnection {
           : this.lifetime.signal,
         resolveHost
       )
+    }
     this.http = new RoutedHttpAgent(open)
     this.https = new RoutedHttpsAgent(open)
   }
@@ -311,7 +335,7 @@ export class StreamConnection {
         if (retryStale && req.reusedSocket && !timedOut && !signal?.aborted) {
           resolve(this.send(target, headers, signal, false))
         } else {
-          reject(error)
+          reject(asConnectionError(error))
         }
       })
       signal?.addEventListener('abort', onAbort, { once: true })

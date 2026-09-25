@@ -301,7 +301,7 @@ export function IdleScreen(): React.JSX.Element {
 
         <div className="flex h-9 items-center gap-[9px] rounded-[9px] border border-border px-3">
           <div className={fieldLabelClass}>TO</div>
-          <div className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-[var(--text-secondary)]">
+          <div className="min-w-0 flex-1 truncate font-mono text-[12.5px] leading-normal text-[var(--text-secondary)]">
             {toDisplayPath(destinationDir, homeDir)}
           </div>
           <Button

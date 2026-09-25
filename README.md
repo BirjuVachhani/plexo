@@ -159,6 +159,8 @@ Each worker writes its assigned byte range at its final offset in one staging fi
 
 While downloading, the folder contains `<filename>.plexo` and no empty file under the final name. Once every range is complete, Plexo flushes the partial file, publishes the final name without overwriting an existing file, and removes the `.plexo` name. There is no full-file assembly copy, so the destination needs approximately one file's worth of space.
 
+Publication uses a same-volume hard link. On a volume without hard-link support, Plexo leaves the complete `.plexo` file intact and reports a finalization error rather than copying the file or risking an overwrite.
+
 ---
 
 # Downloads are resumable

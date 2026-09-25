@@ -1,7 +1,7 @@
 import type { Writable } from 'node:stream'
 import type { ClientRequest, IncomingMessage } from 'node:http'
 import { URL } from 'node:url'
-import type { StreamConnection } from '../network/routes'
+import { asConnectionError, type StreamConnection } from '../network/routes'
 import { testKnobs } from '../testKnobs'
 import { compareVersion, type FileVersion, type VersionCheck } from './fileVersion'
 
@@ -36,6 +36,32 @@ export class RemoteChangedError extends Error {
       `The file on the server changed during the download (${check.detail}). Start the download over.`
     )
   }
+}
+
+/** The server answered with a status that isn't the range asked for. */
+export class HttpStatusError extends Error {
+  constructor(
+    readonly status: number,
+    /** How long the server asked to be left alone (Retry-After), if it said. */
+    readonly retryAfterMs: number | null
+  ) {
+    super(`Unexpected status ${status} for range request`)
+  }
+
+  /** A server that is busy, briefly broken or limiting requests: worth waiting out, not a sign
+   * that asking again will never work. The statuses curl's --retry treats as transient. */
+  get transient(): boolean {
+    return [408, 429, 500, 502, 503, 504].includes(this.status)
+  }
+}
+
+/** Retry-After (RFC 9110 §10.2.3), in seconds or as an HTTP date, as milliseconds from now. */
+export function retryAfterMs(value: string | undefined, now = Date.now()): number | null {
+  if (!value) return null
+  const trimmed = value.trim()
+  if (/^\d+$/.test(trimmed)) return Number(trimmed) * 1000
+  const at = Date.parse(trimmed)
+  return Number.isNaN(at) ? null : Math.max(0, at - now)
 }
 
 // A server that accepts the connection and then goes silent (no data, no
@@ -130,7 +156,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
     const resetWatchdog = (): void => {
       clearWatchdog()
       stallWatchdog = setTimeout(() => {
-        fail(new Error('Connection stalled: no response from server'))
+        fail(asConnectionError(new Error('Connection stalled: no response from server')))
       }, STALL_TIMEOUT_MS)
     }
 
@@ -179,7 +205,9 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
             return
           }
           currentReq = req
-          req.on('error', fail)
+          // The connection dropping mid-answer; one the server answered wrongly fails below.
+          const dropped = (error: Error): void => fail(asConnectionError(error))
+          req.on('error', dropped)
           const status = res.statusCode ?? 0
 
           if (status >= 300 && status < 400) {
@@ -199,7 +227,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
           // sent this chunk rather than the whole file.
           const isValidFullBody = status === 200 && rangeStart === 0
           if (status !== 206 && !isValidFullBody) {
-            fail(new Error(`Unexpected status ${status} for range request`))
+            fail(new HttpStatusError(status, retryAfterMs(header(res, 'retry-after'))))
             res.resume()
             return
           }
@@ -248,7 +276,7 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
           const fileStream = createDestination()
           currentFileStream = fileStream
 
-          res.on('error', fail)
+          res.on('error', dropped)
           fileStream.on('error', fail)
 
           // Arm watchdog for incoming body bytes — drops and retries if the server sends
@@ -276,6 +304,9 @@ export function downloadChunk(options: ChunkDownloadOptions): Promise<void> {
                   else if (!settled) onProgress(progress)
                 })
               ) {
+                // Waiting on the disk says nothing about the network: the watchdog stops until
+                // the writer has caught up.
+                clearWatchdog()
                 res.pause()
                 fileStream.once('drain', () => {
                   resetWatchdog()

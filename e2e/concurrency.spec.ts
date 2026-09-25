@@ -260,6 +260,55 @@ test.describe('stream count', () => {
     })
   })
 
+  test('a network joining or leaving mid-step undoes the step, and a network that rejoins can grow again', () => {
+    const controller = new ConcurrencyController(POLICY)
+    const received = new Map([
+      ['a', 0],
+      ['b', 0]
+    ])
+    const streams = new Map([
+      ['a', 4],
+      ['b', 4]
+    ])
+    let now = 0
+    const tick = (ids: string[]): Action | undefined => {
+      // A server that caps each connection at 0.5 MB/s: another stream always pays.
+      for (const id of ids) received.set(id, received.get(id)! + streams.get(id)! * 0.25 * MB)
+      now += TICK_MS
+      return controller.tick({
+        now,
+        networks: ids.map((id) => ({
+          id,
+          streams: streams.get(id)!,
+          received: received.get(id)!,
+          rejected: 0
+        })),
+        spareWork: 1000,
+        retiring: 0
+      })
+    }
+    let action: Action | undefined
+    while (!(action = tick(['a', 'b']))) expect(now).toBeLessThan(60_000)
+    expect(action.kind).toBe('add')
+    const grown = action.networkId
+    const other = grown === 'a' ? 'b' : 'a'
+    streams.set(grown, streams.get(grown)! + action.count)
+
+    // The other network drops out before the step is judged: its speed going says nothing about
+    // the step, so the step is undone rather than judged against it.
+    expect(tick([grown])).toEqual({ kind: 'retire', networkId: grown, count: action.count })
+    streams.set(grown, 4)
+
+    // Back again, it is grown like any network that has just joined.
+    for (let added = false; !added;) {
+      const next = tick(['a', 'b'])
+      if (next?.kind === 'add' && next.networkId === other) added = true
+      else if (next?.kind === 'add')
+        streams.set(next.networkId, streams.get(next.networkId)! + next.count)
+      expect(now).toBeLessThan(120_000)
+    }
+  })
+
   test('a pause mid-step gives back the untried streams; what was settled stays settled', () => {
     const controller = new ConcurrencyController(POLICY)
     const tick = (now: number, streams: number, received: number): Action | undefined =>

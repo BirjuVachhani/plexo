@@ -10,7 +10,6 @@ import type {
   UpdateInfo
 } from '@shared/types'
 import { create } from 'zustand'
-import { groupChunksByInterface } from '../utils/format'
 
 type LoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -54,7 +53,9 @@ interface AppStore {
   /** Persisted — the last folder picked, falling back to downloadsDir. */
   destinationDir: string
 
+  /** Asks the main process for the network list now; it also pushes every change. */
   loadInterfaces: () => Promise<void>
+  receiveInterfaces: (interfaces: NetworkInterfaceInfo[]) => void
   refreshLatencies: () => Promise<void>
   setNetworkPreference: (id: string, patch: NetworkPreference) => void
   setThemeSource: (source: ThemeSource) => void
@@ -98,14 +99,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
   destinationDir: initial.destinationDir ?? initial.downloadsDir,
 
   loadInterfaces: async () => {
-    // A re-scan keeps showing the last result. Dropping back to 'loading' would swap App off the
-    // no-connections screen, and every screen re-scans on mount — so with zero networks the
-    // two screens would remount each other in an endless loop.
+    // A re-scan keeps showing the last result rather than flashing back to 'loading'.
     if (get().interfacesStatus !== 'ready') set({ interfacesStatus: 'loading' })
     set({ interfacesError: null })
     try {
-      const interfaces = await window.plexo.listInterfaces()
-      set({ interfaces, interfacesStatus: 'ready' })
+      get().receiveInterfaces(await window.plexo.listInterfaces())
     } catch (error) {
       set({
         interfacesStatus: 'error',
@@ -113,6 +111,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
       })
     }
   },
+
+  receiveInterfaces: (interfaces) =>
+    set({ interfaces, interfacesStatus: 'ready', interfacesError: null }),
 
   refreshLatencies: async () => {
     try {
@@ -175,9 +176,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
         speedHistory = [...speedHistory, download.speedBytesPerSec].slice(-SPEED_HISTORY_LENGTH)
 
         const nextByInterface: Record<string, number[]> = {}
-        for (const group of groupChunksByInterface(download.chunks)) {
-          const previousSeries = speedHistoryByInterface[group.interfaceId] ?? []
-          nextByInterface[group.interfaceId] = [...previousSeries, group.speedBytesPerSec].slice(
+        for (const network of download.networks) {
+          const previousSeries = speedHistoryByInterface[network.id] ?? []
+          nextByInterface[network.id] = [...previousSeries, network.speedBytesPerSec].slice(
             -SPEED_HISTORY_LENGTH
           )
         }

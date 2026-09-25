@@ -2,6 +2,7 @@ import type { NetworkInterfaceInfo } from '@shared/types'
 import { useNetworkVisuals } from '../hooks/useNetworkVisuals'
 import { ColorBadge } from './ColorBadge'
 import { NetworkEditPopover } from './NetworkEditPopover'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 interface NetworkCardProps {
   iface: NetworkInterfaceInfo
@@ -42,6 +43,9 @@ export function NetworkCard({
 }: NetworkCardProps): React.JSX.Element {
   const visual = useNetworkVisuals()(iface.id, iface.kind, iface.displayName)
   const hasLatency = latencyMs != null
+  const latencyText = hasLatency
+    ? 'Latency measured'
+    : 'Latency unavailable; downloads may still work'
 
   return (
     <div
@@ -101,12 +105,21 @@ export function NetworkCard({
             {hasLatency ? `${latencyMs} ms` : '—'}
           </div>
         </div>
-        <div
-          title={hasLatency ? 'Latency measured' : 'Latency unavailable; downloads may still work'}
-          className={`size-[7px] shrink-0 rounded-full ${
-            hasLatency ? 'bg-[var(--color-success)]' : 'bg-[var(--icon-muted)]'
-          }`}
-        />
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span
+                role="img"
+                tabIndex={0}
+                aria-label={latencyText}
+                className={`size-[7px] shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                  hasLatency ? 'bg-[var(--color-success)]' : 'bg-[var(--icon-muted)]'
+                }`}
+              />
+            }
+          />
+          <TooltipContent>{latencyText}</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   )

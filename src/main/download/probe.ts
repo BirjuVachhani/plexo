@@ -7,8 +7,10 @@ import { testKnobs } from '../testKnobs'
 const MAX_REDIRECTS = 5
 const USER_AGENT = 'Plexo/1.0'
 // A server that accepts the connection and never answers would otherwise hang the probe — and
-// the link field's "Checking…" — forever. Same budget as a stalled chunk.
+// the link field's "Checking…" — forever. Same budget as a stalled chunk, for the whole probe:
+// redirects included, so a chain of slow hops can't stretch it.
 const PROBE_TIMEOUT_MS = testKnobs.stallTimeoutMs
+const NO_RESPONSE = 'The server did not respond — check the link and try again'
 
 type Headers = Record<string, string | string[] | undefined>
 
@@ -24,7 +26,7 @@ interface ProbeResponse {
 
 /** GET with a 1-byte range: cheaper than fetching the body, and unlike HEAD it
  * also tells us (via the 206 status) whether range requests actually work. */
-function requestOneByte(url: URL): Promise<ProbeResponse> {
+function requestOneByte(url: URL, deadline: number): Promise<ProbeResponse> {
   return new Promise((resolve, reject) => {
     const requester = url.protocol === 'https:' ? httpsRequest : httpRequest
     const req = requester(
@@ -42,8 +44,8 @@ function requestOneByte(url: URL): Promise<ProbeResponse> {
       }
     )
     const timer = setTimeout(
-      () => req.destroy(new Error('The server did not respond — check the link and try again')),
-      PROBE_TIMEOUT_MS
+      () => req.destroy(new Error(NO_RESPONSE)),
+      Math.max(0, deadline - Date.now())
     )
     req.on('error', (error) => {
       clearTimeout(timer)
@@ -110,9 +112,10 @@ async function requestFollowingRedirects(
 ): Promise<{ current: URL; response: ProbeResponse | null }> {
   let current = new URL(rawUrl)
   let response: ProbeResponse | null = null
+  const deadline = Date.now() + PROBE_TIMEOUT_MS
 
   for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
-    response = await requestOneByte(current)
+    response = await requestOneByte(current, deadline)
     if (response.statusCode >= 300 && response.statusCode < 400) {
       const location = headerValue(response.headers, 'location')
       if (!location) break

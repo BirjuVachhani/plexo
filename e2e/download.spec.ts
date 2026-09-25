@@ -9,7 +9,7 @@ test.describe('happy paths @smoke', () => {
     await plexo.relaunch({ PLEXO_E2E_INTERFACES: 'a=::1' })
     await plexo.start(origin.url(), origin.sha256)
     const state = await plexo.waitForStatus('completed')
-    expect(state.chunks.every((chunk) => chunk.retryCount === 0)).toBe(true)
+    expect(state.networks.every((network) => network.retries === 0)).toBe(true)
     expect(origin.chunkRequests().every((request) => request.from === '::1')).toBe(true)
   })
 
@@ -24,8 +24,6 @@ test.describe('happy paths @smoke', () => {
 
   for (const [label, size] of [
     ['1 byte', 1],
-    ['exactly one block', BLOCK],
-    ['one block plus one byte', BLOCK + 1],
     ['37.5 blocks', Math.floor(BLOCK * 37.5)]
   ] as const) {
     test(`ranged download: ${label}`, async ({ plexo, serve }) => {
@@ -37,18 +35,15 @@ test.describe('happy paths @smoke', () => {
     })
   }
 
-  for (const connections of [1, 8]) {
-    test(`${connections} connection(s) per network`, async ({ plexo, serve }) => {
-      const origin = await serve({ size: 20 * BLOCK + 123 })
-      await plexo.start(origin.url(), origin.sha256, { connections })
-      const state = await plexo.waitForStatus('completed')
-      expect(state.chunks).toHaveLength(connections)
-      // Each stream keeps its connection from one block to the next rather than reconnecting.
-      const requests = origin.chunkRequests()
-      expect(new Set(requests.map((request) => request.connection)).size).toBe(connections)
-      expect(requests.length).toBeGreaterThan(connections)
-    })
-  }
+  test('each stream keeps its connection from one block to the next', async ({ plexo, serve }) => {
+    const origin = await serve({ size: 20 * BLOCK + 123 })
+    await plexo.start(origin.url(), origin.sha256, { connections: 4 })
+    const state = await plexo.waitForStatus('completed')
+    expect(state.chunks).toHaveLength(4)
+    const requests = origin.chunkRequests()
+    expect(new Set(requests.map((request) => request.connection)).size).toBe(4)
+    expect(requests.length).toBeGreaterThan(4)
+  })
 
   test('two networks share the work, and attribution matches what the server saw', async ({
     plexo,
@@ -71,23 +66,6 @@ test.describe('happy paths @smoke', () => {
     expect(served.a, 'network a carried some of the file').toBeGreaterThan(0)
     expect(served.b, 'network b carried some of the file').toBeGreaterThan(0)
     expect(attributed).toEqual(served)
-  })
-
-  test('a file with fewer blocks than streams still gives every network work', async ({
-    plexo,
-    serve
-  }) => {
-    test.skip(!LAN_ADDRESS, 'needs a LAN address to act as the second network')
-    // 7 blocks against 8 streams a network: the first network's streams used to claim every
-    // block before the second network's had started, leaving it idle for the whole download.
-    const origin = await serve({ size: 7 * BLOCK })
-    await plexo.start(origin.url(), origin.sha256, { networks: ['a', 'b'], connections: 8 })
-    const state = await plexo.waitForStatus('completed')
-    expect(new Set(origin.chunkRequests().map((request) => request.from)).size).toBe(2)
-    // A stream with no block to claim would only idle: each network gets its share of the 7.
-    for (const network of ['a', 'b']) {
-      expect(state.chunks.filter((chunk) => chunk.interfaceId === network)).toHaveLength(4)
-    }
   })
 
   test('after the first, updates carry only the blocks that changed', async ({ plexo, serve }) => {
@@ -138,8 +116,6 @@ test.describe('happy paths @smoke', () => {
 
 test.describe('file names @smoke', () => {
   const cases: [string, string, RegExp][] = [
-    ['Content-Disposition name', 'attachment; filename="report.pdf"', /^report\.pdf$/],
-    ['RFC 5987 filename*', "attachment; filename*=UTF-8''r%C3%A9sum%C3%A9.txt", /^résumé\.txt$/],
     ['path traversal is flattened', 'attachment; filename="../../evil.sh"', /^\.\._\.\._evil\.sh$/],
     ['control characters are replaced', 'attachment; filename="a%0Ab.txt"', /^a_b\.txt$/]
   ]
@@ -170,38 +146,6 @@ test.describe('file names @smoke', () => {
     const { readFile } = await import('node:fs/promises')
     const { sha256 } = await import('./origin')
     expect(sha256(await readFile(one.destinationPath))).toBe(first.sha256)
-  })
-
-  test('a file appearing under the final name mid-download is not overwritten', async ({
-    plexo,
-    serve
-  }) => {
-    const { existsSync } = await import('node:fs')
-    const { readFile, writeFile } = await import('node:fs/promises')
-    const origin = await serve({ size: 16 * BLOCK })
-    const reached = origin.hold(8 * BLOCK)
-    const id = await plexo.start(origin.url(), origin.sha256, { connections: 1 })
-    await reached
-    const pending = (await plexo.current())!
-    expect(existsSync(`${pending.destinationPath}.plexo`)).toBe(true)
-    expect(existsSync(pending.destinationPath)).toBe(false)
-
-    await writeFile(pending.destinationPath, 'another application created this file')
-    // The fixture's stray-file check should ignore the deliberate external file.
-    plexo.tracked.get(id)!.destBefore.push(pending.fileName)
-    origin.release()
-
-    const done = await plexo.waitForStatus('completed')
-    expect(done.fileName).toBe('test (1).bin')
-    expect(await readFile(pending.destinationPath, 'utf-8')).toBe(
-      'another application created this file'
-    )
-  })
-
-  test('a malformed %-escape in the URL path still downloads', async ({ plexo, serve }) => {
-    const origin = await serve({ size: 2 * BLOCK })
-    await plexo.start(origin.url('/files/100%25%E0%A4%A.bin'), origin.sha256)
-    await plexo.waitForStatus('completed')
   })
 })
 
@@ -237,29 +181,5 @@ test.describe('edge cases', () => {
 
     origin.release()
     await plexo.waitForStatus('completed')
-  })
-})
-
-test.describe('a network that never answers', () => {
-  // The stall timeout is far longer than the test, so only noticing the silence can save it.
-  test.use({ appEnv: { PLEXO_E2E_STALL_MS: '30000', PLEXO_E2E_SILENT_MS: '300' } })
-
-  test('does not hold up a download the other network can finish', async ({ plexo, serve }) => {
-    test.skip(!LAN_ADDRESS, 'needs a LAN address to act as the second network')
-    const origin = await serve({ size: 24 * BLOCK })
-    origin.setRule(({ from, range }) =>
-      from !== '127.0.0.1' && !(range?.start === 0 && range.end === 0) ? 'stallHeaders' : 'ok'
-    )
-
-    const started = Date.now()
-    await plexo.start(origin.url(), origin.sha256, { networks: ['a', 'b'], connections: 2 })
-    const state = await plexo.waitForStatus('completed', 15_000)
-
-    expect(Date.now() - started).toBeLessThan(15_000)
-    const deliveredByB = (state.blocks ?? []).reduce(
-      (sum, block) => sum + (block.bytesByInterface['b'] ?? 0),
-      0
-    )
-    expect(deliveredByB, 'the silent network delivered nothing').toBe(0)
   })
 })

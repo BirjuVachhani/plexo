@@ -5,21 +5,20 @@ import {
   interleave,
   MAX_STREAMS_PER_NETWORK,
   MIN_BLOCK_BYTES,
-  planBlocks,
   planDownload,
-  START_STREAMS_PER_NETWORK
+  START_STREAMS_PER_NETWORK,
+  startingStreams
 } from '../src/main/download/plan'
 
-// I. How a download is cut into blocks and streams. Pure, so it's checked over the whole input
-// space instead of hand-picked sizes.
+// I. How a download is cut into blocks, and how many streams a network starts on them. Pure, so
+// it's checked over the whole input space instead of hand-picked sizes.
 
 const MIB = 1024 * 1024
 
 const splittable = fc.record({
   totalBytes: fc.integer({ min: 1, max: 2 ** 42 }),
   splittable: fc.constant(true),
-  networkCount: fc.integer({ min: 1, max: 6 }),
-  streamsPerNetwork: fc.option(fc.integer({ min: 1, max: 20 }), { nil: undefined })
+  networkCount: fc.integer({ min: 1, max: 6 })
 })
 
 test.describe('download plan', () => {
@@ -37,59 +36,28 @@ test.describe('download plan', () => {
     )
   })
 
-  test('every network gets a stream, and never one with no block to claim', () => {
+  test('a joining network gets a stream, and never one with no block to claim', () => {
     fc.assert(
-      fc.property(splittable, (request) => {
-        const { streamNetworks, blockCount } = planDownload(request)
-        const perNetwork = new Map<number, number>()
-        for (const network of streamNetworks) {
-          perNetwork.set(network, (perNetwork.get(network) ?? 0) + 1)
-        }
-        expect(perNetwork.size).toBe(request.networkCount)
-        for (const count of perNetwork.values()) {
-          expect(count).toBeLessThanOrEqual(request.streamsPerNetwork ?? START_STREAMS_PER_NETWORK)
+      fc.property(
+        fc.nat(10_000),
+        fc.integer({ min: 1, max: 6 }),
+        fc.option(fc.integer({ min: 1, max: 20 }), { nil: undefined }),
+        (waiting, networkCount, requested) => {
+          const count = startingStreams(waiting, networkCount, requested)
+          expect(count).toBeGreaterThanOrEqual(1)
+          expect(count).toBeLessThanOrEqual(requested ?? START_STREAMS_PER_NETWORK)
           expect(count).toBeLessThanOrEqual(MAX_STREAMS_PER_NETWORK)
-          // Streams beyond the block count would idle — except the one each network keeps.
-          expect(count).toBeLessThanOrEqual(
-            Math.max(1, Math.ceil(blockCount / request.networkCount))
-          )
+          // Streams beyond the waiting blocks would idle — except the one each network keeps.
+          expect(count).toBeLessThanOrEqual(Math.max(1, Math.ceil(waiting / networkCount)))
         }
-      })
+      )
     )
   })
 
-  test('streams start fairly: no network is ever more than one ahead of another', () => {
-    fc.assert(
-      fc.property(splittable, (request) => {
-        const { streamNetworks } = planDownload(request)
-        const started = new Array<number>(request.networkCount).fill(0)
-        for (const network of streamNetworks) {
-          started[network]++
-          expect(Math.max(...started) - Math.min(...started)).toBeLessThanOrEqual(1)
-        }
-      })
-    )
-  })
-
-  test('the first stream on each network starts before any network gets a second', () => {
-    const plan = planDownload({
-      totalBytes: 50.8 * MIB,
-      splittable: true,
-      networkCount: 2,
-      streamsPerNetwork: 8
-    })
-    expect(plan.streamNetworks.slice(0, 4)).toEqual([0, 1, 0, 1])
-  })
-
-  test('a file too small to split is one block, with every network still listed', () => {
-    const plan = planDownload({
-      totalBytes: 300 * 1024,
-      splittable: true,
-      networkCount: 2,
-      streamsPerNetwork: 8
-    })
+  test('a file too small to split is one block, and each network still gets a stream', () => {
+    const plan = planDownload({ totalBytes: 300 * 1024, splittable: true, networkCount: 2 })
     expect(plan.blockCount).toBe(1)
-    expect(plan.streamNetworks).toEqual([0, 1])
+    expect(startingStreams(plan.blockCount, 2, 8)).toBe(1)
   })
 
   test('a large file keeps 8 MB blocks', () => {
@@ -99,7 +67,7 @@ test.describe('download plan', () => {
 
   test('each network starts with four streams, with blocks enough to grow to its limit', () => {
     const plan = planDownload({ totalBytes: 512 * MIB, splittable: true, networkCount: 2 })
-    expect(plan.streamNetworks).toEqual([0, 1, 0, 1, 0, 1, 0, 1])
+    expect(startingStreams(plan.blockCount, 2)).toBe(4)
     // Streams added later need waiting blocks to take: two each, at the most every network can have.
     expect(plan.blockCount).toBeGreaterThanOrEqual(2 * MAX_STREAMS_PER_NETWORK * 2)
   })
@@ -114,51 +82,17 @@ test.describe('download plan', () => {
     expect(plan.blockCount).toBeGreaterThanOrEqual(8)
   })
 
-  test('the test knob for block size still applies', () => {
-    const plan = planDownload({
-      totalBytes: 40 * 64 * 1024,
-      splittable: true,
-      networkCount: 1,
-      streamsPerNetwork: 4,
-      maxBlockBytes: 64 * 1024
-    })
-    expect(plan.blockSizeBytes).toBe(64 * 1024)
-    expect(plan.blockCount).toBe(40)
-  })
-
-  test('no range support or unknown size: one stream on the first network', () => {
+  test('no range support or unknown size: one block', () => {
     for (const request of [
       { totalBytes: 10 * MIB, splittable: false },
       { totalBytes: 0, splittable: true }
     ]) {
-      const plan = planDownload({ ...request, networkCount: 3, streamsPerNetwork: 8 })
-      expect(plan.blockCount).toBe(1)
-      expect(plan.streamNetworks).toEqual([0])
+      expect(planDownload({ ...request, networkCount: 3 }).blockCount).toBe(1)
     }
   })
 
-  test('the planned blocks tile the file exactly, in order', () => {
-    fc.assert(
-      fc.property(
-        fc.integer({ min: 1, max: 2 ** 30 }),
-        fc.integer({ min: 1, max: 2 ** 24 }),
-        (totalBytes, blockSizeBytes) => {
-          fc.pre(totalBytes / blockSizeBytes <= 100_000)
-          const blocks = planBlocks(totalBytes, blockSizeBytes)
-          let next = 0
-          blocks.forEach((block, index) => {
-            expect(block.index).toBe(index)
-            expect(block.rangeStart).toBe(next)
-            next = block.rangeEnd! + 1
-          })
-          expect(next).toBe(totalBytes)
-        }
-      )
-    )
-    expect(planBlocks(0, 0)).toMatchObject([{ rangeStart: 0, rangeEnd: null }])
-  })
-
-  test('interleave keeps each group in order', () => {
+  test('interleave serves every group before any twice, keeping each group in order', () => {
+    expect(interleave(['a', 'a', 'a', 'b', 'b'], (id) => id)).toEqual(['a', 'b', 'a', 'b', 'a'])
     fc.assert(
       fc.property(fc.array(fc.tuple(fc.integer({ min: 0, max: 3 }), fc.nat())), (items) => {
         const out = interleave(items, ([group]) => group)

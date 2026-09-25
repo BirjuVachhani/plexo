@@ -5,19 +5,20 @@ import {
   dialog,
   ipcMain,
   nativeTheme,
+  powerMonitor,
   shell,
   type BrowserWindow,
   type IpcMainInvokeEvent
 } from 'electron'
 import { IpcChannels } from '../../shared/ipc-channels'
 import type { IpcContract } from '../../shared/ipc-contract'
-import type { InitialState, NetworkInterfaceInfo, ThemeSource } from '../../shared/types'
+import type { InitialState, ThemeSource } from '../../shared/types'
 import { DownloadManager } from '../download/downloadManager'
 import { getDefaultDownloadsDir, getHomeDir } from '../download/paths'
 import { probeUrl } from '../download/probe'
 import { deviceBindingSupported } from '../network/deviceBinding'
 import { measureLatencies } from '../network/latency'
-import { listActiveInterfaces } from '../network/interfaces'
+import { NetworkMonitor } from '../network/interfaces'
 import { loadSettings, saveSettings } from '../settings'
 import { testKnobs } from '../testKnobs'
 import { checkForUpdate, UPDATE_PAGE_URL } from '../updateCheck'
@@ -56,22 +57,22 @@ function handle<K extends keyof IpcContract>(
 const DESTINATION_CHECK_MS = 300
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): DownloadManager {
-  let cachedInterfaces: NetworkInterfaceInfo[] = []
+  // The main process keeps the network list, for downloads and the window alike.
+  const networks = new NetworkMonitor((list) => {
+    manager.networksChanged()
+    const window = getWindow()
+    if (window && !window.isDestroyed()) window.webContents.send(IpcChannels.networksChanged, list)
+  })
+  const manager = new DownloadManager(getWindow, networks)
+  // Waking from sleep, the networks may have changed without a poll in between to see it.
+  powerMonitor.on('resume', () => {
+    manager.systemResumed()
+    void networks.refresh()
+  })
 
-  const refreshInterfaces = async (): Promise<NetworkInterfaceInfo[]> => {
-    cachedInterfaces = await listActiveInterfaces()
-    return cachedInterfaces
-  }
+  handle('listInterfaces', () => networks.refresh())
 
-  const manager = new DownloadManager(
-    getWindow,
-    (id) => cachedInterfaces.find((iface) => iface.id === id),
-    refreshInterfaces
-  )
-
-  handle('listInterfaces', refreshInterfaces)
-
-  handle('pingInterfaces', async () => measureLatencies(cachedInterfaces))
+  handle('pingInterfaces', async () => measureLatencies(networks.current ?? []))
 
   // Started now so it has settled before the first ping or download needs it.
   const bindingSupport = deviceBindingSupported()
@@ -161,6 +162,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
 
   handle('resumeDownload', async (_event, id) => {
     manager.resume(id)
+  })
+
+  handle('setDownloadNetwork', async (_event, id, networkId, enabled) => {
+    manager.setNetworkEnabled(id, networkId, enabled)
   })
 
   handle('cancelDownload', async (_event, id) => manager.cancel(id))

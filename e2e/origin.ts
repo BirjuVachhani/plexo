@@ -24,7 +24,7 @@ export type Fault =
   | 'stallBody'
   /** Never answers at all. */
   | 'stallHeaders'
-  | { status: number }
+  | { status: number; headers?: Record<string, string> }
   /** Sends this many body bytes, then drops the connection — `afterMs` later, if given. */
   | { cutAfter: number; afterMs?: number }
   /** Sends this many body bytes, then ends the response cleanly (a short body). */
@@ -45,6 +45,8 @@ export interface OriginRequest {
 }
 
 export interface LoggedRequest extends OriginRequest {
+  /** When it arrived (Date.now()). */
+  at: number
   fault: Fault
   status: number
   bytesSent: number
@@ -201,13 +203,13 @@ export class Origin {
       range: parseRange(req.headers.range)
     }
     const fault = this.rule(request) ?? 'ok'
-    const entry: LoggedRequest = { ...request, fault, status: 0, bytesSent: 0 }
+    const entry: LoggedRequest = { ...request, at: Date.now(), fault, status: 0, bytesSent: 0 }
     this.log.push(entry)
 
     if (fault === 'stallHeaders') return
     if (typeof fault === 'object' && 'status' in fault) {
       entry.status = fault.status
-      res.writeHead(fault.status).end()
+      res.writeHead(fault.status, fault.headers).end()
       return
     }
     if (typeof fault === 'object' && 'redirect' in fault) {

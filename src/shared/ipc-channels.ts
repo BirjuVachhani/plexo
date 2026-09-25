@@ -13,8 +13,10 @@ export const IpcChannels = {
   getCurrentDownload: 'download:get-current',
   pauseDownload: 'download:pause',
   resumeDownload: 'download:resume',
+  setDownloadNetwork: 'download:set-network',
   cancelDownload: 'download:cancel',
   removeDownload: 'download:remove',
   downloadUpdated: 'download:updated',
+  networksChanged: 'network:changed',
   checkForUpdate: 'update:check'
 } as const

@@ -27,7 +27,7 @@ export function TruncatedText({
   }, [node, text])
 
   return (
-    <Tooltip open={isTruncated ? undefined : false}>
+    <Tooltip disabled={!isTruncated}>
       <TooltipTrigger
         render={
           <span

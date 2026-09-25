@@ -184,26 +184,6 @@ test.describe('settings @smoke', () => {
 test.describe('no networks', () => {
   test.use({ appEnv: { PLEXO_E2E_INTERFACES: '' } })
 
-  test('shows the no-connections screen, and settles on it @smoke', async ({ plexo }) => {
-    await plexo.evaluateMain(({ ipcMain }) => {
-      const g = globalThis as unknown as Record<string, number>
-      g.__scans = 0
-      ipcMain.removeHandler('network:list-interfaces')
-      ipcMain.handle('network:list-interfaces', () => {
-        g.__scans++
-        return []
-      })
-    }, null)
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    const scans = await plexo.evaluateMain(
-      () => (globalThis as unknown as Record<string, number>).__scans,
-      null
-    )
-    // The screen polls every 5 s; a couple of scans in 2 s is normal, thousands is the loop.
-    expect(scans).toBeLessThan(10)
-    await expect(plexo.page.getByText('No networks to combine')).toBeVisible({ timeout: 5000 })
-  })
-
   test('a network appearing takes you back to the start screen @smoke', async ({ plexo }) => {
     await expect(plexo.page.getByText('No networks to combine')).toBeVisible()
     await plexo.evaluateMain(

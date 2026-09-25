@@ -25,6 +25,7 @@ const update = (seq: number, blocks: BlockState[], id = 'd1'): DownloadUpdate =>
     bytesDownloaded: blocks.reduce((sum, entry) => sum + entry.bytesDownloaded, 0),
     speedBytesPerSec: 0,
     status: 'downloading',
+    networks: [],
     chunks: [],
     totalBlocks: 4,
     startedAt: 0

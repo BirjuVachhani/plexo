@@ -174,7 +174,7 @@ export function BlockGrid({
     const visualByInterfaceId = new Map<string, NetworkVisual>()
     groups.forEach((g, idx) => {
       if (visuals[idx]) {
-        visualByInterfaceId.set(g.interfaceId, visuals[idx])
+        visualByInterfaceId.set(g.id, visuals[idx])
       }
     })
 
@@ -182,7 +182,7 @@ export function BlockGrid({
     // Squares keep their size and the grid wraps; how many rows that takes is the file's business,
     // not the window's. Only the width decides the wrap, exactly like a paragraph reflowing.
     const cols = Math.min(blocks.length, Math.max(MIN_COLS, fittedCols))
-    const orderedInterfaceIds = groups.map((g) => g.interfaceId)
+    const orderedInterfaceIds = groups.map((g) => g.id)
     const cells = gridWidth > 0 ? describeBlocks(blocks, orderedInterfaceIds) : []
     const chunkBytes =
       blocks[0].rangeEnd !== null ? blocks[0].rangeEnd - blocks[0].rangeStart + 1 : 0
@@ -214,7 +214,7 @@ export function BlockGrid({
             const visual = visuals[idx]
             return (
               <div
-                key={group.interfaceId}
+                key={group.id}
                 className="flex items-center gap-[5.5px] font-mono text-[10.5px] leading-none font-medium text-[var(--text-secondary)]"
               >
                 <span
@@ -338,7 +338,7 @@ export function BlockGrid({
         <>
           {groups.map((group, index) => (
             <div
-              key={group.interfaceId}
+              key={group.id}
               style={{
                 flex: group.bytesDownloaded || 0.0001,
                 background: visuals[index].solid

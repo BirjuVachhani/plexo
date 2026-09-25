@@ -98,6 +98,13 @@ export function ipv4Subnet(address: string, netmask: string): string | null {
   return `${subnetParts.join('.')}/${maskBits}`
 }
 
+/** What the OS calls each device, looked up again only when the set of devices changes: it
+ * takes a child process, while the addresses themselves are one cheap system call. */
+let labels: {
+  devices: string
+  lookup: Promise<[Map<string, string>, Map<string, WindowsAdapter>]>
+} | null = null
+
 /**
  * Active non-loopback interfaces, with every usable local address on each device.
  */
@@ -105,9 +112,12 @@ export async function listActiveInterfaces(): Promise<NetworkInterfaceInfo[]> {
   const overridden = testInterfaces()
   if (overridden) return overridden
 
-  const hardwarePorts = await getMacHardwarePortNames()
-  const windowsAdapters = await getWindowsAdapters()
   const all = networkInterfaces()
+  const devices = Object.keys(all).sort().join('\n')
+  if (labels?.devices !== devices) {
+    labels = { devices, lookup: Promise.all([getMacHardwarePortNames(), getWindowsAdapters()]) }
+  }
+  const [hardwarePorts, windowsAdapters] = await labels.lookup
   const result: NetworkInterfaceInfo[] = []
 
   for (const [device, addresses] of Object.entries(all)) {
@@ -148,4 +158,45 @@ export async function listActiveInterfaces(): Promise<NetworkInterfaceInfo[]> {
   }
 
   return result
+}
+
+const POLL_MS = 1000
+
+/**
+ * The computer's networks, kept current: nothing tells a process when a network appears, drops
+ * or gets a new address, so it looks every second. `onChange` hears of every change.
+ */
+export class NetworkMonitor {
+  private list: NetworkInterfaceInfo[] | null = null
+  private polling: Promise<NetworkInterfaceInfo[]> = Promise.resolve([])
+
+  constructor(private readonly onChange: (networks: NetworkInterfaceInfo[]) => void) {
+    void this.refresh()
+    setInterval(() => void this.refresh(), POLL_MS).unref()
+  }
+
+  /** Null until the first look has finished. */
+  get current(): NetworkInterfaceInfo[] | null {
+    return this.list
+  }
+
+  find(id: string): NetworkInterfaceInfo | undefined {
+    return this.list?.find((iface) => iface.id === id)
+  }
+
+  /** Looks now, rather than at the next poll. Looks run one at a time, so the last word is
+   * always the newest. */
+  refresh(): Promise<NetworkInterfaceInfo[]> {
+    this.polling = this.polling
+      .catch(() => [])
+      .then(async () => {
+        const next = await listActiveInterfaces().catch(() => this.list ?? [])
+        if (JSON.stringify(next) !== JSON.stringify(this.list)) {
+          this.list = next
+          this.onChange(next)
+        }
+        return next
+      })
+    return this.polling
+  }
 }

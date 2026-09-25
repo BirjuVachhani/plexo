@@ -1,8 +1,9 @@
 import type { BlockState } from '../../shared/types'
 
-// How a download is cut into blocks and how many streams start on them. Pure, so every rule here
-// can be checked against exact situations. How many streams a network ends up with is decided
-// while the download runs (see concurrency.ts); the plan only has to leave them enough blocks.
+// How a download is cut into blocks, and how many streams a network starts on them. Pure, so
+// every rule here can be checked against exact situations. How many streams a network ends up
+// with is decided while the download runs (see concurrency.ts); the plan only has to leave them
+// enough blocks.
 
 const MIB = 1024 * 1024
 
@@ -32,9 +33,6 @@ export interface DownloadPlan {
   /** Bytes per block; the last block holds the remainder. */
   blockSizeBytes: number
   blockCount: number
-  /** The network (an index into the selected networks) each stream runs on, in the order the
-   * streams start — interleaved, so every network is served before any is served twice. */
-  streamNetworks: number[]
 }
 
 export interface PlanRequest {
@@ -42,9 +40,8 @@ export interface PlanRequest {
   totalBytes: number
   /** false when the server can't serve byte ranges. */
   splittable: boolean
+  /** The networks it starts on. More can join later; this only sizes the blocks. */
   networkCount: number
-  /** Streams to start on each network; START_STREAMS_PER_NETWORK unless a test pins it. */
-  streamsPerNetwork?: number
   maxBlockBytes?: number
 }
 
@@ -74,35 +71,32 @@ export function planDownload(request: PlanRequest): DownloadPlan {
   const { totalBytes, splittable } = request
   const networkCount = Math.max(1, Math.floor(request.networkCount))
 
-  // One request has to carry the whole file, so one stream, on the first network.
+  // One request has to carry the whole file.
   if (!splittable || totalBytes <= 0) {
-    return { blockSizeBytes: Math.max(totalBytes, 0), blockCount: 1, streamNetworks: [0] }
+    return { blockSizeBytes: Math.max(totalBytes, 0), blockCount: 1 }
   }
 
   const maxBlockBytes = request.maxBlockBytes ?? DEFAULT_MAX_BLOCK_BYTES
-  const requested = clamp(
-    Math.floor(request.streamsPerNetwork ?? START_STREAMS_PER_NETWORK),
-    1,
-    MAX_STREAMS_PER_NETWORK
-  )
-
   const targetBlocks = networkCount * MAX_STREAMS_PER_NETWORK * BLOCKS_PER_STREAM
   const blockSizeBytes = clamp(
     Math.ceil(totalBytes / targetBlocks),
     Math.min(MIN_BLOCK_BYTES, maxBlockBytes),
     maxBlockBytes
   )
-  const blockCount = Math.ceil(totalBytes / blockSizeBytes)
+  return { blockSizeBytes, blockCount: Math.ceil(totalBytes / blockSizeBytes) }
+}
 
-  // A stream with no block to claim would only sit idle, so a small file gets fewer of them —
-  // but every network keeps one, so it still shows up and can take over a block that fails.
-  const perNetwork = Math.max(1, Math.min(requested, Math.ceil(blockCount / networkCount)))
-  const streamNetworks = interleave(
-    Array.from({ length: networkCount * perNetwork }, (_, i) => Math.floor(i / perNetwork)),
-    (network) => network
-  )
-
-  return { blockSizeBytes, blockCount, streamNetworks }
+/** Streams to start on each of `networkCount` networks joining a download with `waiting` blocks
+ * nobody has taken: START_STREAMS_PER_NETWORK, unless a test pins `requested`. A stream with no
+ * block to claim would only sit idle, so near the end, or on a small file, fewer — but never
+ * none, so a network that joins can still race a slow block (see scheduler.ts). */
+export function startingStreams(
+  waiting: number,
+  networkCount: number,
+  requested = START_STREAMS_PER_NETWORK
+): number {
+  const perNetwork = Math.ceil(waiting / Math.max(1, networkCount))
+  return Math.max(1, Math.min(clamp(Math.floor(requested), 1, MAX_STREAMS_PER_NETWORK), perNetwork))
 }
 
 /** The blocks a file of `totalBytes` is cut into, none of them started. An unknown size is one

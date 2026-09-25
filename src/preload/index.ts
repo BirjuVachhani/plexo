@@ -1,7 +1,12 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { IpcChannels } from '../shared/ipc-channels'
 import type { IpcContract } from '../shared/ipc-contract'
-import type { AppSettings, DownloadUpdate, InitialState } from '../shared/types'
+import type {
+  AppSettings,
+  DownloadUpdate,
+  InitialState,
+  NetworkInterfaceInfo
+} from '../shared/types'
 
 /** Typed wrapper around ipcRenderer.invoke — the channel name picks its args/result shape out of
  * IpcContract, so a call here that doesn't match what registerIpcHandlers (main) actually handles
@@ -32,6 +37,8 @@ const plexoApi = {
   getCurrentDownload: () => invoke('getCurrentDownload'),
   pauseDownload: (downloadId: string) => invoke('pauseDownload', downloadId),
   resumeDownload: (downloadId: string) => invoke('resumeDownload', downloadId),
+  setDownloadNetwork: (downloadId: string, networkId: string, enabled: boolean) =>
+    invoke('setDownloadNetwork', downloadId, networkId, enabled),
   cancelDownload: (downloadId: string) => invoke('cancelDownload', downloadId),
   removeDownload: (downloadId: string) => invoke('removeDownload', downloadId),
   checkForUpdate: () => invoke('checkForUpdate'),
@@ -40,6 +47,13 @@ const plexoApi = {
     const listener = (_event: IpcRendererEvent, update: DownloadUpdate): void => callback(update)
     ipcRenderer.on(IpcChannels.downloadUpdated, listener)
     return () => ipcRenderer.removeListener(IpcChannels.downloadUpdated, listener)
+  },
+
+  onNetworksChanged: (callback: (networks: NetworkInterfaceInfo[]) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, networks: NetworkInterfaceInfo[]): void =>
+      callback(networks)
+    ipcRenderer.on(IpcChannels.networksChanged, listener)
+    return () => ipcRenderer.removeListener(IpcChannels.networksChanged, listener)
   }
 }
 

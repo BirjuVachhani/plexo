@@ -48,7 +48,7 @@ function createWindow(): void {
     width: 760,
     height: 560,
     minWidth: 720,
-    minHeight: 420,
+    minHeight: 520,
     show: false,
     autoHideMenuBar: true,
     title: 'Plexo',

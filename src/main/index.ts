@@ -47,7 +47,7 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 760,
     height: 560,
-    minWidth: 620,
+    minWidth: 720,
     minHeight: 420,
     show: false,
     autoHideMenuBar: true,

@@ -1,5 +1,5 @@
 import { createWriteStream, type WriteStream } from 'node:fs'
-import { link, lstat, open, rm, stat } from 'node:fs/promises'
+import { lstat, open, rename, rm, stat } from 'node:fs/promises'
 import { basename, dirname, extname, join } from 'node:path'
 
 /** The only large file owned by a download. It lives beside the final file so publishing it
@@ -88,17 +88,24 @@ export class DownloadFile {
         if (partialExists) continue
       }
       await beforeAttempt(candidate)
+      // Check immediately before the rename, after the recovery intent is saved.
+      // Node has no portable no-replace rename: another process could still
+      // claim this name in the small interval between these two operations.
+      const destinationExists = await lstat(candidate).then(
+        () => true,
+        (error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return false
+          throw error
+        }
+      )
+      if (destinationExists) continue
       try {
-        // Hard-linking is an atomic, no-overwrite publication on the same volume.
-        // Removing the partial name afterwards frees no extra file-sized space.
-        await link(this.path, candidate)
+        // The partial and final names are in one directory, so this moves the
+        // completed bytes into place without copying the file.
+        await rename(this.path, candidate)
         return candidate
       } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code
-        if (code === 'EEXIST') continue
-        if (code === 'ENOTSUP' || code === 'EOPNOTSUPP' || code === 'ENOSYS') {
-          throw new Error('This destination does not support safe one-copy finalization')
-        }
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue
         throw error
       }
     }

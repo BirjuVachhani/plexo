@@ -8,6 +8,7 @@ import { NetworkEditPopover } from './NetworkEditPopover'
 import { TruncatedText } from './TruncatedText'
 import { Button } from './ui/button'
 import { Checkbox } from './ui/checkbox'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 interface NetworkRowProps {
   group: NetworkGroup
@@ -119,21 +120,31 @@ export function NetworkRow({
           }}
         />
         <div role="cell" className="flex min-w-0 items-center gap-[6px]">
-          <span
-            className="flex shrink-0"
-            title={canSwitch ? undefined : 'The last network in use stays on. Pause to stop.'}
-          >
-            <Checkbox
-              checked={group.enabled}
-              disabled={!canSwitch}
-              onCheckedChange={(checked) => onSwitch(checked)}
-              aria-label={`Use ${visual.name}`}
-              className="data-checked:border-transparent"
-              style={
-                group.enabled ? { background: visual.solid, color: visual.onSolid } : undefined
+          {/* The wrapper is the trigger: a disabled checkbox gets no hover or focus of its own. */}
+          <Tooltip disabled={canSwitch}>
+            <TooltipTrigger
+              render={
+                <span
+                  tabIndex={canSwitch ? undefined : 0}
+                  className="flex shrink-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                >
+                  <Checkbox
+                    checked={group.enabled}
+                    disabled={!canSwitch}
+                    onCheckedChange={(checked) => onSwitch(checked)}
+                    aria-label={`Use ${visual.name}`}
+                    className="data-checked:border-transparent"
+                    style={
+                      group.enabled
+                        ? { background: visual.solid, color: visual.onSolid }
+                        : undefined
+                    }
+                  />
+                </span>
               }
             />
-          </span>
+            <TooltipContent>The last network in use stays on. Pause to stop.</TooltipContent>
+          </Tooltip>
           <TruncatedText
             text={visual.name}
             className={`font-sans text-[12.5px] leading-[1.2] font-semibold ${
@@ -161,14 +172,21 @@ export function NetworkRow({
             </Button>
           )}
           {group.status !== 'on' && (
-            <span
-              title={group.error}
-              className={`font-mono text-[10px] whitespace-nowrap ${
-                hasError ? 'text-destructive' : 'text-muted-foreground'
-              }`}
-            >
-              {STATUS_TEXT[group.status]}
-            </span>
+            <Tooltip disabled={!group.error}>
+              <TooltipTrigger
+                render={
+                  <span
+                    tabIndex={group.error ? 0 : undefined}
+                    className={`rounded-sm font-mono text-[10px] whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+                      hasError ? 'text-destructive' : 'text-muted-foreground'
+                    }`}
+                  >
+                    {STATUS_TEXT[group.status]}
+                  </span>
+                }
+              />
+              <TooltipContent>{group.error}</TooltipContent>
+            </Tooltip>
           )}
         </div>
         <ProgressBar

@@ -267,16 +267,13 @@ export function BlockGrid({
               let border = '0.5px solid var(--border-strong)'
               let boxShadow = 'none'
               let opacity = 1
-              let fillColor = visual?.solid || UNATTRIBUTED_SOLID
+              const fillColor = visual?.solid || UNATTRIBUTED_SOLID
 
               if (cell.status === 'downloading') {
                 background = visual?.bg || UNATTRIBUTED_BG
                 border = `1px solid ${visual?.solid || UNATTRIBUTED_SOLID}`
                 boxShadow = isPaused ? 'none' : `0 0 7px ${visual?.solid || UNATTRIBUTED_SOLID}`
                 opacity = isPaused ? 0.6 : 1
-              } else if (cell.status === 'error') {
-                fillColor = 'var(--color-danger)'
-                border = 'none'
               } else if (cell.status === 'completed') {
                 border = 'none'
                 opacity = 0.92

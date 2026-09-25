@@ -7,17 +7,14 @@ export const IpcChannels = {
   getInitialState: 'app:get-initial-state',
   updateSettings: 'app:update-settings',
   chooseDestinationFolder: 'dialog:choose-destination-folder',
-  chooseSourceFile: 'dialog:choose-source-file',
   readClipboardText: 'clipboard:read-text',
   revealInFolder: 'shell:reveal-in-folder',
   startDownload: 'download:start',
-  startSimulatedDownload: 'download:start-simulated',
   getCurrentDownload: 'download:get-current',
   pauseDownload: 'download:pause',
   resumeDownload: 'download:resume',
   cancelDownload: 'download:cancel',
   removeDownload: 'download:remove',
   downloadUpdated: 'download:updated',
-  toggleDevToolsPanel: 'dev:toggle-panel',
   checkForUpdate: 'update:check'
 } as const

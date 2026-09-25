@@ -23,23 +23,6 @@ export class DownloadFile {
     }
   }
 
-  async writeBuffers(position: number, buffers: readonly Buffer[]): Promise<void> {
-    const handle = await open(this.path, 'r+')
-    try {
-      for (const buffer of buffers) {
-        let written = 0
-        while (written < buffer.length) {
-          const result = await handle.write(buffer, written, buffer.length - written, position)
-          if (result.bytesWritten === 0) throw new Error('Could not write the download file')
-          written += result.bytesWritten
-          position += result.bytesWritten
-        }
-      }
-    } finally {
-      await handle.close()
-    }
-  }
-
   /** Flushes the staging file before a recovery checkpoint or final publication. */
   async sync(): Promise<void> {
     const handle = await open(this.path, 'r+')

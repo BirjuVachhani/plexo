@@ -1,4 +1,3 @@
-import { PRESET_STREAMS, planDownload } from '@shared/plan'
 import type { ProbeResult } from '@shared/types'
 import { cn } from 'cn'
 import { AlertTriangle, ClipboardPaste, Info } from 'lucide-react'
@@ -7,7 +6,6 @@ import { NetworkCard } from '../components/NetworkCard'
 import { ScreenFooter } from '../components/ScreenFooter'
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert'
 import { Button } from '../components/ui/button'
-import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group'
 import { useNetworkPolling } from '../hooks/useNetworkPolling'
 import { useAppStore } from '../store/useAppStore'
 import { describeError, formatBytes, toDisplayPath } from '../utils/format'
@@ -66,8 +64,6 @@ export function IdleScreen(): React.JSX.Element {
   const setUrl = useAppStore((store) => store.setDraftUrl)
   const destinationDir = useAppStore((store) => store.destinationDir)
   const setDestinationDir = useAppStore((store) => store.setDestinationDir)
-  const chunksPerNetwork = useAppStore((store) => store.streamsPerNetwork)
-  const setChunksPerNetwork = useAppStore((store) => store.setStreamsPerNetwork)
 
   const [probe, setProbe] = useState<ProbeState>({ status: 'idle' })
   // Tracks deselections rather than selections, so a newly-detected interface starts selected.
@@ -108,23 +104,14 @@ export function IdleScreen(): React.JSX.Element {
   const ready = probe.status === 'ready' ? probe.result : null
   const multiChunkAllowed = ready !== null && ready.supportsRanges && ready.totalBytes !== null
   const isSingleStreamOnly = ready !== null && !multiChunkAllowed
+  // One request has to carry the whole file: either the server can't serve parts of it, or it
+  // didn't say how big it is, so there's no telling where the parts would be.
+  const sizeUnknown = isSingleStreamOnly && ready.supportsRanges
 
   const detectedIds = interfaces.map((iface) => iface.id)
   const enabledIds = detectedIds.filter((id) => !deselectedInterfaceIds.includes(id))
   const selectedInterfaceIds = isSingleStreamOnly ? enabledIds.slice(0, 1) : enabledIds
 
-  const connectionsPerNetwork = isSingleStreamOnly ? 1 : chunksPerNetwork
-  // A small file gets fewer streams than asked for — one with no block to claim would only
-  // idle — so once the file's size is known the count comes from the same plan the download
-  // will use.
-  const totalChunks = ready
-    ? planDownload({
-        totalBytes: ready.totalBytes ?? 0,
-        splittable: multiChunkAllowed,
-        networkCount: selectedInterfaceIds.length,
-        streamsPerNetwork: chunksPerNetwork
-      }).streamNetworks.length
-    : selectedInterfaceIds.length * chunksPerNetwork
   const startLabel = starting ? 'Starting…' : probe.status === 'probing' ? 'Checking…' : 'Start'
   const canStart =
     probe.status === 'ready' &&
@@ -134,8 +121,14 @@ export function IdleScreen(): React.JSX.Element {
   const footerParts = [
     `${selectedInterfaceIds.length} ${selectedInterfaceIds.length === 1 ? 'network' : 'networks'} selected`
   ]
-  if (selectedInterfaceIds.length > 0) {
-    footerParts.push(`${totalChunks} ${totalChunks === 1 ? 'stream' : 'parallel streams'}`)
+  // How many streams each network gets is worked out during the download; the one case worth
+  // saying up front is a server that can't split the file at all.
+  if (isSingleStreamOnly) {
+    footerParts.push(
+      sizeUnknown
+        ? '1 stream: the file’s size isn’t known'
+        : '1 stream: the server can’t split this file'
+    )
   }
   if (ready && ready.totalBytes !== null) footerParts.push(formatBytes(ready.totalBytes))
 
@@ -203,8 +196,6 @@ export function IdleScreen(): React.JSX.Element {
         totalBytes: probe.result.totalBytes ?? 0,
         supportsRanges: multiChunkAllowed,
         interfaceIds: selectedInterfaceIds,
-        chunkCount: totalChunks,
-        connectionsPerNetwork,
         etag: probe.result.etag,
         lastModified: probe.result.lastModified
       })
@@ -263,7 +254,11 @@ export function IdleScreen(): React.JSX.Element {
         {isSingleStreamOnly && (
           <InfoAlert
             title="Single-connection mode"
-            message="This server does not support parallel range requests (206 Partial Content). The download will run as a single stream through whichever network you choose below."
+            message={
+              sizeUnknown
+                ? 'The server didn’t say how big this file is, so it can’t be split into parts. The download will run as a single stream through whichever network you choose below.'
+                : 'This server does not support parallel range requests (206 Partial Content). The download will run as a single stream through whichever network you choose below.'
+            }
           />
         )}
 
@@ -313,61 +308,6 @@ export function IdleScreen(): React.JSX.Element {
           >
             Browse…
           </Button>
-        </div>
-
-        <div
-          className={cn(
-            'flex min-h-9 items-center justify-between gap-3 rounded-[9px] border border-border px-3 py-1.5',
-            isSingleStreamOnly && 'opacity-60'
-          )}
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <div id="idle-streams-label" className={fieldLabelClass}>
-              PARALLEL STREAMS
-            </div>
-            <ToggleGroup
-              value={[String(chunksPerNetwork)]}
-              onValueChange={(values) => {
-                if (values.length === 0) return
-                setChunksPerNetwork(Number(values[0]))
-              }}
-              disabled={isSingleStreamOnly}
-              aria-labelledby="idle-streams-label"
-              variant="pill"
-              size="xs"
-              spacing={1}
-            >
-              {PRESET_STREAMS.map((preset) => (
-                // h-6/min-w-6: WCAG 2.5.8's 24px floor — the xs toggle size is 20px, and this is
-                // the primary "how many parallel connections" control.
-                <ToggleGroupItem key={preset} value={String(preset)} className="h-6 min-w-6">
-                  {preset}×
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-          </div>
-
-          <div
-            className={cn(
-              'text-right font-mono text-[11px] whitespace-nowrap',
-              isSingleStreamOnly ? 'text-muted-foreground' : 'text-[var(--text-secondary)]'
-            )}
-          >
-            {isSingleStreamOnly ? (
-              '1 stream (server does not support ranges)'
-            ) : (
-              <>
-                <span className="font-semibold text-foreground">{chunksPerNetwork}</span> / network
-                {selectedInterfaceIds.length > 0 && (
-                  <>
-                    {' · '}
-                    <span className="font-semibold text-foreground">{totalChunks}</span> total
-                    parallel {totalChunks === 1 ? 'stream' : 'streams'}
-                  </>
-                )}
-              </>
-            )}
-          </div>
         </div>
 
         {startError && <ErrorAlert message={startError} />}

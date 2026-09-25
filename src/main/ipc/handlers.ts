@@ -1,5 +1,4 @@
 import { stat } from 'node:fs/promises'
-import { is } from '@electron-toolkit/utils'
 import {
   app,
   clipboard,
@@ -113,10 +112,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
       event.returnValue = {
         homeDir: getHomeDir(),
         downloadsDir: getDefaultDownloadsDir(),
-        isDev: is.dev,
         themeSource: currentThemeSource(),
         networkPreferences: settings.networkPreferences ?? {},
-        streamsPerNetwork: settings.streamsPerNetwork,
         destinationDir: destinationExists ? destinationDir : undefined
       } satisfies InitialState
     } catch (error) {
@@ -125,7 +122,6 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
       event.returnValue = {
         homeDir: '',
         downloadsDir: '',
-        isDev: is.dev,
         themeSource: currentThemeSource(),
         networkPreferences: {}
       } satisfies InitialState
@@ -149,14 +145,6 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
     return result.filePaths[0]
   })
 
-  handle('chooseSourceFile', async () => {
-    const window = getWindow()
-    if (!window) return null
-    const result = await dialog.showOpenDialog(window, { properties: ['openFile'] })
-    if (result.canceled || result.filePaths.length === 0) return null
-    return result.filePaths[0]
-  })
-
   handle('readClipboardText', async () => clipboard.readText())
 
   handle('revealInFolder', async (_event, filePath) => {
@@ -164,8 +152,6 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
   })
 
   handle('startDownload', async (_event, request) => manager.start(request))
-
-  handle('startSimulatedDownload', async (_event, request) => manager.startSimulated(request))
 
   handle('getCurrentDownload', async () => manager.getCurrentDownload())
 

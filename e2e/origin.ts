@@ -25,8 +25,8 @@ export type Fault =
   /** Never answers at all. */
   | 'stallHeaders'
   | { status: number }
-  /** Sends this many body bytes, then drops the connection. */
-  | { cutAfter: number }
+  /** Sends this many body bytes, then drops the connection — `afterMs` later, if given. */
+  | { cutAfter: number; afterMs?: number }
   /** Sends this many body bytes, then ends the response cleanly (a short body). */
   | { endAfter: number }
   /** Trickles the body at this rate in small pieces — slow, but never silent long enough to stall. */
@@ -39,6 +39,8 @@ export interface OriginRequest {
   path: string
   /** Source address — which "network" the request came in on. */
   from: string
+  /** Which TCP connection it arrived on, numbered in the order they opened. */
+  connection: number
   range: { start: number; end: number | null } | null
 }
 
@@ -62,6 +64,8 @@ export interface OriginOptions {
   contentDisposition?: string
   /** Per-response speed limit, so a download lasts long enough to be interrupted. */
   bytesPerSecond?: number
+  /** A speed limit every response shares, as on a full link: another connection gets nothing. */
+  sharedBytesPerSecond?: number
 }
 
 /** Deterministic bytes, so a failing seed reproduces the exact same file. */
@@ -105,6 +109,10 @@ export class Origin {
   private releasePromise: Promise<void> = Promise.resolve()
   private reachedPromise: Promise<void> = Promise.resolve()
   private sockets = new Set<Socket>()
+  private connectionIds = new WeakMap<Socket, number>()
+  private connections = 0
+  /** When the shared limit next has room (see sharedBytesPerSecond). */
+  private sharedBusyUntil = 0
   private server = createServer((req, res) => void this.handle(req, res))
   private port = 0
 
@@ -113,6 +121,7 @@ export class Origin {
     this.etag = options.etag === undefined ? '"v1"' : options.etag
     this.lastModified = options.lastModified ?? null
     this.server.on('connection', (socket) => {
+      this.connectionIds.set(socket, ++this.connections)
       this.sockets.add(socket)
       socket.on('close', () => this.sockets.delete(socket))
     })
@@ -188,6 +197,7 @@ export class Origin {
       n: this.log.length + 1,
       path: req.url ?? '/',
       from: (req.socket.remoteAddress ?? '').replace(/^::ffff:/, ''),
+      connection: this.connectionIds.get(req.socket) ?? 0,
       range: parseRange(req.headers.range)
     }
     const fault = this.rule(request) ?? 'ok'
@@ -251,6 +261,7 @@ export class Origin {
       bodyEnd = Math.min(bodyEnd, start + fault.endAfter)
     }
     const cutAfter = typeof fault === 'object' && 'cutAfter' in fault ? fault.cutAfter : null
+    const cutDelayMs = typeof fault === 'object' && 'cutAfter' in fault ? fault.afterMs : undefined
     const crawl = typeof fault === 'object' && 'crawl' in fault ? fault.crawl : null
     const rate = crawl ?? this.options.bytesPerSecond
 
@@ -272,6 +283,7 @@ export class Origin {
     while (position < bodyEnd) {
       if (res.destroyed) return
       if (cutAfter !== null && position - start >= cutAfter) {
+        if (cutDelayMs) await new Promise((resolve) => setTimeout(resolve, cutDelayMs))
         req.socket.destroy()
         return
       }
@@ -306,6 +318,12 @@ export class Origin {
       }
       if (rate) {
         await new Promise((resolve) => setTimeout(resolve, (piece.length / rate) * 1000))
+      }
+      const shared = this.options.sharedBytesPerSecond
+      if (shared) {
+        const now = Date.now()
+        this.sharedBusyUntil = Math.max(now, this.sharedBusyUntil) + (piece.length / shared) * 1000
+        await new Promise((resolve) => setTimeout(resolve, this.sharedBusyUntil - now))
       }
     }
 

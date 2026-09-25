@@ -1,6 +1,8 @@
+import { applyDownloadUpdate } from '@shared/downloadUpdate'
 import type {
   AppSettings,
   DownloadState,
+  DownloadUpdate,
   NetworkInterfaceInfo,
   NetworkPreference,
   NetworkPreferences,
@@ -29,7 +31,6 @@ interface AppStore {
 
   /** Persisted in the main process alongside nativeTheme.themeSource. */
   themeSource: ThemeSource
-  streamsPerNetwork: number
 
   /** Null until the one-time startup check resolves, or if it found nothing worth showing
    * (already up to date, already dismissed, or the check failed). */
@@ -37,8 +38,6 @@ interface AppStore {
 
   homeDir: string
   downloadsDir: string
-  /** True in electron-vite's dev server, false in a packaged build — gates the dev tools panel. */
-  isDev: boolean
 
   /** Plexo focuses on one download at a time — this is it. */
   currentDownload: DownloadState | null
@@ -59,10 +58,10 @@ interface AppStore {
   refreshLatencies: () => Promise<void>
   setNetworkPreference: (id: string, patch: NetworkPreference) => void
   setThemeSource: (source: ThemeSource) => void
-  setStreamsPerNetwork: (streamsPerNetwork: number) => void
   checkForUpdate: () => Promise<void>
   dismissUpdate: () => void
-  setCurrentDownload: (state: DownloadState) => void
+  /** A snapshot or an update of the current download, from the main process. */
+  receiveDownloadUpdate: (update: DownloadUpdate) => void
   clearCurrentDownload: () => void
   setDraftUrl: (url: string) => void
   setDestinationDir: (dir: string) => void
@@ -85,12 +84,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   latencies: {},
   networkPreferences: initial.networkPreferences,
   themeSource: initial.themeSource,
-  streamsPerNetwork: initial.streamsPerNetwork ?? 2,
   availableUpdate: null,
 
   homeDir: initial.homeDir,
   downloadsDir: initial.downloadsDir,
-  isDev: initial.isDev,
 
   currentDownload: null,
   speedHistory: [],
@@ -141,11 +138,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
     persist({ themeSource })
   },
 
-  setStreamsPerNetwork: (streamsPerNetwork) => {
-    set({ streamsPerNetwork })
-    persist({ streamsPerNetwork })
-  },
-
   checkForUpdate: async () => {
     try {
       const availableUpdate = await window.plexo.checkForUpdate()
@@ -163,8 +155,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     persist({ dismissedUpdateVersion: update.version })
   },
 
-  setCurrentDownload: (download) => {
+  receiveDownloadUpdate: (update) => {
     const previous = get().currentDownload
+    const download = applyDownloadUpdate(previous, update)
+    if (!download || download === previous) return
     const isNewDownload = !previous || previous.id !== download.id
 
     let speedHistory = isNewDownload ? [] : get().speedHistory

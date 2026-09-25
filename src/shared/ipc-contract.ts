@@ -1,15 +1,14 @@
 import type {
   AppSettings,
-  DownloadState,
+  DownloadUpdate,
   NetworkInterfaceInfo,
   ProbeResult,
   StartDownloadRequest,
-  StartSimulatedDownloadRequest,
   UpdateInfo
 } from './types'
 
-/** The request/response half of the IPC surface (every IpcChannels entry except the two
- * main->renderer push events, downloadUpdated and toggleDevToolsPanel) — one source of truth for
+/** The request/response half of the IPC surface (every IpcChannels entry except the
+ * main->renderer push event, downloadUpdated) — one source of truth for
  * both plexoApi (preload) and registerIpcHandlers (main), so a signature drift between the two
  * is a compile error instead of a runtime one. */
 export interface IpcContract {
@@ -20,12 +19,10 @@ export interface IpcContract {
   updateSettings: { args: [patch: AppSettings]; result: void }
   probeUrl: { args: [url: string]; result: ProbeResult }
   chooseDestinationFolder: { args: [defaultPath: string]; result: string | null }
-  chooseSourceFile: { args: []; result: string | null }
   readClipboardText: { args: []; result: string }
   revealInFolder: { args: [filePath: string]; result: void }
   startDownload: { args: [request: StartDownloadRequest]; result: string }
-  startSimulatedDownload: { args: [request: StartSimulatedDownloadRequest]; result: string }
-  getCurrentDownload: { args: []; result: DownloadState | null }
+  getCurrentDownload: { args: []; result: DownloadUpdate | null }
   pauseDownload: { args: [id: string]; result: void }
   resumeDownload: { args: [id: string]; result: void }
   cancelDownload: { args: [id: string]; result: void }

@@ -138,7 +138,9 @@ test('any sequence of pauses, crashes and faults still ends in the exact file @c
   await fc.assert(
     fc.asyncProperty(
       fc.integer({ min: 1, max: 2 ** 31 - 1 }),
-      fc.integer({ min: 1, max: 4 }),
+      // A fixed count per network, or the app's own choice, which adds and retires streams as it
+      // goes — through every pause, crash and fault the sequence throws at it.
+      fc.oneof(fc.integer({ min: 1, max: 4 }), fc.constant('auto' as const)),
       commands,
       async (fileSeed, connections, cmds) => {
         const { dirs, dispose } = await makeDirs()
@@ -147,7 +149,12 @@ test('any sequence of pauses, crashes and faults still ends in the exact file @c
           seed: fileSeed,
           bytesPerSecond: 512 * 1024
         }).start()
-        const app = new PlexoApp(dirs)
+        // Short measuring windows, so streams come and go within the run; kept automatic across
+        // the relaunches a crash or a quit brings.
+        const app = new PlexoApp(
+          dirs,
+          connections === 'auto' ? { PLEXO_E2E_STREAMS: '', PLEXO_E2E_PROBE_MS: '500' } : {}
+        )
         const real: Real = { app, origin, id: '', faults: [] }
         origin.setRule(({ range }) =>
           range && !(range.start === 0 && range.end === 0) ? real.faults.shift() : undefined

@@ -64,7 +64,7 @@ export interface ChunkState {
   hedge?: boolean
 }
 
-export type BlockStatus = 'pending' | 'downloading' | 'completed' | 'error'
+export type BlockStatus = 'pending' | 'downloading' | 'completed'
 
 export interface BlockState {
   index: number
@@ -94,6 +94,8 @@ export interface DownloadState {
   speedBytesPerSec: number
   status: DownloadStatus
   chunks: ChunkState[]
+  /** The most streams it has run at once. */
+  peakStreams?: number
   blocks?: BlockState[]
   totalBlocks?: number
   blockSizeBytes?: number
@@ -102,6 +104,20 @@ export interface DownloadState {
   pausedAt?: number
   totalPausedMs?: number
   completedAt?: number
+  /** The update this state is as of (see DownloadUpdate). */
+  seq?: number
+}
+
+/** What the main process sends as a download changes: everything but its blocks, and only the
+ * blocks that changed since it last sent. A download can have tens of thousands of blocks, and
+ * copying every one several times a second would cost the process that carries every byte. A
+ * snapshot is the same with every block in it. */
+export interface DownloadUpdate {
+  /** Counts what the main process has sent for the download. A snapshot has the count it was
+   * taken at. */
+  seq: number
+  state: Omit<DownloadState, 'blocks'>
+  blocks: BlockState[]
 }
 
 /** User customization for one physical network, keyed by NetworkInterfaceInfo.id — lets a
@@ -115,29 +131,6 @@ export interface NetworkPreference {
 }
 
 export type NetworkPreferences = Record<string, NetworkPreference>
-
-/** One fake network in a dev-tool "virtual download" — see SimulatedNetworkConfig callers in
- * main/download/simDownload.ts. Lets a developer exercise the multi-network UI (the block grid,
- * per-network speed/throughput, retries and errors) against a file already on disk,
- * without needing a real flaky connection or a slow remote server to test against. */
-export interface SimulatedNetworkConfig {
-  kind: NetworkInterfaceKind
-  label: string
-  /** Target sustained throughput for this simulated network, in bytes/sec. */
-  speedBytesPerSec: number
-  /** 0-100 chance a chunk attempt on this network fails outright, simulating a dropped
-   * connection — set above 0 to exercise the retry/error UI on demand. */
-  faultRatePercent: number
-}
-
-export interface StartSimulatedDownloadRequest {
-  /** Absolute path to a file already on disk — this is what gets "downloaded". */
-  sourceFilePath: string
-  destinationDir: string
-  networks: SimulatedNetworkConfig[]
-  chunkCount: number
-  connectionsPerNetwork?: number
-}
 
 export interface UpdateInfo {
   version: string
@@ -153,7 +146,6 @@ export interface UpdateInfo {
 export interface AppSettings {
   themeSource?: ThemeSource
   dismissedUpdateVersion?: string
-  streamsPerNetwork?: number
   /** The last destination folder picked. */
   destinationDir?: string
   /** User customizations (name/color) per network interface id. */
@@ -165,11 +157,8 @@ export interface AppSettings {
 export interface InitialState {
   homeDir: string
   downloadsDir: string
-  /** True in electron-vite's dev server, false in a packaged build — gates the dev tools panel. */
-  isDev: boolean
   themeSource: ThemeSource
   networkPreferences: NetworkPreferences
-  streamsPerNetwork?: number
   /** The last folder picked, if it still exists — otherwise the renderer uses downloadsDir. */
   destinationDir?: string
 }
@@ -182,10 +171,6 @@ export interface StartDownloadRequest {
   totalBytes: number
   supportsRanges: boolean
   interfaceIds: string[]
-  /** Total chunks to split the download into across interfaceIds. */
-  chunkCount: number
-  /** Number of parallel connections allocated per physical network. */
-  connectionsPerNetwork?: number
   etag: string | null
   lastModified: string | null
 }

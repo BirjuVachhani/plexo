@@ -1,7 +1,6 @@
 import { rm } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { app, nativeTheme } from 'electron'
-import { PRESET_STREAMS } from '../shared/plan'
 import type {
   AppSettings,
   NetworkPreference,
@@ -42,15 +41,12 @@ function sanitizeNetworkPreferences(parsed: unknown): NetworkPreferences {
 function sanitizeSettings(parsed: unknown): AppSettings {
   if (!isRecord(parsed)) return {}
 
-  const { themeSource, dismissedUpdateVersion, streamsPerNetwork, destinationDir } = parsed
+  const { themeSource, dismissedUpdateVersion, destinationDir } = parsed
   const settings: AppSettings = {}
   // 'system' was once an option — dropping it falls back to the OS appearance (loadThemeSource).
   if (themeSource === 'light' || themeSource === 'dark') settings.themeSource = themeSource
   if (typeof dismissedUpdateVersion === 'string') {
     settings.dismissedUpdateVersion = dismissedUpdateVersion
-  }
-  if ((PRESET_STREAMS as readonly unknown[]).includes(streamsPerNetwork)) {
-    settings.streamsPerNetwork = streamsPerNetwork as number
   }
   if (typeof destinationDir === 'string' && isAbsolute(destinationDir)) {
     settings.destinationDir = destinationDir

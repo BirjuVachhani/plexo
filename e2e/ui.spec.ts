@@ -126,8 +126,6 @@ test.describe('settings @smoke', () => {
         : 'Switch to dark theme'
       await themeToggle.click()
 
-      await page().getByRole('button', { name: '4×' }).click()
-
       await stubNativeUi(plexo, dirs.dest)
       await page().getByRole('button', { name: 'Browse…' }).click()
 
@@ -142,10 +140,6 @@ test.describe('settings @smoke', () => {
         await expect(page().getByRole('link', { name: 'Update available: 9.9.9' })).toBeVisible()
         await expect(page().getByRole('alertdialog')).toBeHidden()
         await expect(page().getByRole('button', { name: labelAfterSwitch })).toBeVisible()
-        await expect(page().getByRole('button', { name: '4×' })).toHaveAttribute(
-          'aria-pressed',
-          'true'
-        )
         await expect(page().getByText(dirs.dest)).toBeVisible()
         await expect(page().getByText('Office fibre')).toBeVisible()
         await page().getByRole('button', { name: 'Edit network' }).first().click()
@@ -169,25 +163,19 @@ test.describe('settings @smoke', () => {
     dirs
   }) => {
     const settingsPath = join(dirs.userData, 'app-settings.json')
-    // The streams picker and the TO row, as the user sees them — compared whole, so no
-    // platform's idea of the default folder is baked into the test.
-    const choices = (): Promise<string[]> =>
-      Promise.all([
-        plexo.page.getByRole('button', { name: /^\d×$/, pressed: true }).innerText(),
-        plexo.page.getByText('TO', { exact: true }).locator('..').innerText()
-      ])
+    // The TO row, as the user sees it — compared whole, so no platform's idea of the default
+    // folder is baked into the test.
+    const choices = (): Promise<string> =>
+      plexo.page.getByText('TO', { exact: true }).locator('..').innerText()
     const fresh = await choices()
 
     await plexo.quit()
-    await writeFile(settingsPath, '{"streamsPerNetwork": 4,')
+    await writeFile(settingsPath, '{"destinationDir": "/')
     await plexo.launch()
     expect(await choices()).toEqual(fresh)
 
     await plexo.quit()
-    await writeFile(
-      settingsPath,
-      JSON.stringify({ streamsPerNetwork: 3, destinationDir: join(dirs.dest, 'unplugged') })
-    )
+    await writeFile(settingsPath, JSON.stringify({ destinationDir: join(dirs.dest, 'unplugged') }))
     await plexo.launch()
     expect(await choices()).toEqual(fresh)
   })

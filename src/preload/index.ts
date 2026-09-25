@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { IpcChannels } from '../shared/ipc-channels'
 import type { IpcContract } from '../shared/ipc-contract'
-import type { AppSettings, DownloadState, InitialState } from '../shared/types'
+import type { AppSettings, DownloadUpdate, InitialState } from '../shared/types'
 
 /** Typed wrapper around ipcRenderer.invoke — the channel name picks its args/result shape out of
  * IpcContract, so a call here that doesn't match what registerIpcHandlers (main) actually handles
@@ -25,13 +25,10 @@ const plexoApi = {
   updateSettings: (patch: AppSettings) => invoke('updateSettings', patch),
   probeUrl: (url: string) => invoke('probeUrl', url),
   chooseDestinationFolder: (defaultPath: string) => invoke('chooseDestinationFolder', defaultPath),
-  chooseSourceFile: () => invoke('chooseSourceFile'),
   readClipboardText: () => invoke('readClipboardText'),
   revealInFolder: (filePath: string) => invoke('revealInFolder', filePath),
   startDownload: (request: IpcContract['startDownload']['args'][0]) =>
     invoke('startDownload', request),
-  startSimulatedDownload: (request: IpcContract['startSimulatedDownload']['args'][0]) =>
-    invoke('startSimulatedDownload', request),
   getCurrentDownload: () => invoke('getCurrentDownload'),
   pauseDownload: (downloadId: string) => invoke('pauseDownload', downloadId),
   resumeDownload: (downloadId: string) => invoke('resumeDownload', downloadId),
@@ -39,16 +36,10 @@ const plexoApi = {
   removeDownload: (downloadId: string) => invoke('removeDownload', downloadId),
   checkForUpdate: () => invoke('checkForUpdate'),
 
-  onDownloadUpdated: (callback: (state: DownloadState) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, state: DownloadState): void => callback(state)
+  onDownloadUpdated: (callback: (update: DownloadUpdate) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, update: DownloadUpdate): void => callback(update)
     ipcRenderer.on(IpcChannels.downloadUpdated, listener)
     return () => ipcRenderer.removeListener(IpcChannels.downloadUpdated, listener)
-  },
-
-  onToggleDevToolsPanel: (callback: () => void): (() => void) => {
-    const listener = (): void => callback()
-    ipcRenderer.on(IpcChannels.toggleDevToolsPanel, listener)
-    return () => ipcRenderer.removeListener(IpcChannels.toggleDevToolsPanel, listener)
   }
 }
 

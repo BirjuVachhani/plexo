@@ -13,7 +13,8 @@ import {
   type Page
 } from '@playwright/test'
 import type { IpcContract } from '../src/shared/ipc-contract'
-import type { DownloadState, DownloadStatus } from '../src/shared/types'
+import { applyDownloadUpdate } from '../src/shared/downloadUpdate'
+import type { DownloadState, DownloadStatus, DownloadUpdate } from '../src/shared/types'
 import { Origin, sha256, type OriginOptions } from './origin'
 
 export { expect }
@@ -47,7 +48,8 @@ type Api = {
 
 interface StartOptions {
   networks?: string[]
-  connections?: number
+  /** Streams per network, fixed so a test can count requests; 'auto' lets the app decide. */
+  connections?: number | 'auto'
   fileName?: string
   destinationDir?: string
 }
@@ -69,6 +71,8 @@ export class PlexoApp {
   page!: Page
   /** Every downloadUpdated state, one array per app launch (a relaunch starts a new one). */
   readonly sessions: DownloadState[][] = []
+  /** The same, as the window was sent them: only the blocks that changed. */
+  readonly updates: DownloadUpdate[][] = []
   readonly tracked = new Map<string, Tracked>()
   readonly output: string[] = []
   alive = false
@@ -94,6 +98,8 @@ export class PlexoApp {
             PLEXO_E2E_STALL_MS: '1500',
             // Off unless a test asks for it: a hedge is an extra request, and most tests count them.
             PLEXO_E2E_HEDGE_MS: '600000',
+            // Fixed for the same reason, and for downloads started through the UI.
+            PLEXO_E2E_STREAMS: '2',
             PLEXO_E2E_INTERFACES: interfacesEnv(NETWORKS),
             ...this.extraEnv
           }
@@ -115,11 +121,18 @@ export class PlexoApp {
     this.page = await this.electronApp.firstWindow()
     await this.page.waitForLoadState('domcontentloaded')
     const session: DownloadState[] = []
+    const updates: DownloadUpdate[] = []
     this.sessions.push(session)
-    await this.page.exposeFunction('__plexoRecord', (state: DownloadState) => session.push(state))
+    this.updates.push(updates)
+    // Kept whole, the way the window puts them together.
+    await this.page.exposeFunction('__plexoRecord', (update: DownloadUpdate) => {
+      updates.push(update)
+      const state = applyDownloadUpdate(session.at(-1) ?? null, update)
+      if (state && state !== session.at(-1)) session.push(state)
+    })
     await this.page.evaluate(() => {
       const w = window as unknown as { __plexoRecord: (s: unknown) => void }
-      window.plexo.onDownloadUpdated((state) => w.__plexoRecord(state))
+      window.plexo.onDownloadUpdated((update) => w.__plexoRecord(update))
     })
     return this
   }
@@ -162,8 +175,20 @@ export class PlexoApp {
     return this.electronApp.evaluate(fn as never, arg) as Promise<R>
   }
 
+  /** Sets how many streams the next download runs per network (see StartOptions). */
+  private async pinStreams(connections: number | 'auto' = 2): Promise<void> {
+    await this.evaluateMain(
+      (_electron, value) => {
+        if (value === null) delete process.env.PLEXO_E2E_STREAMS
+        else process.env.PLEXO_E2E_STREAMS = value
+      },
+      connections === 'auto' ? null : String(connections)
+    )
+  }
+
   /** Probes and starts `url` exactly the way IdleScreen's Start button does. */
   async start(url: string, expectedSha: string, options: StartOptions = {}): Promise<string> {
+    await this.pinStreams(options.connections)
     await this.api.listInterfaces()
     const probe = await this.api.probeUrl(url)
     const multiChunk = probe.supportsRanges && probe.totalBytes !== null
@@ -178,8 +203,6 @@ export class PlexoApp {
       totalBytes: probe.totalBytes ?? 0,
       supportsRanges: multiChunk,
       interfaceIds: multiChunk ? networks : networks.slice(0, 1),
-      chunkCount: multiChunk ? networks.length * (options.connections ?? 2) : 1,
-      connectionsPerNetwork: multiChunk ? (options.connections ?? 2) : 1,
       etag: probe.etag,
       lastModified: probe.lastModified
     })
@@ -199,19 +222,9 @@ export class PlexoApp {
 
   nextDownload: Tracked | null = null
 
-  /** Starts a dev-tool simulated download of a local file (see simDownload.ts). */
-  async startSimulated(
-    request: Omit<IpcContract['startSimulatedDownload']['args'][0], 'destinationDir'>,
-    expectedSha: string
-  ): Promise<string> {
-    const destBefore = await readdir(this.dirs.dest)
-    const id = await this.api.startSimulatedDownload({ ...request, destinationDir: this.dirs.dest })
-    this.tracked.set(id, { expectedSha, destBefore, destinationDir: this.dirs.dest })
-    return id
-  }
-
   async current(): Promise<DownloadState | null> {
-    return this.api.getCurrentDownload()
+    const snapshot = await this.api.getCurrentDownload()
+    return snapshot && applyDownloadUpdate(null, snapshot)
   }
 
   async waitForStatus(
@@ -269,6 +282,11 @@ export function checkEvents(sessions: DownloadState[][]): void {
           state.totalBytes
         )
       }
+      expect(
+        state.blocks?.every((block, index) => block?.index === index),
+        `${label}: every block is there, in order`
+      ).toBe(true)
+      expect(state.blocks?.length, `${label}: as many blocks as planned`).toBe(state.totalBlocks)
       for (const block of state.blocks ?? []) {
         const attributed = Object.values(block.bytesByInterface).reduce((a, b) => a + b, 0)
         expect(attributed, `${label}: block ${block.index} attribution sums to its bytes`).toBe(

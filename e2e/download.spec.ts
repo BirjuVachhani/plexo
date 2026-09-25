@@ -43,6 +43,10 @@ test.describe('happy paths @smoke', () => {
       await plexo.start(origin.url(), origin.sha256, { connections })
       const state = await plexo.waitForStatus('completed')
       expect(state.chunks).toHaveLength(connections)
+      // Each stream keeps its connection from one block to the next rather than reconnecting.
+      const requests = origin.chunkRequests()
+      expect(new Set(requests.map((request) => request.connection)).size).toBe(connections)
+      expect(requests.length).toBeGreaterThan(connections)
     })
   }
 
@@ -67,6 +71,34 @@ test.describe('happy paths @smoke', () => {
     expect(served.a, 'network a carried some of the file').toBeGreaterThan(0)
     expect(served.b, 'network b carried some of the file').toBeGreaterThan(0)
     expect(attributed).toEqual(served)
+  })
+
+  test('a file with fewer blocks than streams still gives every network work', async ({
+    plexo,
+    serve
+  }) => {
+    test.skip(!LAN_ADDRESS, 'needs a LAN address to act as the second network')
+    // 7 blocks against 8 streams a network: the first network's streams used to claim every
+    // block before the second network's had started, leaving it idle for the whole download.
+    const origin = await serve({ size: 7 * BLOCK })
+    await plexo.start(origin.url(), origin.sha256, { networks: ['a', 'b'], connections: 8 })
+    const state = await plexo.waitForStatus('completed')
+    expect(new Set(origin.chunkRequests().map((request) => request.from)).size).toBe(2)
+    // A stream with no block to claim would only idle: each network gets its share of the 7.
+    for (const network of ['a', 'b']) {
+      expect(state.chunks.filter((chunk) => chunk.interfaceId === network)).toHaveLength(4)
+    }
+  })
+
+  test('after the first, updates carry only the blocks that changed', async ({ plexo, serve }) => {
+    const origin = await serve({ size: 64 * BLOCK, bytesPerSecond: 500_000 })
+    const id = await plexo.start(origin.url(), origin.sha256)
+    await plexo.waitForStatus('completed')
+    const sent = plexo.updates.at(-1)!.filter((update) => update.state.id === id)
+    expect(sent.length, 'progress kept coming while it downloaded').toBeGreaterThan(5)
+    expect(sent[0].blocks).toHaveLength(64)
+    // Two streams move a few blocks between one update and the next, not all 64.
+    expect(Math.max(...sent.slice(1).map((update) => update.blocks.length))).toBeLessThan(16)
   })
 
   test('server without range support: one stream, whole file', async ({ plexo, serve }) => {

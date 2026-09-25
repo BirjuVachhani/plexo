@@ -1,6 +1,5 @@
 import type { DownloadState } from '@shared/types'
 import { useEffect } from 'react'
-import { DevToolsPanel } from './components/DevToolsPanel'
 import { TitleBar, type TitleBarStatus } from './components/TitleBar'
 import { NetworkBindingDialog } from './components/NetworkBindingDialog'
 import { UpdateDialog } from './components/UpdateDialog'
@@ -112,7 +111,6 @@ function App(): React.JSX.Element {
       <div className="flex h-full flex-col">
         <TitleBar status={titleBarStatus} />
         <div className="min-h-0 flex-1">{screen}</div>
-        <DevToolsPanel />
         <UpdateDialog />
         <NetworkBindingDialog />
       </div>

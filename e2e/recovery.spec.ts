@@ -147,6 +147,40 @@ test.describe('persisted state on disk @smoke', () => {
     expect((await plexo.current())?.error).toMatch(/partial download file is missing/)
   })
 
+  test('a download saved by the previous version resumes where it was', async ({
+    plexo,
+    serve,
+    dirs
+  }) => {
+    const { id, origin } = await pausedDownload(plexo, serve)
+    const paused = (await plexo.current())!
+    await plexo.quit()
+
+    // What version 4 wrote: every block whole, inside the state.
+    const manifestPath = join(dirs.userData, 'downloads', id, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf-8'))
+    delete manifest.progress
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        ...manifest,
+        version: 4,
+        state: { ...manifest.state, blocks: paused.blocks }
+      })
+    )
+
+    await plexo.launch()
+    expect((await plexo.current())?.bytesDownloaded).toBe(paused.bytesDownloaded)
+    const before = origin.chunkRequests().length
+    await plexo.api.resumeDownload(id)
+    await plexo.waitForStatus('completed')
+    const refetched = origin
+      .chunkRequests()
+      .slice(before)
+      .some((request) => request.range!.start < paused.bytesDownloaded / 2)
+    expect(refetched, 'what was already there is not fetched again').toBe(false)
+  })
+
   test('a staging file cut short while the app was closed is fetched again', async ({
     plexo,
     serve

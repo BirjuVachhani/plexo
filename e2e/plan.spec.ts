@@ -3,9 +3,9 @@ import fc from 'fast-check'
 import {
   DEFAULT_MAX_BLOCK_BYTES,
   interleave,
-  MAX_BLOCKS,
   MAX_STREAMS_PER_NETWORK,
   MIN_BLOCK_BYTES,
+  planBlocks,
   planDownload,
   START_STREAMS_PER_NETWORK
 } from '../src/main/download/plan'
@@ -30,11 +30,9 @@ test.describe('download plan', () => {
         const { blockSizeBytes, blockCount } = plan
         expect(blockSizeBytes * blockCount).toBeGreaterThanOrEqual(request.totalBytes)
         expect(blockSizeBytes * (blockCount - 1)).toBeLessThan(request.totalBytes)
-        expect(blockCount).toBeLessThanOrEqual(MAX_BLOCKS)
         expect(blockSizeBytes).toBeGreaterThanOrEqual(Math.min(MIN_BLOCK_BYTES, request.totalBytes))
-        expect(blockSizeBytes).toBeLessThanOrEqual(
-          Math.max(DEFAULT_MAX_BLOCK_BYTES, Math.ceil(request.totalBytes / MAX_BLOCKS))
-        )
+        // However big the file: a bigger file gets more blocks, never bigger ones.
+        expect(blockSizeBytes).toBeLessThanOrEqual(DEFAULT_MAX_BLOCK_BYTES)
       })
     )
   })
@@ -137,6 +135,27 @@ test.describe('download plan', () => {
       expect(plan.blockCount).toBe(1)
       expect(plan.streamNetworks).toEqual([0])
     }
+  })
+
+  test('the planned blocks tile the file exactly, in order', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 2 ** 30 }),
+        fc.integer({ min: 1, max: 2 ** 24 }),
+        (totalBytes, blockSizeBytes) => {
+          fc.pre(totalBytes / blockSizeBytes <= 100_000)
+          const blocks = planBlocks(totalBytes, blockSizeBytes)
+          let next = 0
+          blocks.forEach((block, index) => {
+            expect(block.index).toBe(index)
+            expect(block.rangeStart).toBe(next)
+            next = block.rangeEnd! + 1
+          })
+          expect(next).toBe(totalBytes)
+        }
+      )
+    )
+    expect(planBlocks(0, 0)).toMatchObject([{ rangeStart: 0, rangeEnd: null }])
   })
 
   test('interleave keeps each group in order', () => {

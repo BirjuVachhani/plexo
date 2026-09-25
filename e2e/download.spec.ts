@@ -109,6 +109,16 @@ test.describe('happy paths @smoke', () => {
     expect(updates.length, 'progress kept coming while it downloaded').toBeGreaterThan(5)
   })
 
+  test('after the first, updates carry only the blocks that changed', async ({ plexo, serve }) => {
+    const origin = await serve({ size: 64 * BLOCK, bytesPerSecond: 500_000 })
+    const id = await plexo.start(origin.url(), origin.sha256)
+    await plexo.waitForStatus('completed')
+    const sent = plexo.updates.at(-1)!.filter((update) => update.state.id === id)
+    expect(sent[0].blocks).toHaveLength(64)
+    // Two streams move a few blocks between one update and the next, not all 64.
+    expect(Math.max(...sent.slice(1).map((update) => update.blocks.length))).toBeLessThan(16)
+  })
+
   test('server without range support: one stream, whole file', async ({ plexo, serve }) => {
     const origin = await serve({ size: 10 * BLOCK, ranges: false })
     await plexo.start(origin.url(), origin.sha256)

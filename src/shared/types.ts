@@ -64,7 +64,7 @@ export interface ChunkState {
   hedge?: boolean
 }
 
-export type BlockStatus = 'pending' | 'downloading' | 'completed' | 'error'
+export type BlockStatus = 'pending' | 'downloading' | 'completed'
 
 export interface BlockState {
   index: number
@@ -102,6 +102,20 @@ export interface DownloadState {
   pausedAt?: number
   totalPausedMs?: number
   completedAt?: number
+  /** The update this state is as of (see DownloadUpdate). */
+  seq?: number
+}
+
+/** What the main process sends as a download changes: everything but its blocks, and only the
+ * blocks that changed since it last sent. A download can have tens of thousands of blocks, and
+ * copying every one several times a second would cost the process that carries every byte. A
+ * snapshot is the same with every block in it. */
+export interface DownloadUpdate {
+  /** Counts what the main process has sent for the download. A snapshot has the count it was
+   * taken at. */
+  seq: number
+  state: Omit<DownloadState, 'blocks'>
+  blocks: BlockState[]
 }
 
 /** User customization for one physical network, keyed by NetworkInterfaceInfo.id — lets a

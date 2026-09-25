@@ -13,7 +13,8 @@ import {
   type Page
 } from '@playwright/test'
 import type { IpcContract } from '../src/shared/ipc-contract'
-import type { DownloadState, DownloadStatus } from '../src/shared/types'
+import { applyDownloadUpdate } from '../src/shared/downloadUpdate'
+import type { DownloadState, DownloadStatus, DownloadUpdate } from '../src/shared/types'
 import { Origin, sha256, type OriginOptions } from './origin'
 
 export { expect }
@@ -70,6 +71,8 @@ export class PlexoApp {
   page!: Page
   /** Every downloadUpdated state, one array per app launch (a relaunch starts a new one). */
   readonly sessions: DownloadState[][] = []
+  /** The same, as the window was sent them: only the blocks that changed. */
+  readonly updates: DownloadUpdate[][] = []
   readonly tracked = new Map<string, Tracked>()
   readonly output: string[] = []
   alive = false
@@ -118,11 +121,18 @@ export class PlexoApp {
     this.page = await this.electronApp.firstWindow()
     await this.page.waitForLoadState('domcontentloaded')
     const session: DownloadState[] = []
+    const updates: DownloadUpdate[] = []
     this.sessions.push(session)
-    await this.page.exposeFunction('__plexoRecord', (state: DownloadState) => session.push(state))
+    this.updates.push(updates)
+    // Kept whole, the way the window puts them together.
+    await this.page.exposeFunction('__plexoRecord', (update: DownloadUpdate) => {
+      updates.push(update)
+      const state = applyDownloadUpdate(session.at(-1) ?? null, update)
+      if (state && state !== session.at(-1)) session.push(state)
+    })
     await this.page.evaluate(() => {
       const w = window as unknown as { __plexoRecord: (s: unknown) => void }
-      window.plexo.onDownloadUpdated((state) => w.__plexoRecord(state))
+      window.plexo.onDownloadUpdated((update) => w.__plexoRecord(update))
     })
     return this
   }
@@ -213,7 +223,8 @@ export class PlexoApp {
   nextDownload: Tracked | null = null
 
   async current(): Promise<DownloadState | null> {
-    return this.api.getCurrentDownload()
+    const snapshot = await this.api.getCurrentDownload()
+    return snapshot && applyDownloadUpdate(null, snapshot)
   }
 
   async waitForStatus(
@@ -271,6 +282,11 @@ export function checkEvents(sessions: DownloadState[][]): void {
           state.totalBytes
         )
       }
+      expect(
+        state.blocks?.every((block, index) => block?.index === index),
+        `${label}: every block is there, in order`
+      ).toBe(true)
+      expect(state.blocks?.length, `${label}: as many blocks as planned`).toBe(state.totalBlocks)
       for (const block of state.blocks ?? []) {
         const attributed = Object.values(block.bytesByInterface).reduce((a, b) => a + b, 0)
         expect(attributed, `${label}: block ${block.index} attribution sums to its bytes`).toBe(

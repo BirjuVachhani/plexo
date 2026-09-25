@@ -1,19 +1,19 @@
+import type { BlockState } from '../../shared/types'
+
 // How a download is cut into blocks and how many streams start on them. Pure, so every rule here
 // can be checked against exact situations. How many streams a network ends up with is decided
 // while the download runs (see concurrency.ts); the plan only has to leave them enough blocks.
 
 const MIB = 1024 * 1024
 
-/** The largest block, for any file the block-count cap doesn't force bigger. */
+/** The largest block. However big the file, a block stays small enough for one stream to finish
+ * soon: a racing second attempt re-fetches a block rather than splitting it (see scheduler.ts),
+ * so the last block's size is how long the slowest connection can hold the download up. */
 export const DEFAULT_MAX_BLOCK_BYTES = 8 * MIB
 
 /** No block is planned smaller than this: each block is its own request, and below about a
  * megabyte the round trips cost more than splitting the file saves. */
 export const MIN_BLOCK_BYTES = MIB
-
-/** Only a safety valve for multi-terabyte files, so the block list stays a sane size. Past it,
- * blocks grow instead of multiplying. */
-export const MAX_BLOCKS = 4096
 
 /** Streams each network starts with. Servers are built for browsers, which open about six
  * connections to a host, so four troubles none of them. */
@@ -87,13 +87,10 @@ export function planDownload(request: PlanRequest): DownloadPlan {
   )
 
   const targetBlocks = networkCount * MAX_STREAMS_PER_NETWORK * BLOCKS_PER_STREAM
-  const blockSizeBytes = Math.max(
-    clamp(
-      Math.ceil(totalBytes / targetBlocks),
-      Math.min(MIN_BLOCK_BYTES, maxBlockBytes),
-      maxBlockBytes
-    ),
-    Math.ceil(totalBytes / MAX_BLOCKS)
+  const blockSizeBytes = clamp(
+    Math.ceil(totalBytes / targetBlocks),
+    Math.min(MIN_BLOCK_BYTES, maxBlockBytes),
+    maxBlockBytes
   )
   const blockCount = Math.ceil(totalBytes / blockSizeBytes)
 
@@ -106,4 +103,22 @@ export function planDownload(request: PlanRequest): DownloadPlan {
   )
 
   return { blockSizeBytes, blockCount, streamNetworks }
+}
+
+/** The blocks a file of `totalBytes` is cut into, none of them started. An unknown size is one
+ * block, open-ended to the end of the file. */
+export function planBlocks(totalBytes: number, blockSizeBytes: number): BlockState[] {
+  const fresh = (index: number, rangeStart: number, rangeEnd: number | null): BlockState => ({
+    index,
+    rangeStart,
+    rangeEnd,
+    status: 'pending',
+    bytesDownloaded: 0,
+    bytesByInterface: {}
+  })
+  if (totalBytes <= 0) return [fresh(0, 0, null)]
+  return Array.from({ length: Math.ceil(totalBytes / blockSizeBytes) }, (_, index) => {
+    const rangeStart = index * blockSizeBytes
+    return fresh(index, rangeStart, Math.min(rangeStart + blockSizeBytes, totalBytes) - 1)
+  })
 }

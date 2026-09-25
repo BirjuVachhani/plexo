@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { IpcChannels } from '../shared/ipc-channels'
 import type { IpcContract } from '../shared/ipc-contract'
-import type { AppSettings, DownloadState, InitialState } from '../shared/types'
+import type { AppSettings, DownloadUpdate, InitialState } from '../shared/types'
 
 /** Typed wrapper around ipcRenderer.invoke — the channel name picks its args/result shape out of
  * IpcContract, so a call here that doesn't match what registerIpcHandlers (main) actually handles
@@ -37,8 +37,8 @@ const plexoApi = {
   removeDownload: (downloadId: string) => invoke('removeDownload', downloadId),
   checkForUpdate: () => invoke('checkForUpdate'),
 
-  onDownloadUpdated: (callback: (state: DownloadState) => void): (() => void) => {
-    const listener = (_event: IpcRendererEvent, state: DownloadState): void => callback(state)
+  onDownloadUpdated: (callback: (update: DownloadUpdate) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, update: DownloadUpdate): void => callback(update)
     ipcRenderer.on(IpcChannels.downloadUpdated, listener)
     return () => ipcRenderer.removeListener(IpcChannels.downloadUpdated, listener)
   }

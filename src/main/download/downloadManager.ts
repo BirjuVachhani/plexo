@@ -9,6 +9,7 @@ import type {
   ChunkState,
   DownloadState,
   DownloadStatus,
+  DownloadUpdate,
   NetworkInterfaceInfo,
   StartDownloadRequest
 } from '../../shared/types'
@@ -19,7 +20,7 @@ import { downloadChunk, fetchRange, RemoteChangedError } from './chunkDownloader
 import { DownloadFile } from './downloadFile'
 import { compareVersion, type FileVersion } from './fileVersion'
 import { ensureDirectory, reserveDestinationPath } from './paths'
-import { interleave, MAX_STREAMS_PER_NETWORK, planDownload } from './plan'
+import { interleave, MAX_STREAMS_PER_NETWORK, planBlocks, planDownload } from './plan'
 import { pickWork, type SchedulerPolicy, type Work } from './scheduler'
 import {
   compatibleInterfaces,
@@ -132,17 +133,66 @@ interface DownloadRuntime {
   /** Everything each network's streams have received, by network id: what the stream count is
    * judged by (see concurrency.ts). */
   receivedByNetwork: Map<string, number>
+  /** Updates sent to the window so far (see DownloadUpdate). */
+  sentUpdates: number
+  /** Each block as the window was last sent it, by index — what tells a changed block apart. */
+  sentBlocks: Pick<BlockState, 'status' | 'interfaceId' | 'bytesDownloaded'>[]
 }
 
-interface PersistedDownload {
-  version: 4
+interface PersistedDownloadBase {
   savedAt: number
-  state: DownloadState
   partialPath: string
   publicationPath?: string
   publicationIdentity?: { dev: number; ino: number }
   requestPayload: StartDownloadRequest
   activeInterfaces: NetworkInterfaceInfo[]
+}
+
+type PersistedDownload = PersistedDownloadBase &
+  (
+    | {
+        version: 5
+        state: Omit<DownloadState, 'blocks'>
+        /** Per network id, the bytes it delivered of each block, by block index. Everything else
+         * about a block follows from the plan: its range from `blockSizeBytes`, and that it is
+         * complete from those bytes adding up to its length. */
+        progress: Record<string, number[]>
+      }
+    /** Written before version 5, with every block saved whole; still read, so an update doesn't
+     * lose the progress of a download it finds paused. */
+    | { version: 4; state: DownloadState }
+  )
+
+/** Per network, the bytes it delivered of each block (see PersistedDownload). */
+function progressByNetwork(blocks: readonly BlockState[]): Record<string, number[]> {
+  const progress: Record<string, number[]> = {}
+  for (const block of blocks) {
+    for (const [networkId, bytes] of Object.entries(block.bytesByInterface)) {
+      ;(progress[networkId] ??= new Array<number>(blocks.length).fill(0))[block.index] = bytes
+    }
+  }
+  return progress
+}
+
+/** The blocks a version 5 manifest describes. */
+function restoreBlocks(
+  state: Omit<DownloadState, 'blocks'>,
+  progress: Record<string, number[]>
+): BlockState[] {
+  const blocks = planBlocks(state.totalBytes, state.blockSizeBytes ?? state.totalBytes)
+  for (const [networkId, column] of Object.entries(progress)) {
+    column.forEach((bytes, index) => {
+      const block = blocks[index]
+      if (!block || !(bytes > 0)) return
+      block.bytesByInterface[networkId] = bytes
+      block.bytesDownloaded += bytes
+    })
+  }
+  for (const block of blocks) {
+    const length = block.rangeEnd === null ? null : block.rangeEnd - block.rangeStart + 1
+    if (state.status === 'completed' || block.bytesDownloaded === length) block.status = 'completed'
+  }
+  return blocks
 }
 
 // Set PLEXO_DEBUG=1 to log every request's outcome, how long the server took to answer and
@@ -348,12 +398,15 @@ export class DownloadManager {
           const persisted = JSON.parse(
             await readFile(this.manifestPath(id), 'utf-8')
           ) as PersistedDownload
-          if (persisted.version !== 4 || persisted.state.id !== id || !persisted.state.blocks)
-            return
-
-          const state = persisted.state
-          const blocks = state.blocks
+          if (persisted.state.id !== id) return
+          const blocks =
+            persisted.version === 5
+              ? restoreBlocks(persisted.state, persisted.progress)
+              : persisted.version === 4
+                ? persisted.state.blocks
+                : undefined
           if (!blocks) return
+          const state: DownloadState = { ...persisted.state, blocks }
           if (state.status === 'downloading') {
             state.status = 'paused'
             state.pausedAt = persisted.savedAt || Date.now()
@@ -443,7 +496,9 @@ export class DownloadManager {
             avoidNetworkByBlock: new Map(),
             attempts: new Map(),
             hedgesByBlock: new Map(),
-            receivedByNetwork: new Map()
+            receivedByNetwork: new Map(),
+            sentUpdates: 0,
+            sentBlocks: []
           })
         } catch {
           // Ignore incomplete or corrupt manifests; other downloads can still be restored.
@@ -480,12 +535,15 @@ export class DownloadManager {
     }
   }
 
-  async getCurrentDownload(): Promise<DownloadState | null> {
+  /** A snapshot of the current download: an update with every block in it. */
+  async getCurrentDownload(): Promise<DownloadUpdate | null> {
     await this.initialization
     const latest = [...this.runtimes.values()].sort(
       (a, b) => b.state.startedAt - a.state.startedAt
     )[0]
-    return latest ? structuredClone(latest.state) : null
+    if (!latest) return null
+    const { blocks, ...state } = latest.state
+    return structuredClone({ seq: latest.sentUpdates, state, blocks: blocks ?? latest.blocks })
   }
 
   /** Plexo shows one download at a time (see useAppStore's currentDownload) — starting a second
@@ -552,34 +610,7 @@ export class DownloadManager {
 
     // The UI caps how many cells it renders separately (see BlockGrid), by bucketing these
     // blocks rather than by shrinking their count here.
-    const blocks: BlockState[] = []
-    if (requestPayload.totalBytes > 0) {
-      const { blockSizeBytes } = plan
-      for (
-        let rangeStart = 0;
-        rangeStart < requestPayload.totalBytes;
-        rangeStart += blockSizeBytes
-      ) {
-        blocks.push({
-          index: blocks.length,
-          rangeStart,
-          rangeEnd: Math.min(rangeStart + blockSizeBytes, requestPayload.totalBytes) - 1,
-          status: 'pending',
-          bytesDownloaded: 0,
-          bytesByInterface: {}
-        })
-      }
-    } else {
-      // Size unknown: one open-ended block, to end of file.
-      blocks.push({
-        index: 0,
-        rangeStart: 0,
-        rangeEnd: null,
-        status: 'pending',
-        bytesDownloaded: 0,
-        bytesByInterface: {}
-      })
-    }
+    const blocks = planBlocks(requestPayload.totalBytes, plan.blockSizeBytes)
 
     const chunks = plan.streamNetworks.map((networkIndex, id) =>
       newStream(id, interfaces[networkIndex])
@@ -620,7 +651,9 @@ export class DownloadManager {
       avoidNetworkByBlock: new Map(),
       attempts: new Map(),
       hedgesByBlock: new Map(),
-      receivedByNetwork: new Map()
+      receivedByNetwork: new Map(),
+      sentUpdates: 0,
+      sentBlocks: []
     }
     this.runtimes.set(id, runtime)
     await this.persistNow(runtime)
@@ -1662,7 +1695,32 @@ export class DownloadManager {
     if (runtime.state.status === 'paused' || runtime.state.status === 'cancelled') {
       runtime.state.speedBytesPerSec = 0
     }
-    window.webContents.send(IpcChannels.downloadUpdated, structuredClone(runtime.state))
+    window.webContents.send(IpcChannels.downloadUpdated, this.takeUpdate(runtime))
+  }
+
+  /** What the window hasn't been sent yet: the download's state, and the blocks that moved. */
+  private takeUpdate(runtime: DownloadRuntime): DownloadUpdate {
+    const { blocks: all, ...state } = runtime.state
+    const sent = runtime.sentBlocks
+    const blocks: BlockState[] = []
+    for (const block of all ?? runtime.blocks) {
+      const last = sent[block.index]
+      // bytesByInterface only ever changes along with bytesDownloaded (see blockProgress.ts).
+      if (
+        last?.status === block.status &&
+        last.interfaceId === block.interfaceId &&
+        last.bytesDownloaded === block.bytesDownloaded
+      ) {
+        continue
+      }
+      sent[block.index] = {
+        status: block.status,
+        interfaceId: block.interfaceId,
+        bytesDownloaded: block.bytesDownloaded
+      }
+      blocks.push(block)
+    }
+    return structuredClone({ seq: ++runtime.sentUpdates, state, blocks })
   }
 
   private schedulePersistence(runtime: DownloadRuntime): void {
@@ -1687,10 +1745,12 @@ export class DownloadManager {
         const dir = this.downloadDir(runtime.state.id)
         const path = this.manifestPath(runtime.state.id)
         const temporaryPath = `${path}.tmp`
+        const { blocks, ...state } = runtime.state
         const persisted: PersistedDownload = {
-          version: 4,
+          version: 5,
           savedAt: Date.now(),
-          state: structuredClone(runtime.state),
+          state: structuredClone(state),
+          progress: progressByNetwork(blocks ?? runtime.blocks),
           partialPath: runtime.file.path,
           publicationPath: runtime.publicationPath,
           publicationIdentity: runtime.publicationIdentity,

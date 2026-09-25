@@ -1,6 +1,8 @@
+import { applyDownloadUpdate } from '@shared/downloadUpdate'
 import type {
   AppSettings,
   DownloadState,
+  DownloadUpdate,
   NetworkInterfaceInfo,
   NetworkPreference,
   NetworkPreferences,
@@ -58,7 +60,8 @@ interface AppStore {
   setThemeSource: (source: ThemeSource) => void
   checkForUpdate: () => Promise<void>
   dismissUpdate: () => void
-  setCurrentDownload: (state: DownloadState) => void
+  /** A snapshot or an update of the current download, from the main process. */
+  receiveDownloadUpdate: (update: DownloadUpdate) => void
   clearCurrentDownload: () => void
   setDraftUrl: (url: string) => void
   setDestinationDir: (dir: string) => void
@@ -152,8 +155,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     persist({ dismissedUpdateVersion: update.version })
   },
 
-  setCurrentDownload: (download) => {
+  receiveDownloadUpdate: (update) => {
     const previous = get().currentDownload
+    const download = applyDownloadUpdate(previous, update)
+    if (!download || download === previous) return
     const isNewDownload = !previous || previous.id !== download.id
 
     let speedHistory = isNewDownload ? [] : get().speedHistory

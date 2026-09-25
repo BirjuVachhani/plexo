@@ -1,6 +1,6 @@
 import type {
   AppSettings,
-  DownloadState,
+  DownloadUpdate,
   NetworkInterfaceInfo,
   ProbeResult,
   StartDownloadRequest,
@@ -23,7 +23,7 @@ export interface IpcContract {
   readClipboardText: { args: []; result: string }
   revealInFolder: { args: [filePath: string]; result: void }
   startDownload: { args: [request: StartDownloadRequest]; result: string }
-  getCurrentDownload: { args: []; result: DownloadState | null }
+  getCurrentDownload: { args: []; result: DownloadUpdate | null }
   pauseDownload: { args: [id: string]; result: void }
   resumeDownload: { args: [id: string]; result: void }
   cancelDownload: { args: [id: string]; result: void }

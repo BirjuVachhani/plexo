@@ -566,6 +566,21 @@
         background: #262a2d;
         color: #a9adb2;
       }
+      .more-changes {
+        align-self: flex-start;
+        margin-top: -4px;
+        padding: 0;
+        border: 0;
+        background: none;
+        font:
+          600 12.5px/1.4 Manrope,
+          sans-serif;
+        color: #d8a44c;
+        cursor: pointer;
+      }
+      .more-changes:hover {
+        color: #e8bb6d;
+      }
       .older {
         display: flex;
         flex-direction: column;
@@ -634,10 +649,10 @@
         display: flex;
         flex-direction: column;
         gap: 18px;
-        max-width: 760px;
       }
       .support > p {
         margin: 0;
+        max-width: 760px;
         font:
           400 14px/1.6 Manrope,
           sans-serif;
@@ -953,6 +968,7 @@
             <div class="ver" id="whats-new-ver"></div>
           </div>
           <ul class="changes" id="changes"></ul>
+          <button type="button" class="more-changes" id="more-changes" hidden></button>
           <div class="older">
             <div class="label" id="older-label" hidden>EARLIER VERSIONS</div>
             <ul id="older-list"></ul>
@@ -1401,8 +1417,22 @@
           $('whats-new-ver').textContent =
             latest.tag_name + (latest.published_at ? ' · ' + shortDate(latest.published_at) : '')
           var items = curated ? curated.items : itemsFromNotes(latest.body)
-          items.forEach(function (item) {
+          // Keep the panel about as tall as the hero beside it; the rest is one click away.
+          var SHOWN = 4
+          var more = $('more-changes')
+          var hiddenCount = items.length - SHOWN
+          more.hidden = hiddenCount <= 0
+          more.textContent =
+            'Show ' + hiddenCount + ' more ' + (hiddenCount === 1 ? 'change' : 'changes') + ' ↓'
+          more.onclick = function () {
+            Array.prototype.forEach.call(changes.children, function (li) {
+              li.hidden = false
+            })
+            more.hidden = true
+          }
+          items.forEach(function (item, i) {
             var li = el('li')
+            li.hidden = i >= SHOWN
             if (item.title) {
               var name = el('div', 'name')
               name.appendChild(el('span', 'kind ' + item.kind, item.kind))

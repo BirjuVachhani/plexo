@@ -208,26 +208,23 @@ export function NetworkRow({
                     Chunk #{stream.block.index + 1}
                   </span>
                 )}
-                {chunk.hedge && (
-                  <span
-                    title="Racing another stream for this chunk, which was running slowly"
-                    className="rounded-[3px] border-[0.5px] border-border px-[4.5px] py-[1.5px] font-mono text-[9px] leading-none whitespace-nowrap text-muted-foreground"
-                  >
-                    BACKUP
-                  </span>
-                )}
                 {isChunkActive ? (
                   <ColorBadge
                     bg={visual.bg}
                     border={visual.border}
                     text={visual.text}
+                    title={
+                      chunk.hedge
+                        ? 'Racing another stream for this chunk, which was running slowly'
+                        : undefined
+                    }
                     // Height is pinned, not `h-auto`: this badge swaps in and out as a stream
                     // goes active, and the cell is only as tall as "Stream #N" (13.2px). Left to
                     // size itself the badge came out taller than that and grew the row on every
                     // swap. 13px keeps it under, whatever line-height it ends up inheriting.
                     className="h-[13px] rounded-[3px] px-[5px] py-px text-[9px] font-semibold tracking-[0.04em]"
                   >
-                    ACTIVE
+                    {chunk.hedge ? 'BACKUP' : 'ACTIVE'}
                   </ColorBadge>
                 ) : (
                   <span

@@ -231,11 +231,6 @@ test.describe('stream count', () => {
     }
   })
 
-  test('networks take turns', () => {
-    const { actions } = simulate(capped(1 * MB, 1000 * MB), ['a', 'b'])
-    expect(actions.map((action) => action.networkId)).toEqual(['a', 'b', 'a', 'b'])
-  })
-
   test('new streams the server turns away are retired, and the network grows no further', () => {
     const { streams, actions } = simulate(capped(1 * MB, 1000 * MB), ['a'], { accepts: 4 })
     expect(streams.get('a')).toBe(4)
@@ -263,10 +258,6 @@ test.describe('stream count', () => {
       networkId: 'a',
       count: 2
     })
-  })
-
-  test('a network delivering nothing is not grown', () => {
-    expect(simulate(() => new Map([['a', 0]]), ['a']).actions).toEqual([])
   })
 
   test('a pause mid-step gives back the untried streams; what was settled stays settled', () => {

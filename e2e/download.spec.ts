@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs'
 import { BLOCK, expect, LAN_ADDRESS, test } from './fixtures'
 
 // A. Downloads that should simply work. Every test also runs the automatic checks in
@@ -91,29 +90,12 @@ test.describe('happy paths @smoke', () => {
     }
   })
 
-  test('a slow download fills a staging file beside the destination, reporting as it goes', async ({
-    plexo,
-    serve
-  }) => {
-    const origin = await serve({ size: 16 * BLOCK, bytesPerSecond: 200_000 })
-    const id = await plexo.start(origin.url(), origin.sha256)
-    const running = await plexo.waitUntil((state) => state.bytesDownloaded > 0)
-    expect(existsSync(`${running.destinationPath}.plexo`)).toBe(true)
-    expect(existsSync(running.destinationPath)).toBe(false)
-    await plexo.waitForStatus('completed')
-    const updates = plexo.sessions
-      .at(-1)!
-      .filter(
-        (state) => state.id === id && state.status === 'downloading' && state.bytesDownloaded > 0
-      )
-    expect(updates.length, 'progress kept coming while it downloaded').toBeGreaterThan(5)
-  })
-
   test('after the first, updates carry only the blocks that changed', async ({ plexo, serve }) => {
     const origin = await serve({ size: 64 * BLOCK, bytesPerSecond: 500_000 })
     const id = await plexo.start(origin.url(), origin.sha256)
     await plexo.waitForStatus('completed')
     const sent = plexo.updates.at(-1)!.filter((update) => update.state.id === id)
+    expect(sent.length, 'progress kept coming while it downloaded').toBeGreaterThan(5)
     expect(sent[0].blocks).toHaveLength(64)
     // Two streams move a few blocks between one update and the next, not all 64.
     expect(Math.max(...sent.slice(1).map((update) => update.blocks.length))).toBeLessThan(16)

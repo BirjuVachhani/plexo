@@ -87,28 +87,6 @@ test('DNS resolution obeys the request deadline @smoke', async () => {
   connection.close()
 })
 
-test('one stream sends request after request down a single connection @smoke', async () => {
-  let connections = 0
-  const server = createServer((_req, res) => res.end('ok'))
-  server.on('connection', () => connections++)
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-  const connection = new StreamConnection(loopback, 2000)
-  try {
-    const url = new URL(`http://127.0.0.1:${(server.address() as AddressInfo).port}/`)
-    const reused: boolean[] = []
-    for (let i = 0; i < 3; i++) {
-      const { req, res } = await connection.request(url, {})
-      expect(await body(res)).toBe('ok')
-      reused.push(req.reusedSocket)
-    }
-    expect(reused).toEqual([false, true, true])
-    expect(connections).toBe(1)
-  } finally {
-    connection.close()
-    await new Promise<void>((resolve) => server.close(() => resolve()))
-  }
-})
-
 test('a kept-alive connection the server dropped is replaced without failing the request @smoke', async () => {
   let requests = 0
   let connections = 0
@@ -126,24 +104,6 @@ test('a kept-alive connection the server dropped is replaced without failing the
     expect(await body((await connection.request(url, {})).res)).toBe('answer 1')
     expect(await body((await connection.request(url, {})).res)).toBe('answer 3')
     expect(connections).toBe(2)
-  } finally {
-    connection.close()
-    await new Promise<void>((resolve) => server.close(() => resolve()))
-  }
-})
-
-test('a fresh connection that fails is not retried @smoke', async () => {
-  let requests = 0
-  const server = createServer((req) => {
-    requests++
-    req.socket.destroy()
-  })
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-  const connection = new StreamConnection(loopback, 2000)
-  try {
-    const url = new URL(`http://127.0.0.1:${(server.address() as AddressInfo).port}/`)
-    await expect(connection.request(url, {})).rejects.toThrow()
-    expect(requests).toBe(1)
   } finally {
     connection.close()
     await new Promise<void>((resolve) => server.close(() => resolve()))

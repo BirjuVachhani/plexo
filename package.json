@@ -13,6 +13,7 @@
     "typecheck:e2e": "tsc -p tsconfig.e2e.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web && npm run typecheck:e2e",
     "start": "electron-vite preview",
+    "predev": "node scripts/ensure-electron.mjs",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",

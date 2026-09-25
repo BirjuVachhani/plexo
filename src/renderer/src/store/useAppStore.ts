@@ -36,8 +36,6 @@ interface AppStore {
 
   homeDir: string
   downloadsDir: string
-  /** True in electron-vite's dev server, false in a packaged build — gates the dev tools panel. */
-  isDev: boolean
 
   /** Plexo focuses on one download at a time — this is it. */
   currentDownload: DownloadState | null
@@ -87,7 +85,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   homeDir: initial.homeDir,
   downloadsDir: initial.downloadsDir,
-  isDev: initial.isDev,
 
   currentDownload: null,
   speedHistory: [],

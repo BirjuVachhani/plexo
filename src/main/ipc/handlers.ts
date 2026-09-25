@@ -1,5 +1,4 @@
 import { stat } from 'node:fs/promises'
-import { is } from '@electron-toolkit/utils'
 import {
   app,
   clipboard,
@@ -113,7 +112,6 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
       event.returnValue = {
         homeDir: getHomeDir(),
         downloadsDir: getDefaultDownloadsDir(),
-        isDev: is.dev,
         themeSource: currentThemeSource(),
         networkPreferences: settings.networkPreferences ?? {},
         destinationDir: destinationExists ? destinationDir : undefined
@@ -124,7 +122,6 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
       event.returnValue = {
         homeDir: '',
         downloadsDir: '',
-        isDev: is.dev,
         themeSource: currentThemeSource(),
         networkPreferences: {}
       } satisfies InitialState
@@ -163,8 +160,6 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
   })
 
   handle('startDownload', async (_event, request) => manager.start(request))
-
-  handle('startSimulatedDownload', async (_event, request) => manager.startSimulated(request))
 
   handle('getCurrentDownload', async () => manager.getCurrentDownload())
 

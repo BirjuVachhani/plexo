@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { BLOCK, expect, LAN_ADDRESS, test } from './fixtures'
 
 // A. Downloads that should simply work. Every test also runs the automatic checks in
@@ -71,6 +72,41 @@ test.describe('happy paths @smoke', () => {
     expect(served.a, 'network a carried some of the file').toBeGreaterThan(0)
     expect(served.b, 'network b carried some of the file').toBeGreaterThan(0)
     expect(attributed).toEqual(served)
+  })
+
+  test('a file with fewer blocks than streams still gives every network work', async ({
+    plexo,
+    serve
+  }) => {
+    test.skip(!LAN_ADDRESS, 'needs a LAN address to act as the second network')
+    // 7 blocks against 8 streams a network: the first network's streams used to claim every
+    // block before the second network's had started, leaving it idle for the whole download.
+    const origin = await serve({ size: 7 * BLOCK })
+    await plexo.start(origin.url(), origin.sha256, { networks: ['a', 'b'], connections: 8 })
+    const state = await plexo.waitForStatus('completed')
+    expect(new Set(origin.chunkRequests().map((request) => request.from)).size).toBe(2)
+    // A stream with no block to claim would only idle: each network gets its share of the 7.
+    for (const network of ['a', 'b']) {
+      expect(state.chunks.filter((chunk) => chunk.interfaceId === network)).toHaveLength(4)
+    }
+  })
+
+  test('a slow download fills a staging file beside the destination, reporting as it goes', async ({
+    plexo,
+    serve
+  }) => {
+    const origin = await serve({ size: 16 * BLOCK, bytesPerSecond: 200_000 })
+    const id = await plexo.start(origin.url(), origin.sha256)
+    const running = await plexo.waitUntil((state) => state.bytesDownloaded > 0)
+    expect(existsSync(`${running.destinationPath}.plexo`)).toBe(true)
+    expect(existsSync(running.destinationPath)).toBe(false)
+    await plexo.waitForStatus('completed')
+    const updates = plexo.sessions
+      .at(-1)!
+      .filter(
+        (state) => state.id === id && state.status === 'downloading' && state.bytesDownloaded > 0
+      )
+    expect(updates.length, 'progress kept coming while it downloaded').toBeGreaterThan(5)
   })
 
   test('server without range support: one stream, whole file', async ({ plexo, serve }) => {

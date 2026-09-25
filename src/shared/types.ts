@@ -116,27 +116,6 @@ export interface NetworkPreference {
 
 export type NetworkPreferences = Record<string, NetworkPreference>
 
-/** One fake network in a dev-tool "virtual download" — see SimulatedNetworkConfig callers in
- * main/download/simDownload.ts. Lets a developer exercise the multi-network UI (the block grid,
- * per-network speed/throughput, retries and errors) against a file already on disk,
- * without needing a real flaky connection or a slow remote server to test against. */
-export interface SimulatedNetworkConfig {
-  kind: NetworkInterfaceKind
-  label: string
-  /** Target sustained throughput for this simulated network, in bytes/sec. */
-  speedBytesPerSec: number
-  /** 0-100 chance a chunk attempt on this network fails outright, simulating a dropped
-   * connection — set above 0 to exercise the retry/error UI on demand. */
-  faultRatePercent: number
-}
-
-export interface StartSimulatedDownloadRequest {
-  /** Absolute path to a file already on disk — this is what gets "downloaded". */
-  sourceFilePath: string
-  destinationDir: string
-  networks: SimulatedNetworkConfig[]
-}
-
 export interface UpdateInfo {
   version: string
   /** Where clicking the notification should take the user — the landing page's downloads. */
@@ -162,8 +141,6 @@ export interface AppSettings {
 export interface InitialState {
   homeDir: string
   downloadsDir: string
-  /** True in electron-vite's dev server, false in a packaged build — gates the dev tools panel. */
-  isDev: boolean
   themeSource: ThemeSource
   networkPreferences: NetworkPreferences
   /** The last folder picked, if it still exists — otherwise the renderer uses downloadsDir. */

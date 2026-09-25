@@ -11,13 +11,11 @@ export const IpcChannels = {
   readClipboardText: 'clipboard:read-text',
   revealInFolder: 'shell:reveal-in-folder',
   startDownload: 'download:start',
-  startSimulatedDownload: 'download:start-simulated',
   getCurrentDownload: 'download:get-current',
   pauseDownload: 'download:pause',
   resumeDownload: 'download:resume',
   cancelDownload: 'download:cancel',
   removeDownload: 'download:remove',
   downloadUpdated: 'download:updated',
-  toggleDevToolsPanel: 'dev:toggle-panel',
   checkForUpdate: 'update:check'
 } as const

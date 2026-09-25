@@ -212,19 +212,6 @@ export class PlexoApp {
 
   nextDownload: Tracked | null = null
 
-  /** Starts a dev-tool simulated download of a local file (see simDownload.ts). */
-  async startSimulated(
-    request: Omit<IpcContract['startSimulatedDownload']['args'][0], 'destinationDir'>,
-    expectedSha: string,
-    options: Pick<StartOptions, 'connections'> = {}
-  ): Promise<string> {
-    await this.pinStreams(options.connections)
-    const destBefore = await readdir(this.dirs.dest)
-    const id = await this.api.startSimulatedDownload({ ...request, destinationDir: this.dirs.dest })
-    this.tracked.set(id, { expectedSha, destBefore, destinationDir: this.dirs.dest })
-    return id
-  }
-
   async current(): Promise<DownloadState | null> {
     return this.api.getCurrentDownload()
   }

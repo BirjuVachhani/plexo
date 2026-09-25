@@ -10,8 +10,7 @@ import type {
   DownloadState,
   DownloadStatus,
   NetworkInterfaceInfo,
-  StartDownloadRequest,
-  StartSimulatedDownloadRequest
+  StartDownloadRequest
 } from '../../shared/types'
 import { testKnobs, testStreamsPerNetwork } from '../testKnobs'
 import { advanceBlock, retractBlock } from './blockProgress'
@@ -29,12 +28,6 @@ import {
   StreamConnection,
   targetHost
 } from '../network/routes'
-import {
-  createSimSession,
-  downloadChunkSimulated,
-  isSimulatedUrl,
-  unregisterSimSession
-} from './simDownload'
 
 /** Why an attempt was called off by the manager rather than by a pause or a failure. */
 type AbortReason = 'refresh' | 'lost'
@@ -530,47 +523,6 @@ export class DownloadManager {
     return this.startWithInterfaces(requestPayload, interfaces)
   }
 
-  /**
-   * Dev-tool entry point: "downloads" a file that's already on disk through the exact same
-   * pipeline a real download uses — chunking, the block grid, pause/resume and retries — so
-   * every feature can be exercised on demand instead of needing
-   * a real multi-network setup and a slow, flaky remote server to provoke retries and errors.
-   * Only `chunkDownloader`'s HTTP transfer is swapped out (see simDownload.ts); everything else
-   * in DownloadManager is unaware this isn't a real network transfer.
-   */
-  async startSimulated(payload: StartSimulatedDownloadRequest): Promise<string> {
-    await this.initialization
-    if (this.hasActiveDownload()) {
-      throw new Error('A download is already in progress — finish or remove it first.')
-    }
-    if (payload.networks.length === 0) {
-      throw new Error('Select at least one simulated network')
-    }
-
-    const { url, interfaces, totalBytes } = await createSimSession(
-      payload.sourceFilePath,
-      payload.networks
-    )
-
-    const requestPayload: StartDownloadRequest = {
-      url,
-      destinationDir: payload.destinationDir,
-      suggestedFileName: basename(payload.sourceFilePath),
-      totalBytes,
-      supportsRanges: true,
-      interfaceIds: interfaces.map((iface) => iface.id),
-      etag: null,
-      lastModified: null
-    }
-
-    try {
-      return await this.startWithInterfaces(requestPayload, interfaces)
-    } catch (error) {
-      unregisterSimSession(url)
-      throw error
-    }
-  }
-
   private async startWithInterfaces(
     requestPayload: StartDownloadRequest,
     interfaces: NetworkInterfaceInfo[]
@@ -722,35 +674,27 @@ export class DownloadManager {
     const { url } = runtime.requestPayload
 
     let availableInterfaces: NetworkInterfaceInfo[]
-    if (isSimulatedUrl(url)) {
-      // Synthetic sim interfaces aren't real NICs the OS enumerates — they never "disconnect",
-      // so the ones already on the runtime are still exactly right.
-      availableInterfaces = runtime.activeInterfaces
-    } else {
-      try {
-        availableInterfaces = await this.refreshInterfaces()
-      } catch {
-        runtime.state.error = 'Could not refresh network interfaces. Try resuming again.'
-        this.pushUpdate(runtime)
-        return
-      }
+    try {
+      availableInterfaces = await this.refreshInterfaces()
+    } catch {
+      runtime.state.error = 'Could not refresh network interfaces. Try resuming again.'
+      this.pushUpdate(runtime)
+      return
     }
     if (runtime.state.status !== 'paused' && runtime.state.status !== 'error') return
 
     const selectedIds = new Set(runtime.requestPayload.interfaceIds)
     runtime.activeInterfaces = availableInterfaces.filter((iface) => selectedIds.has(iface.id))
     const selectedAvailable = runtime.activeInterfaces.length > 0
-    if (!isSimulatedUrl(url)) {
-      try {
-        runtime.activeInterfaces = compatibleInterfaces(
-          runtime.activeInterfaces,
-          await resolveTargetWithin(targetHost(new URL(url)), testKnobs.stallTimeoutMs)
-        )
-      } catch {
-        runtime.state.error = 'Could not resolve the download host. Try resuming again.'
-        this.pushUpdate(runtime)
-        return
-      }
+    try {
+      runtime.activeInterfaces = compatibleInterfaces(
+        runtime.activeInterfaces,
+        await resolveTargetWithin(targetHost(new URL(url)), testKnobs.stallTimeoutMs)
+      )
+    } catch {
+      runtime.state.error = 'Could not resolve the download host. Try resuming again.'
+      this.pushUpdate(runtime)
+      return
     }
     if (runtime.activeInterfaces.length === 0) {
       runtime.state.error = selectedAvailable
@@ -833,7 +777,6 @@ export class DownloadManager {
     this.pushUpdate(runtime, false)
     await runtime.runPromise
     await runtime.file.discard()
-    unregisterSimSession(runtime.requestPayload.url)
     await this.removePersistedDownload(runtime)
   }
 
@@ -939,7 +882,6 @@ export class DownloadManager {
       if (runtime.state.status === 'error' || runtime.state.status === 'cancelled') {
         this.pushUpdate(runtime)
         await runtime.file.discard()
-        unregisterSimSession(runtime.requestPayload.url)
       }
       return
     }
@@ -976,8 +918,6 @@ export class DownloadManager {
     runtime.publishing = false
 
     this.pushUpdate(runtime)
-    // Publication failures keep the complete partial file so Resume can try again.
-    if (runtime.state.status === 'completed') unregisterSimSession(runtime.requestPayload.url)
   }
 
   /**
@@ -1194,10 +1134,7 @@ export class DownloadManager {
       }
 
       attempt.startedAt = Date.now()
-      const runDownload = isSimulatedUrl(runtime.requestPayload.url)
-        ? downloadChunkSimulated
-        : downloadChunk
-      await runDownload({
+      await downloadChunk({
         url: runtime.requestPayload.url,
         rangeStart: block.rangeStart + attempt.startOffset,
         rangeEnd: block.rangeEnd,

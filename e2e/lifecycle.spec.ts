@@ -235,10 +235,13 @@ test.describe('cancel and remove @smoke', () => {
     const id = await plexo.start(origin.url(), origin.sha256)
     await reached
     await plexo.api.pauseDownload(id)
-    await plexo.waitForStatus('paused')
+    const paused = await plexo.waitForStatus('paused')
+    const staging = `${paused.destinationPath}.plexo`
+    expect(existsSync(staging), 'pausing keeps the staging file').toBe(true)
     origin.release()
     await plexo.api.cancelDownload(id)
     await plexo.waitForStatus('cancelled')
+    await expect.poll(() => existsSync(staging), { message: 'cancelling removes it' }).toBe(false)
   })
 
   test('remove after completion keeps the file', async ({ plexo, serve, dirs }) => {

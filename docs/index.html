@@ -661,6 +661,112 @@
       .poll-nudge .arrow {
         color: #d8a44c;
       }
+      .poll-dialog {
+        width: min(440px, calc(100% - 32px));
+        padding: 0;
+        border-radius: 16px;
+        border: 1px solid #33383c;
+        background: #1b1e20;
+        color: #eae7e2;
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+      }
+      .poll-dialog::backdrop {
+        background: rgba(10, 11, 12, 0.62);
+      }
+      .poll-dialog[open] {
+        animation: pop-in 0.22s ease-out;
+      }
+      @keyframes pop-in {
+        from {
+          opacity: 0;
+          transform: translateY(10px) scale(0.98);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .poll-dialog[open] {
+          animation: none;
+        }
+      }
+      .poll-dialog .body {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        padding: 24px;
+      }
+      .poll-dialog .top-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .poll-dialog .close {
+        margin-left: auto;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        border: 0;
+        background: #262a2d;
+        color: #a9adb2;
+        font:
+          500 18px/1 Manrope,
+          sans-serif;
+        cursor: pointer;
+      }
+      .poll-dialog .close:hover {
+        background: #2f3437;
+        color: #eae7e2;
+      }
+      .poll-dialog h2 {
+        margin: 0;
+        font:
+          800 22px/1.2 Manrope,
+          sans-serif;
+        letter-spacing: -0.02em;
+        color: #f5f2ed;
+        text-wrap: balance;
+      }
+      .poll-dialog p {
+        margin: 0;
+        font:
+          400 13.5px/1.6 Manrope,
+          sans-serif;
+        color: #a9adb2;
+        text-wrap: pretty;
+      }
+      .poll-dialog .ask {
+        font-weight: 600;
+        color: #eae7e2;
+      }
+      .poll-dialog .poll-choices button:first-child,
+      .poll-dialog .see-results {
+        background: #d8a44c;
+        border-color: #d8a44c;
+        color: #1b1405;
+      }
+      .poll-dialog .poll-choices button:first-child:hover:not(:disabled),
+      .poll-dialog .see-results:hover {
+        background: #e8bb6d;
+        border-color: #e8bb6d;
+      }
+      .poll-dialog .later {
+        align-self: center;
+        padding: 4px 8px;
+        border: 0;
+        background: none;
+        font:
+          500 12.5px/1.4 Manrope,
+          sans-serif;
+        color: #8d9196;
+        cursor: pointer;
+      }
+      .poll-dialog .later:hover {
+        color: #eae7e2;
+      }
+      .poll-dialog .error {
+        font:
+          400 11.5px/1.5 'Roboto Mono',
+          monospace;
+        color: #e0806b;
+      }
       .support {
         display: flex;
         flex-direction: column;
@@ -1197,6 +1303,45 @@
       </footer>
     </div>
 
+    <dialog class="poll-dialog" id="poll-dialog" aria-labelledby="poll-dialog-title">
+      <div class="body" id="poll-dialog-ask">
+        <div class="top-row">
+          <div class="eyebrow">QUICK POLL · 1 QUESTION</div>
+          <button type="button" class="close" data-close aria-label="Close">×</button>
+        </div>
+        <h2 id="poll-dialog-title">Help decide how Plexo is funded</h2>
+        <p>
+          Plexo is free and built by one developer. Apple and Microsoft developer licenses, and the
+          work on every release, cost money.
+        </p>
+        <p class="ask">
+          Would you be okay with small, non-intrusive ads in Plexo? No pop-ups, no video, nothing
+          that interrupts a download.
+        </p>
+        <div class="poll-choices">
+          <button type="button" data-dialog-vote="yes">Yes, that’s fine</button>
+          <button type="button" data-dialog-vote="no">No, I’d rather not</button>
+        </div>
+        <p class="error" id="poll-dialog-error" hidden>
+          Couldn’t send your vote. Check your connection and try again.
+        </p>
+        <button type="button" class="later" data-close>Not now</button>
+      </div>
+      <div class="body" id="poll-dialog-thanks" hidden>
+        <div class="top-row">
+          <div class="eyebrow">VOTE COUNTED</div>
+          <button type="button" class="close" data-close aria-label="Close">×</button>
+        </div>
+        <h2>Thanks for voting</h2>
+        <p id="poll-dialog-thanks-text"></p>
+        <div class="poll-choices">
+          <button type="button" class="see-results" id="poll-dialog-results">
+            See live results
+          </button>
+        </div>
+      </div>
+    </dialog>
+
     <script src="downloads.js"></script>
     <script src="changelog.js"></script>
     <script>
@@ -1577,23 +1722,26 @@
           paint()
         }
 
+        // Resolves true once the vote is counted, false if it couldn't be sent.
         function vote(v) {
           Array.prototype.forEach.call(choices, function (b) {
             b.disabled = true
           })
           live(true, 'Sending your vote…')
-          counter('hit', KEYS[v])
+          return counter('hit', KEYS[v])
             .then(function (n) {
               counts[v] = Math.max(n, counts[v] + 1)
               remember(v)
               showVoted(v)
-              return refresh()
+              refresh()
+              return true
             })
             .catch(function () {
               Array.prototype.forEach.call(choices, function (b) {
                 b.disabled = false
               })
               live(false, 'Couldn’t send your vote — check your connection and try again.')
+              return false
             })
         }
 
@@ -1624,6 +1772,74 @@
             }
           )
         })
+
+        // First visit only: ask in a popup a few seconds in, once. Closing it counts as asked.
+        var dialog = document.getElementById('poll-dialog')
+        var PROMPTED = 'plexo-ads-poll-prompted'
+        var PROMPT_DELAY_MS = 4000
+
+        function prompted() {
+          try {
+            return localStorage.getItem(PROMPTED) === '1'
+          } catch (e) {
+            // Can't remember that we asked, so don't ask at all rather than on every visit.
+            return true
+          }
+        }
+
+        function closeDialog() {
+          if (dialog.open) dialog.close()
+        }
+
+        Array.prototype.forEach.call(dialog.querySelectorAll('[data-close]'), function (b) {
+          b.addEventListener('click', closeDialog)
+        })
+        dialog.addEventListener('click', function (e) {
+          // A click on the backdrop lands on the dialog element itself.
+          if (e.target === dialog) closeDialog()
+        })
+        var dialogChoices = dialog.querySelectorAll('[data-dialog-vote]')
+        Array.prototype.forEach.call(dialogChoices, function (b) {
+          b.addEventListener('click', function () {
+            var v = b.getAttribute('data-dialog-vote')
+            Array.prototype.forEach.call(dialogChoices, function (c) {
+              c.disabled = true
+            })
+            document.getElementById('poll-dialog-error').hidden = true
+            vote(v).then(function (ok) {
+              Array.prototype.forEach.call(dialogChoices, function (c) {
+                c.disabled = false
+              })
+              if (!ok) {
+                document.getElementById('poll-dialog-error').hidden = false
+                return
+              }
+              document.getElementById('poll-dialog-ask').hidden = true
+              document.getElementById('poll-dialog-thanks').hidden = false
+              document.getElementById('poll-dialog-thanks-text').textContent =
+                v === 'no'
+                  ? 'Fair enough, thanks for saying so. There are other ways to help, like sponsoring or starring the repo, right next to the results.'
+                  : 'That helps a lot. The live results, and other ways to help, are on this page.'
+            })
+          })
+        })
+        document.getElementById('poll-dialog-results').addEventListener('click', function () {
+          closeDialog()
+          document.getElementById('support').scrollIntoView({ behavior: 'smooth' })
+        })
+
+        if (!stored() && !prompted() && typeof dialog.showModal === 'function') {
+          setTimeout(function () {
+            // Not if they voted meanwhile, or are already looking at the poll.
+            if (stored() || location.hash === '#support') return
+            try {
+              localStorage.setItem(PROMPTED, '1')
+            } catch (e) {
+              return
+            }
+            dialog.showModal()
+          }, PROMPT_DELAY_MS)
+        }
 
         if (stored()) showVoted(stored())
         refresh()

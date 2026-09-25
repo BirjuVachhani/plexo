@@ -5,11 +5,9 @@ import { describeError, toDisplayPath } from '../utils/format'
 import { TruncatedText } from './TruncatedText'
 import { Button } from './ui/button'
 import { Dialog, DialogClose, DialogContent, DialogTitle } from './ui/dialog'
-import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 
 const KIND_OPTIONS: NetworkInterfaceKind[] = ['wifi', 'usb', 'ethernet', 'bridge', 'other']
-const PRESET_CONNECTIONS = [1, 2, 4, 8] as const
 const MAX_SIM_NETWORKS = 4
 const MBPS_TO_BYTES_PER_SEC = (1024 * 1024) / 8
 
@@ -56,7 +54,6 @@ export function DevToolsPanel(): React.JSX.Element | null {
   const [sourceFilePath, setSourceFilePath] = useState<string | null>(null)
   const [destinationDir, setDestinationDir] = useState('')
   const [networks, setNetworks] = useState<SimNetworkDraft[]>(DEFAULT_NETWORKS)
-  const [connectionsPerNetwork, setConnectionsPerNetwork] = useState(2)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -113,9 +110,7 @@ export function DevToolsPanel(): React.JSX.Element | null {
       await window.plexo.startSimulatedDownload({
         sourceFilePath,
         destinationDir: effectiveDestinationDir,
-        networks: simulatedNetworks,
-        chunkCount: networks.length * connectionsPerNetwork,
-        connectionsPerNetwork
+        networks: simulatedNetworks
       })
       setOpen(false)
     } catch (err) {
@@ -296,29 +291,6 @@ export function DevToolsPanel(): React.JSX.Element | null {
               </div>
             </div>
           ))}
-        </div>
-
-        <div className="flex flex-col gap-[5px]">
-          <div id="devtools-connections-label" className={fieldLabelClass}>
-            CONNECTIONS PER NETWORK
-          </div>
-          <ToggleGroup
-            value={[String(connectionsPerNetwork)]}
-            onValueChange={(values) => {
-              if (values.length === 0) return
-              setConnectionsPerNetwork(Number(values[0]))
-            }}
-            aria-labelledby="devtools-connections-label"
-            variant="pill"
-            size="xs"
-            spacing={1}
-          >
-            {PRESET_CONNECTIONS.map((preset) => (
-              <ToggleGroupItem key={preset} value={String(preset)}>
-                {preset}×
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
         </div>
 
         {error && (

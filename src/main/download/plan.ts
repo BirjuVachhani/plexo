@@ -1,6 +1,6 @@
-// How a download is cut into blocks and how many streams work on them. Pure, and shared, so the
-// main process (which does the cutting) and the start screen (which previews the stream count)
-// cannot disagree about it.
+// How a download is cut into blocks and how many streams start on them. Pure, so every rule here
+// can be checked against exact situations. How many streams a network ends up with is decided
+// while the download runs (see concurrency.ts); the plan only has to leave them enough blocks.
 
 const MIB = 1024 * 1024
 
@@ -15,17 +15,18 @@ export const MIN_BLOCK_BYTES = MIB
  * blocks grow instead of multiplying. */
 export const MAX_BLOCKS = 4096
 
-export const MAX_STREAMS_PER_NETWORK = 8
-export const MAX_STREAMS = 32
-/** The per-network stream counts offered in the UI. */
-export const PRESET_STREAMS = [1, 2, 4, 8] as const
+/** Streams each network starts with. Servers are built for browsers, which open about six
+ * connections to a host, so four troubles none of them. */
+export const START_STREAMS_PER_NETWORK = 4
 
-/** Blocks planned per stream, at least. Streams pull blocks as they free up, so a fast network
- * takes more of them — but only if there are more blocks than streams to begin with. With one
+/** The most streams a network can grow to. A safety net for noisy speed readings rather than
+ * the real limit, which is whether another stream still helps (see concurrency.ts). */
+export const MAX_STREAMS_PER_NETWORK = 16
+
+/** Blocks planned per stream a network could grow to. Streams pull blocks as they free up, so a
+ * fast network takes more of them — but only if there are more blocks than streams. With one
  * block each, a stream on a slow network would hold its block while the rest sat idle. */
 const BLOCKS_PER_STREAM = 2
-/** …and never fewer than this many per network, whatever the stream count. */
-const MIN_BLOCKS_PER_NETWORK = 4
 
 export interface DownloadPlan {
   /** Bytes per block; the last block holds the remainder. */
@@ -42,8 +43,8 @@ export interface PlanRequest {
   /** false when the server can't serve byte ranges. */
   splittable: boolean
   networkCount: number
-  /** Streams wanted on each network. */
-  streamsPerNetwork: number
+  /** Streams to start on each network; START_STREAMS_PER_NETWORK unless a test pins it. */
+  streamsPerNetwork?: number
   maxBlockBytes?: number
 }
 
@@ -79,10 +80,13 @@ export function planDownload(request: PlanRequest): DownloadPlan {
   }
 
   const maxBlockBytes = request.maxBlockBytes ?? DEFAULT_MAX_BLOCK_BYTES
-  const requested = clamp(Math.floor(request.streamsPerNetwork), 1, MAX_STREAMS_PER_NETWORK)
+  const requested = clamp(
+    Math.floor(request.streamsPerNetwork ?? START_STREAMS_PER_NETWORK),
+    1,
+    MAX_STREAMS_PER_NETWORK
+  )
 
-  const targetBlocks =
-    networkCount * Math.max(MIN_BLOCKS_PER_NETWORK, requested * BLOCKS_PER_STREAM)
+  const targetBlocks = networkCount * MAX_STREAMS_PER_NETWORK * BLOCKS_PER_STREAM
   const blockSizeBytes = Math.max(
     clamp(
       Math.ceil(totalBytes / targetBlocks),
@@ -99,7 +103,7 @@ export function planDownload(request: PlanRequest): DownloadPlan {
   const streamNetworks = interleave(
     Array.from({ length: networkCount * perNetwork }, (_, i) => Math.floor(i / perNetwork)),
     (network) => network
-  ).slice(0, MAX_STREAMS)
+  )
 
   return { blockSizeBytes, blockCount, streamNetworks }
 }

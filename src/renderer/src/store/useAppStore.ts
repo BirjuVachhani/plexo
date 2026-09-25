@@ -29,7 +29,6 @@ interface AppStore {
 
   /** Persisted in the main process alongside nativeTheme.themeSource. */
   themeSource: ThemeSource
-  streamsPerNetwork: number
 
   /** Null until the one-time startup check resolves, or if it found nothing worth showing
    * (already up to date, already dismissed, or the check failed). */
@@ -59,7 +58,6 @@ interface AppStore {
   refreshLatencies: () => Promise<void>
   setNetworkPreference: (id: string, patch: NetworkPreference) => void
   setThemeSource: (source: ThemeSource) => void
-  setStreamsPerNetwork: (streamsPerNetwork: number) => void
   checkForUpdate: () => Promise<void>
   dismissUpdate: () => void
   setCurrentDownload: (state: DownloadState) => void
@@ -85,7 +83,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
   latencies: {},
   networkPreferences: initial.networkPreferences,
   themeSource: initial.themeSource,
-  streamsPerNetwork: initial.streamsPerNetwork ?? 2,
   availableUpdate: null,
 
   homeDir: initial.homeDir,
@@ -139,11 +136,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setThemeSource: (themeSource) => {
     set({ themeSource })
     persist({ themeSource })
-  },
-
-  setStreamsPerNetwork: (streamsPerNetwork) => {
-    set({ streamsPerNetwork })
-    persist({ streamsPerNetwork })
   },
 
   checkForUpdate: async () => {

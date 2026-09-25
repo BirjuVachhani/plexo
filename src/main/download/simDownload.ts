@@ -18,6 +18,9 @@ interface SimSession {
   sourcePath: string
   /** Keyed by the synthetic NetworkInterfaceInfo.id assigned to each simulated network. */
   networks: Map<string, SimulatedNetworkConfig>
+  /** When each network is next free to deliver, by the same id. A network's speed is shared by
+   * all of its streams, as a real link's is: a stream more doesn't make it any faster. */
+  busyUntil: Map<string, number>
 }
 
 const sessions = new Map<string, SimSession>()
@@ -30,7 +33,7 @@ function registerSimSession(
   networks: Map<string, SimulatedNetworkConfig>
 ): string {
   const token = randomUUID()
-  sessions.set(token, { sourcePath, networks })
+  sessions.set(token, { sourcePath, networks, busyUntil: new Map() })
   return token
 }
 
@@ -137,7 +140,12 @@ export function downloadChunkSimulated(options: ChunkDownloadOptions): Promise<v
       // real: a real download is limited by the network, so the block grid and speed readout
       // should move at a rate this slow, not spike and then sit idle.
       input.pause()
-      const delayMs = Math.max(1, (buffer.length / speedBytesPerSec) * 1000)
+      const now = Date.now()
+      const deliveredAt =
+        Math.max(now, session.busyUntil.get(connection.iface.id) ?? 0) +
+        (buffer.length / speedBytesPerSec) * 1000
+      session.busyUntil.set(connection.iface.id, deliveredAt)
+      const delayMs = Math.max(1, deliveredAt - now)
       setTimeout(() => {
         if (settled) return
         bytesWritten += buffer.length

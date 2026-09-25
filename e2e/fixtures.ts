@@ -47,7 +47,8 @@ type Api = {
 
 interface StartOptions {
   networks?: string[]
-  connections?: number
+  /** Streams per network, fixed so a test can count requests; 'auto' lets the app decide. */
+  connections?: number | 'auto'
   fileName?: string
   destinationDir?: string
 }
@@ -94,6 +95,8 @@ export class PlexoApp {
             PLEXO_E2E_STALL_MS: '1500',
             // Off unless a test asks for it: a hedge is an extra request, and most tests count them.
             PLEXO_E2E_HEDGE_MS: '600000',
+            // Fixed for the same reason, and for downloads started through the UI.
+            PLEXO_E2E_STREAMS: '2',
             PLEXO_E2E_INTERFACES: interfacesEnv(NETWORKS),
             ...this.extraEnv
           }
@@ -162,8 +165,20 @@ export class PlexoApp {
     return this.electronApp.evaluate(fn as never, arg) as Promise<R>
   }
 
+  /** Sets how many streams the next download runs per network (see StartOptions). */
+  private async pinStreams(connections: number | 'auto' = 2): Promise<void> {
+    await this.evaluateMain(
+      (_electron, value) => {
+        if (value === null) delete process.env.PLEXO_E2E_STREAMS
+        else process.env.PLEXO_E2E_STREAMS = value
+      },
+      connections === 'auto' ? null : String(connections)
+    )
+  }
+
   /** Probes and starts `url` exactly the way IdleScreen's Start button does. */
   async start(url: string, expectedSha: string, options: StartOptions = {}): Promise<string> {
+    await this.pinStreams(options.connections)
     await this.api.listInterfaces()
     const probe = await this.api.probeUrl(url)
     const multiChunk = probe.supportsRanges && probe.totalBytes !== null
@@ -178,8 +193,6 @@ export class PlexoApp {
       totalBytes: probe.totalBytes ?? 0,
       supportsRanges: multiChunk,
       interfaceIds: multiChunk ? networks : networks.slice(0, 1),
-      chunkCount: multiChunk ? networks.length * (options.connections ?? 2) : 1,
-      connectionsPerNetwork: multiChunk ? (options.connections ?? 2) : 1,
       etag: probe.etag,
       lastModified: probe.lastModified
     })
@@ -202,8 +215,10 @@ export class PlexoApp {
   /** Starts a dev-tool simulated download of a local file (see simDownload.ts). */
   async startSimulated(
     request: Omit<IpcContract['startSimulatedDownload']['args'][0], 'destinationDir'>,
-    expectedSha: string
+    expectedSha: string,
+    options: Pick<StartOptions, 'connections'> = {}
   ): Promise<string> {
+    await this.pinStreams(options.connections)
     const destBefore = await readdir(this.dirs.dest)
     const id = await this.api.startSimulatedDownload({ ...request, destinationDir: this.dirs.dest })
     this.tracked.set(id, { expectedSha, destBefore, destinationDir: this.dirs.dest })

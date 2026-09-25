@@ -33,9 +33,7 @@ test.describe('simulated downloads @smoke', () => {
     await plexo.startSimulated(
       {
         sourceFilePath: source.path,
-        networks: [network('one', 30), network('two', 30), network('three', 30)],
-        chunkCount: 6,
-        connectionsPerNetwork: 2
+        networks: [network('one', 30), network('two', 30), network('three', 30)]
       },
       source.sha
     )
@@ -55,11 +53,10 @@ test.describe('simulated downloads @smoke', () => {
     await plexo.startSimulated(
       {
         sourceFilePath: path,
-        networks: [network('one'), network('two')],
-        chunkCount: 16,
-        connectionsPerNetwork: 8
+        networks: [network('one'), network('two')]
       },
-      sha256(bytes)
+      sha256(bytes),
+      { connections: 8 }
     )
     const state = await plexo.waitForStatus('completed')
 
@@ -87,9 +84,7 @@ test.describe('simulated downloads @smoke', () => {
     const id = await plexo.startSimulated(
       {
         sourceFilePath: source.path,
-        networks: [{ ...network('one'), speedBytesPerSec: 200_000 }],
-        chunkCount: 2,
-        connectionsPerNetwork: 2
+        networks: [{ ...network('one'), speedBytesPerSec: 200_000 }]
       },
       source.sha
     )
@@ -116,9 +111,7 @@ test.describe('simulated downloads @smoke', () => {
     const id = await plexo.startSimulated(
       {
         sourceFilePath: source.path,
-        networks: [{ ...network('one'), speedBytesPerSec: 200_000 }],
-        chunkCount: 2,
-        connectionsPerNetwork: 2
+        networks: [{ ...network('one'), speedBytesPerSec: 200_000 }]
       },
       source.sha
     )
@@ -148,9 +141,7 @@ test.describe('a slow simulated network', () => {
         networks: [
           { kind: 'usb', label: 'slow', speedBytesPerSec: 10_000, faultRatePercent: 0 },
           network('fast')
-        ],
-        chunkCount: 4,
-        connectionsPerNetwork: 2
+        ]
       },
       source.sha
     )

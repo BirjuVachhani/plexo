@@ -116,7 +116,6 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Down
         isDev: is.dev,
         themeSource: currentThemeSource(),
         networkPreferences: settings.networkPreferences ?? {},
-        streamsPerNetwork: settings.streamsPerNetwork,
         destinationDir: destinationExists ? destinationDir : undefined
       } satisfies InitialState
     } catch (error) {

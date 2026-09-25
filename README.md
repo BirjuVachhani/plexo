@@ -67,7 +67,7 @@ File ──→ Split ─────┤                                  ├─�
 
 ## Features
 
-- 🚀 **Multi-interface, multi-connection downloads** — splits files into chunks of up to 8 MB and fans them out across worker connections bound to specific network interfaces (up to 8 parallel connections per interface, 32 total).
+- 🚀 **Multi-interface, multi-connection downloads** — splits files into chunks of up to 8 MB and fans them out across worker connections bound to specific network interfaces, each kept open from one chunk to the next. How many connections each interface gets is worked out while downloading: as many as keep making it faster, up to 16.
 - 🔌 **Hardware interface detection** — queries Windows adapters via PowerShell `Get-NetAdapter` and macOS hardware ports via `networksetup` so Wi-Fi, Ethernet, tethered iPhones, and Thunderbolt bridges are labeled by real device names instead of bare BSD names (`en0`, `en6`).
 - ⚖️ **Dynamic work-stealing queue** — chunks are leased from a shared pending queue; faster networks pull more chunks instead of waiting for slower connections to finish.
 - ⏸️ **Resumable downloads** — cleanly pause and resume downloads with progress saved in a destination-side staging file.
@@ -140,7 +140,8 @@ Instead, Plexo uses a **dynamic work-stealing queue**:
 
 1. The file is split into **chunks of up to 8 MB** (smaller for small files, so every network gets a share).
 2. All chunks enter a centralized pending queue.
-3. A pool of worker connections (up to 8 per interface, 32 total, never more than there are chunks to work on) continuously lease the next chunk from the queue as soon as they become free. Connections start interleaved across networks, so each network is served before any is served twice.
+3. A pool of worker connections continuously lease the next chunk from the queue as soon as they become free. Each keeps its one connection to the server from chunk to chunk, so it pays for the handshake and TCP's slow start once, not per chunk. Connections start interleaved across networks, so each network is served before any is served twice.
+   - **How many.** Each network starts with 4. More help only when something limits each connection on its own (a server capping per-connection speed, or a long, lossy route), not once the network itself is full, so Plexo measures instead of guessing: it doubles one network's connections and keeps them only if the whole download got at least 15% of that network's speed faster. Otherwise they finish their chunk and close. So do extra connections the server turns away. Up to 16 per network, and never more than there are chunks for.
 4. Faster interfaces finish chunks quicker and immediately pick up new ones; slower interfaces pull fewer chunks.
 5. **Racing the tail.** Once no chunk is left waiting, a free connection can start a second attempt at a chunk another connection is fetching too slowly (one that still needs as long again as it has already taken, at least 5 seconds), picking up from where the first had got to. Whichever finishes first wins and the other is dropped. It costs a few bytes fetched twice at the very end, and it means one slow connection — or one slow network — can no longer hold the whole download back. A stream doing this is marked **BACKUP** in the streams table.
 

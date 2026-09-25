@@ -135,8 +135,6 @@ export interface StartSimulatedDownloadRequest {
   sourceFilePath: string
   destinationDir: string
   networks: SimulatedNetworkConfig[]
-  chunkCount: number
-  connectionsPerNetwork?: number
 }
 
 export interface UpdateInfo {
@@ -153,7 +151,6 @@ export interface UpdateInfo {
 export interface AppSettings {
   themeSource?: ThemeSource
   dismissedUpdateVersion?: string
-  streamsPerNetwork?: number
   /** The last destination folder picked. */
   destinationDir?: string
   /** User customizations (name/color) per network interface id. */
@@ -169,7 +166,6 @@ export interface InitialState {
   isDev: boolean
   themeSource: ThemeSource
   networkPreferences: NetworkPreferences
-  streamsPerNetwork?: number
   /** The last folder picked, if it still exists — otherwise the renderer uses downloadsDir. */
   destinationDir?: string
 }
@@ -182,10 +178,6 @@ export interface StartDownloadRequest {
   totalBytes: number
   supportsRanges: boolean
   interfaceIds: string[]
-  /** Total chunks to split the download into across interfaceIds. */
-  chunkCount: number
-  /** Number of parallel connections allocated per physical network. */
-  connectionsPerNetwork?: number
   etag: string | null
   lastModified: string | null
 }

@@ -4,11 +4,11 @@ import {
   DEFAULT_MAX_BLOCK_BYTES,
   interleave,
   MAX_BLOCKS,
-  MAX_STREAMS,
   MAX_STREAMS_PER_NETWORK,
   MIN_BLOCK_BYTES,
-  planDownload
-} from '../src/shared/plan'
+  planDownload,
+  START_STREAMS_PER_NETWORK
+} from '../src/main/download/plan'
 
 // I. How a download is cut into blocks and streams. Pure, so it's checked over the whole input
 // space instead of hand-picked sizes.
@@ -19,7 +19,7 @@ const splittable = fc.record({
   totalBytes: fc.integer({ min: 1, max: 2 ** 42 }),
   splittable: fc.constant(true),
   networkCount: fc.integer({ min: 1, max: 6 }),
-  streamsPerNetwork: fc.integer({ min: 1, max: 12 })
+  streamsPerNetwork: fc.option(fc.integer({ min: 1, max: 20 }), { nil: undefined })
 })
 
 test.describe('download plan', () => {
@@ -48,9 +48,8 @@ test.describe('download plan', () => {
           perNetwork.set(network, (perNetwork.get(network) ?? 0) + 1)
         }
         expect(perNetwork.size).toBe(request.networkCount)
-        expect(streamNetworks.length).toBeLessThanOrEqual(MAX_STREAMS)
         for (const count of perNetwork.values()) {
-          expect(count).toBeLessThanOrEqual(request.streamsPerNetwork)
+          expect(count).toBeLessThanOrEqual(request.streamsPerNetwork ?? START_STREAMS_PER_NETWORK)
           expect(count).toBeLessThanOrEqual(MAX_STREAMS_PER_NETWORK)
           // Streams beyond the block count would idle — except the one each network keeps.
           expect(count).toBeLessThanOrEqual(
@@ -96,21 +95,22 @@ test.describe('download plan', () => {
   })
 
   test('a large file keeps 8 MB blocks', () => {
-    const plan = planDownload({
-      totalBytes: 4 * 1024 * MIB,
-      splittable: true,
-      networkCount: 2,
-      streamsPerNetwork: 4
-    })
+    const plan = planDownload({ totalBytes: 4 * 1024 * MIB, splittable: true, networkCount: 2 })
     expect(plan.blockSizeBytes).toBe(DEFAULT_MAX_BLOCK_BYTES)
+  })
+
+  test('each network starts with four streams, with blocks enough to grow to its limit', () => {
+    const plan = planDownload({ totalBytes: 512 * MIB, splittable: true, networkCount: 2 })
+    expect(plan.streamNetworks).toEqual([0, 1, 0, 1, 0, 1, 0, 1])
+    // Streams added later need waiting blocks to take: two each, at the most every network can have.
+    expect(plan.blockCount).toBeGreaterThanOrEqual(2 * MAX_STREAMS_PER_NETWORK * 2)
   })
 
   test('a mid-size file is cut so a fast network can out-pull a slow one', () => {
     const plan = planDownload({
       totalBytes: 12 * MIB,
       splittable: true,
-      networkCount: 2,
-      streamsPerNetwork: 2
+      networkCount: 2
     })
     // Two 8 MB-ish blocks would pin a third of the file to whichever network is slower.
     expect(plan.blockCount).toBeGreaterThanOrEqual(8)

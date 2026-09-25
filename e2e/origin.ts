@@ -64,6 +64,8 @@ export interface OriginOptions {
   contentDisposition?: string
   /** Per-response speed limit, so a download lasts long enough to be interrupted. */
   bytesPerSecond?: number
+  /** A speed limit every response shares, as on a full link: another connection gets nothing. */
+  sharedBytesPerSecond?: number
 }
 
 /** Deterministic bytes, so a failing seed reproduces the exact same file. */
@@ -109,6 +111,8 @@ export class Origin {
   private sockets = new Set<Socket>()
   private connectionIds = new WeakMap<Socket, number>()
   private connections = 0
+  /** When the shared limit next has room (see sharedBytesPerSecond). */
+  private sharedBusyUntil = 0
   private server = createServer((req, res) => void this.handle(req, res))
   private port = 0
 
@@ -314,6 +318,12 @@ export class Origin {
       }
       if (rate) {
         await new Promise((resolve) => setTimeout(resolve, (piece.length / rate) * 1000))
+      }
+      const shared = this.options.sharedBytesPerSecond
+      if (shared) {
+        const now = Date.now()
+        this.sharedBusyUntil = Math.max(now, this.sharedBusyUntil) + (piece.length / shared) * 1000
+        await new Promise((resolve) => setTimeout(resolve, this.sharedBusyUntil - now))
       }
     }
 

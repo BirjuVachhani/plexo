@@ -1,4 +1,4 @@
-import { createReadStream, createWriteStream } from 'node:fs'
+import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import type { NetworkInterfaceInfo, SimulatedNetworkConfig } from '../../shared/types'
@@ -18,22 +18,19 @@ interface SimSession {
   sourcePath: string
   /** Keyed by the synthetic NetworkInterfaceInfo.id assigned to each simulated network. */
   networks: Map<string, SimulatedNetworkConfig>
-  /** bytes/sec to throttle reassembly to, or null to assemble at full disk speed. */
-  assembleSpeedBytesPerSec: number | null
 }
 
 const sessions = new Map<string, SimSession>()
 
 /** Registers one dev-tool "virtual download" run and returns the `plexo-sim://<token>` url to
  * use as its `StartDownloadRequest.url` — everything downstream (blocks, chunks, persistence,
- * the assembling phase) is unaware this isn't a real network transfer. */
+ * storage) is unaware this isn't a real network transfer. */
 function registerSimSession(
   sourcePath: string,
-  networks: Map<string, SimulatedNetworkConfig>,
-  assembleSpeedBytesPerSec: number | null
+  networks: Map<string, SimulatedNetworkConfig>
 ): string {
   const token = randomUUID()
-  sessions.set(token, { sourcePath, networks, assembleSpeedBytesPerSec })
+  sessions.set(token, { sourcePath, networks })
   return token
 }
 
@@ -42,20 +39,11 @@ export function unregisterSimSession(url: string): void {
   sessions.delete(url.slice(SIM_URL_PREFIX.length))
 }
 
-/** How slowly `DownloadManager.reassemble()` should stitch this simulated download's part
- * files together, or null when it isn't simulated (or wasn't given an assemble speed) and
- * should run at full disk speed as usual. */
-export function getSimAssembleSpeed(url: string): number | null {
-  if (!isSimulatedUrl(url)) return null
-  return sessions.get(url.slice(SIM_URL_PREFIX.length))?.assembleSpeedBytesPerSec ?? null
-}
-
 /** Builds the synthetic interfaces + registers the sim session a `StartDownloadRequest` needs
  * to drive a simulated download through the normal `DownloadManager.start()` path. */
 export async function createSimSession(
   sourceFilePath: string,
-  networkConfigs: SimulatedNetworkConfig[],
-  assembleSpeedBytesPerSec: number | null
+  networkConfigs: SimulatedNetworkConfig[]
 ): Promise<{ url: string; interfaces: NetworkInterfaceInfo[]; totalBytes: number }> {
   const fileStat = await stat(sourceFilePath)
   const networks = new Map<string, SimulatedNetworkConfig>()
@@ -71,21 +59,29 @@ export async function createSimSession(
     }
   })
 
-  const token = registerSimSession(sourceFilePath, networks, assembleSpeedBytesPerSec)
+  const token = registerSimSession(sourceFilePath, networks)
   return { url: `${SIM_URL_PREFIX}${token}`, interfaces, totalBytes: fileStat.size }
 }
 
 const DEFAULT_SPEED_BYTES_PER_SEC = 3 * 1024 * 1024
 
 /** Local-file stand-in for `downloadChunk()` — same contract (resolves only once the exact
- * byte range is written to `destinationPath`, honors `signal`, calls `onProgress` with
+ * byte range is written to the supplied writer, honors `signal`, calls `onProgress` with
  * cumulative bytes) so `DownloadManager` can swap one for the other without knowing which one
  * it's running. Reads the requested range off disk instead of over HTTP, throttled to the
  * simulated network's configured speed so the UI has something real to show — a chunk grid or
  * speed readout that jumped from 0 to 100% instantly would defeat the point of simulating it. */
 export function downloadChunkSimulated(options: ChunkDownloadOptions): Promise<void> {
-  const { url, rangeStart, rangeEnd, interfaceInfo, destinationPath, append, onProgress, signal } =
-    options
+  const {
+    url,
+    rangeStart,
+    rangeEnd,
+    interfaceInfo,
+    createDestination,
+    onNetworkProgress,
+    onProgress,
+    signal
+  } = options
 
   return new Promise((resolve, reject) => {
     if (signal.aborted) {
@@ -111,7 +107,7 @@ export function downloadChunkSimulated(options: ChunkDownloadOptions): Promise<v
       start: rangeStart,
       end: rangeEnd ?? undefined
     })
-    const output = createWriteStream(destinationPath, { flags: append ? 'a' : 'w' })
+    const output = createDestination()
 
     let bytesWritten = 0
     let settled = false
@@ -144,10 +140,16 @@ export function downloadChunkSimulated(options: ChunkDownloadOptions): Promise<v
       const delayMs = Math.max(1, (buffer.length / speedBytesPerSec) * 1000)
       setTimeout(() => {
         if (settled) return
-        output.write(buffer)
         bytesWritten += buffer.length
-        onProgress(bytesWritten)
-        input.resume()
+        const progress = bytesWritten
+        onNetworkProgress(progress)
+        output.write(buffer, (error) => {
+          if (error) fail(error)
+          else if (!settled) {
+            onProgress(progress)
+            input.resume()
+          }
+        })
       }, delayMs)
     })
 

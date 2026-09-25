@@ -223,7 +223,7 @@ export class PlexoApp {
   }
 
   /** Waits until the download state matches `predicate`. A timeout says what the state was
-   * instead, so a hang reads as "stuck in assembling", not as a bare assertion mismatch. */
+   * instead, so a hang shows the last progress and state. */
   async waitUntil(
     predicate: (state: DownloadState) => boolean,
     timeout = 20_000
@@ -251,9 +251,8 @@ export class PlexoApp {
 // --- invariants --------------------------------------------------------------------------------
 
 const ALLOWED_NEXT: Record<DownloadStatus, DownloadStatus[]> = {
-  downloading: ['downloading', 'paused', 'assembling', 'error', 'cancelled'],
+  downloading: ['downloading', 'paused', 'completed', 'error', 'cancelled'],
   paused: ['paused', 'downloading', 'error', 'cancelled'],
-  assembling: ['assembling', 'completed', 'error'],
   completed: ['completed'],
   error: ['error'],
   cancelled: ['cancelled']
@@ -367,9 +366,9 @@ export async function checkFinalState(app: PlexoApp): Promise<void> {
     expectedAdded
   )
 
-  const partsDir = join(app.dirs.userData, 'downloads', state.id, 'parts')
+  const stagingPath = `${state.destinationPath}.plexo`
   await expect
-    .poll(() => existsSync(partsDir), { message: 'part files cleaned up', timeout: 5000 })
+    .poll(() => existsSync(stagingPath), { message: 'staging file cleaned up', timeout: 5000 })
     .toBe(false)
 
   const pid = app.electronApp.process().pid

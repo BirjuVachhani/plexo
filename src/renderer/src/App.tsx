@@ -41,11 +41,6 @@ function renderDownload(
           networkCount: new Set(download.chunks.map((chunk) => chunk.interfaceId)).size
         }
       }
-    case 'assembling':
-      return {
-        screen: <DownloadingScreen download={download} />,
-        titleBarStatus: { kind: 'assembling' }
-      }
     case 'completed':
       return {
         screen: <CompleteScreen download={download} onNewDownload={handlers.onNewDownload} />,

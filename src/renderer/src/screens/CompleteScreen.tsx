@@ -46,9 +46,7 @@ export function CompleteScreen({
   )
   const totalWeight = groups.reduce((sum, group) => sum + group.bytesDownloaded, 0) || 1
   const totalRetries = download.chunks.reduce((sum, chunk) => sum + chunk.retryCount, 0)
-  // What actually got stitched together at reassembly time is the block count, not the number of
-  // parallel connections — "chunks" in this app's own vocabulary (see BlockGrid) means the byte
-  // range unit, so this footer's number needs to match that, not `download.chunks.length`.
+  // "Chunks" in the block grid means byte ranges, not parallel connections.
   const totalChunkCount = download.totalBlocks ?? download.blocks?.length ?? 1
 
   const handleReveal = (): void => void window.plexo.revealInFolder(download.destinationPath)
@@ -161,7 +159,7 @@ export function CompleteScreen({
 
       <ScreenFooter>
         <div className="shrink-0 font-mono text-[11px] leading-[1.4] whitespace-nowrap text-muted-foreground">
-          {`reassembled from ${totalChunkCount} chunks · ${totalRetries} ${
+          {`written in ${totalChunkCount} chunks · ${totalRetries} ${
             totalRetries === 1 ? 'retry' : 'retries'
           }`}
         </div>

@@ -12,8 +12,6 @@ const KIND_OPTIONS: NetworkInterfaceKind[] = ['wifi', 'usb', 'ethernet', 'bridge
 const PRESET_CONNECTIONS = [1, 2, 4, 8] as const
 const MAX_SIM_NETWORKS = 4
 const MBPS_TO_BYTES_PER_SEC = (1024 * 1024) / 8
-const MB_TO_BYTES_PER_SEC = 1024 * 1024
-const DEFAULT_ASSEMBLE_SPEED_MBPS = 6
 
 interface SimNetworkDraft {
   key: number
@@ -44,7 +42,7 @@ const draftBoxClass =
 
 /**
  * Dev-only panel that exercises the whole download pipeline against a file already on disk —
- * chunking across fake networks, the block grid, retries/errors, pause/resume, assembling,
+ * chunking across fake networks, the block grid, retries/errors and pause/resume,
  * completion — without needing a real multi-network setup or a slow, flaky server to provoke
  * the states that are otherwise hard to reproduce on demand. Only rendered when
  * `useAppStore.isDev` is true (see App.tsx), so it never reaches a packaged build's UI.
@@ -59,8 +57,6 @@ export function DevToolsPanel(): React.JSX.Element | null {
   const [destinationDir, setDestinationDir] = useState('')
   const [networks, setNetworks] = useState<SimNetworkDraft[]>(DEFAULT_NETWORKS)
   const [connectionsPerNetwork, setConnectionsPerNetwork] = useState(2)
-  const [slowAssemble, setSlowAssemble] = useState(true)
-  const [assembleSpeedMBps, setAssembleSpeedMBps] = useState(DEFAULT_ASSEMBLE_SPEED_MBPS)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -119,10 +115,7 @@ export function DevToolsPanel(): React.JSX.Element | null {
         destinationDir: effectiveDestinationDir,
         networks: simulatedNetworks,
         chunkCount: networks.length * connectionsPerNetwork,
-        connectionsPerNetwork,
-        assembleSpeedBytesPerSec: slowAssemble
-          ? Math.max(1, Math.round(assembleSpeedMBps * MB_TO_BYTES_PER_SEC))
-          : undefined
+        connectionsPerNetwork
       })
       setOpen(false)
     } catch (err) {
@@ -160,7 +153,7 @@ export function DevToolsPanel(): React.JSX.Element | null {
         </div>
         <div className="font-sans text-[11.5px] leading-[1.4] text-muted-foreground">
           Pick a file already on disk to “download” it through the real pipeline — chunking, the
-          block grid, pause/resume, retries, assembling — against fake networks you control.
+          block grid, pause/resume and retries — against fake networks you control.
         </div>
 
         <div className="flex flex-col gap-[5px]">
@@ -326,36 +319,6 @@ export function DevToolsPanel(): React.JSX.Element | null {
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-        </div>
-
-        <div className={draftBoxClass}>
-          <label className="flex cursor-pointer items-center gap-[7px] font-sans text-[11px] leading-[1.3] text-foreground">
-            <input
-              type="checkbox"
-              checked={slowAssemble}
-              onChange={(event) => setSlowAssemble(event.target.checked)}
-            />
-            Simulate the assembling step
-          </label>
-          <div className="font-sans text-[10.5px] leading-[1.4] text-muted-foreground">
-            Reassembly normally finishes in a blink — this throttles it so the “assembling” screen
-            (the block grid sweep, the pulsing combine line) stays on screen long enough to actually
-            watch.
-          </div>
-          {slowAssemble && (
-            <label className="flex items-center gap-[5px] font-mono text-[10.5px] leading-none text-muted-foreground">
-              Assemble speed
-              <input
-                type="number"
-                min={1}
-                max={500}
-                value={assembleSpeedMBps}
-                onChange={(event) => setAssembleSpeedMBps(Number(event.target.value) || 1)}
-                className={`${rowInputClass} w-14`}
-              />
-              MB/s
-            </label>
-          )}
         </div>
 
         {error && (

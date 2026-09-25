@@ -70,13 +70,13 @@ File ──→ Split ─────┤                                  ├─�
 - 🚀 **Multi-interface, multi-connection downloads** — splits files into chunks of up to 8 MB and fans them out across worker connections bound to specific network interfaces (up to 8 parallel connections per interface, 32 total).
 - 🔌 **Hardware interface detection** — queries Windows adapters via PowerShell `Get-NetAdapter` and macOS hardware ports via `networksetup` so Wi-Fi, Ethernet, tethered iPhones, and Thunderbolt bridges are labeled by real device names instead of bare BSD names (`en0`, `en6`).
 - ⚖️ **Dynamic work-stealing queue** — chunks are leased from a shared pending queue; faster networks pull more chunks instead of waiting for slower connections to finish.
-- ⏸️ **Resumable downloads** — cleanly pause or retry failed downloads without losing progress, preserving completed `part-N` chunk files on disk.
-- 💾 **Relaunch recovery** — interrupted downloads are restored as paused after Plexo restarts, with progress and part files preserved in application data.
+- ⏸️ **Resumable downloads** — cleanly pause and resume downloads with progress saved in a destination-side staging file.
+- 💾 **Relaunch recovery** — interrupted downloads are restored as paused after Plexo restarts, with a small manifest in application data.
 - 🛡️ **Safe, integrity-checked resume** — re-verifies remote `ETag` and `Last-Modified` validators before resuming, refusing to resume (rather than corrupting the file) if the server-side file has changed.
 - 🔁 **Automatic retry with backoff** — failed chunks are automatically returned to the queue and retried with exponential backoff (up to 5 retries, 1s–15s backoff).
 - 💤 **Stall detection & watchdog** — automatically drops and re-queues connections that remain open but silent (>20s without incoming data).
 - 🔔 **Desktop notifications** — native desktop alerts when downloads complete or encounter errors.
-- 💾 **Upfront disk-space verification** — verifies free disk space before writing any temporary part files.
+- 💾 **Upfront disk-space verification** — checks the destination volume before writing the staging file.
 - 🔀 **Mid-download redirect handling** — transparently follows 3xx HTTP redirects (up to 5 hops) during probing and individual chunk downloads.
 - 📊 **Real-time telemetry** — live throughput graphs, rolling-window ETA calculation, and per-connection transfer stats.
 - 🗺️ **Interactive progress grid** — 1:1 visual map of individual chunks, color-coded by the network interface that fetched each chunk with accurate per-network byte attribution.
@@ -153,15 +153,11 @@ Shared Pending Queue: [Chunk #4]  [Chunk #5]  [Chunk #6]  [Chunk #7]  [Chunk #8]
 
 Work distribution is dynamically proportional to each interface's real-time throughput. If one network slows down or disconnects, remaining workers continue draining the queue without stalled shares.
 
-### 4. File reassembly & stream pipeline
+### 4. Direct-to-destination storage
 
-Each worker writes its assigned byte range directly to an isolated temporary file on disk (`part-0`, `part-1`, ... `part-N`).
+Each worker writes its assigned byte range at its final offset in one staging file beside the chosen destination. Workers use separate file handles and explicit byte positions, so non-overlapping ranges can be written in parallel.
 
-Once the queue is drained and all chunk promises resolve:
-
-- Plexo streams each `part-N` file sequentially into the final destination file using Node.js streams (`createReadStream` piped into `createWriteStream` with `{ flags: 'a' }`).
-- The temporary chunk directory is cleaned up.
-- The assembled file is verified against the expected byte length.
+While downloading, the folder contains `<filename>.plexo` and no empty file under the final name. Once every range is complete, Plexo flushes the partial file, checks for a filename collision, and renames it into place in the same folder. If the final name is taken, Plexo chooses a numbered name. This works on drives such as exFAT without a full-file assembly copy, so the destination needs approximately one file's worth of space.
 
 ---
 
@@ -170,17 +166,15 @@ Once the queue is drained and all chunk promises resolve:
 When you pause a download:
 
 - Plexo aborts all active HTTP socket connections via `AbortController`.
-- All completed `part-N` files remain cached on disk in a temporary directory.
+- The staging file remains beside the chosen destination, and progress is saved in a small manifest.
 
 When you resume:
 
 1. **Validator check**: Plexo sends a probe request to compare the server's current `ETag` and `Last-Modified` headers against the values recorded when the download started.
-2. **Safe resume**: If the validators match, Plexo checks which `part-N` files are already complete on disk, skips them, and queues only the remaining chunks.
+2. **Safe resume**: If the validators match, Plexo resumes each range from the last saved byte offset in the staging file.
 3. **Guard against corruption**: If the file on the server has changed, Plexo refuses to resume to prevent combining incompatible slices into a corrupt file.
 
-Download manifests and partial data are stored under Plexo's application-data directory. If Plexo
-quits or crashes during a transfer, it restores that transfer as paused on the next launch. Explicitly
-cancelling or removing a download still deletes its partial data.
+Download manifests are stored under Plexo's application-data directory; large partial data stays beside the destination. If Plexo quits or crashes during a transfer, it restores that transfer as paused on the next launch. Cancelling or removing a download deletes its staging file.
 
 ---
 
@@ -190,14 +184,14 @@ A **chunk** is the atomic unit of work in Plexo:
 
 - **Size**: Up to 8 MB, with the final chunk sized to the remaining bytes. A file that is small next to its connection count gets smaller chunks (never under 1 MB) — at least two per connection — so a fast network can out-pull a slow one instead of being stuck behind it.
 - **Transport**: One independent HTTP range request (`Range: bytes=START-END`).
-- **Storage**: Written directly to an isolated `part-N` file in the download's temp directory.
+- **Storage**: Written at its final byte offset in the destination-side staging file.
 - **Assignment**: Leased to an individual worker socket bound to a specific network interface.
 
 ```text
-Chunk #0 → Range: bytes=0          - 6,291,455  → part-0 (Wi-Fi)
-Chunk #1 → Range: bytes=6,291,455  - 12,582,911 → part-1 (Ethernet)
-Chunk #2 → Range: bytes=12,582,911 - 18,874,365 → part-2 (USB Tether)
-Chunk #3 → Range: bytes=12,582,911 - 25,165,820 → part-3 (Cellular)
+Chunk #0 → Range: bytes=0-8388607         → staging offset 0 (Wi-Fi)
+Chunk #1 → Range: bytes=8388608-16777215  → staging offset 8388608 (Ethernet)
+Chunk #2 → Range: bytes=16777216-25165823 → staging offset 16777216 (USB Tether)
+Chunk #3 → Range: bytes=25165824-33554431 → staging offset 25165824 (Cellular)
 ```
 
 ### Why up to 8 MB?

@@ -35,8 +35,7 @@ export interface ProbeResult {
   lastModified: string | null
 }
 
-export type DownloadStatus =
-  'downloading' | 'assembling' | 'paused' | 'completed' | 'error' | 'cancelled'
+export type DownloadStatus = 'downloading' | 'paused' | 'completed' | 'error' | 'cancelled'
 
 /** A stream's state. `pending` means it is waiting for work: it holds no block, either because
  * none is free for it right now or because it hasn't started. `downloading` always means it is
@@ -103,10 +102,6 @@ export interface DownloadState {
   pausedAt?: number
   totalPausedMs?: number
   completedAt?: number
-  /** Bytes written to the destination file so far while `status` is 'assembling' — the part
-   * files are already all complete at that point, so this tracks the sequential reassembly step
-   * rather than the network transfer. */
-  assembledBytes?: number
 }
 
 /** User customization for one physical network, keyed by NetworkInterfaceInfo.id — lets a
@@ -123,7 +118,7 @@ export type NetworkPreferences = Record<string, NetworkPreference>
 
 /** One fake network in a dev-tool "virtual download" — see SimulatedNetworkConfig callers in
  * main/download/simDownload.ts. Lets a developer exercise the multi-network UI (the block grid,
- * per-network speed/throughput, retries, errors, assembling) against a file already on disk,
+ * per-network speed/throughput, retries and errors) against a file already on disk,
  * without needing a real flaky connection or a slow remote server to test against. */
 export interface SimulatedNetworkConfig {
   kind: NetworkInterfaceKind
@@ -142,11 +137,6 @@ export interface StartSimulatedDownloadRequest {
   networks: SimulatedNetworkConfig[]
   chunkCount: number
   connectionsPerNetwork?: number
-  /** Throttles the reassembly step to this many bytes/sec, so the 'assembling' phase's UI (the
-   * block grid sweep, the combine diagram) stays visible long enough to watch even on a small
-   * file that would otherwise reassemble in a single tick. Omitted or 0 assembles at full disk
-   * speed, same as a real download. */
-  assembleSpeedBytesPerSec?: number
 }
 
 export interface UpdateInfo {

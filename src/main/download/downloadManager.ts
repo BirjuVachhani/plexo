@@ -1,9 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { createReadStream, createWriteStream } from 'node:fs'
 import { readFile, readdir, rename, rm, stat, statfs, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { Readable } from 'node:stream'
-import { finished, pipeline } from 'node:stream/promises'
+import { Writable } from 'node:stream'
 import type { BrowserWindow } from 'electron'
 import { app, Notification } from 'electron'
 import { IpcChannels } from '../../shared/ipc-channels'
@@ -20,15 +18,8 @@ import { interleave, planDownload } from '../../shared/plan'
 import { testKnobs } from '../testKnobs'
 import { advanceBlock, retractBlock } from './blockProgress'
 import { downloadChunk, fetchRange, RemoteChangedError } from './chunkDownloader'
+import { DownloadFile } from './downloadFile'
 import { compareVersion, type FileVersion } from './fileVersion'
-import {
-  fileSize,
-  hedgeFile,
-  mergeHedge,
-  partFile,
-  reconcilePartFileSize,
-  removeHedgeFiles
-} from './partFiles'
 import { ensureDirectory, reserveDestinationPath } from './paths'
 import { pickWork, type SchedulerPolicy, type Work } from './scheduler'
 import {
@@ -40,7 +31,6 @@ import {
 import {
   createSimSession,
   downloadChunkSimulated,
-  getSimAssembleSpeed,
   isSimulatedUrl,
   unregisterSimSession
 } from './simDownload'
@@ -60,14 +50,16 @@ interface Attempt {
   networkId: string
   /** Where the request begins, as an offset into the block. Null until it is known. */
   startOffset: number | null
-  /** Bytes the request has delivered so far. */
+  /** Bytes the destination writer has accepted; safe to resume from this prefix. */
   received: number
+  /** Bytes the network has delivered, independently of disk backpressure. */
+  networkReceived: number
+  lastNetworkAt: number
   /** When the request was sent. */
   startedAt: number
-  /** Where it writes: the block's own part file, or for a hedge a file of its own. */
-  file: string
-  /** The network that last wrote the part file this attempt resumes — whose tail bytes a
-   * truncation would discard. */
+  /** A hedge stays in bounded memory until it wins; only primaries write to the staging file. */
+  hedgeBuffers: Buffer[]
+  /** The network previously credited for this block's prefix. */
   previousWriter: string | undefined
   /** Aborts this request alone; ChunkRuntime.controller aborts the whole stream. */
   abort: AbortController
@@ -77,7 +69,7 @@ interface Attempt {
   won: boolean
   /** What the server's answer cost, for diagnosing slow connections (see PLEXO_DEBUG). */
   response: { ttfbMs: number; reusedSocket: boolean } | null
-  /** Resolves once the request is over and its file closed. */
+  /** Resolves once the request is over and its writer closed. */
   settled: Promise<void>
   settle: () => void
 }
@@ -115,10 +107,14 @@ interface SpeedSample {
 
 interface DownloadRuntime {
   state: DownloadState
+  publicationPath?: string
+  publicationIdentity?: { dev: number; ino: number }
   requestPayload: StartDownloadRequest
   activeInterfaces: NetworkInterfaceInfo[]
   chunkRuntimes: Map<number, ChunkRuntime>
-  tempDir: string
+  file: DownloadFile
+  runPromise?: Promise<void>
+  publishing: boolean
   speedSamplesByChunk: Map<number, SpeedSample[]>
   pushScheduled: boolean
   blocks: BlockState[]
@@ -142,9 +138,12 @@ interface DownloadRuntime {
 }
 
 interface PersistedDownload {
-  version: 2
+  version: 4
   savedAt: number
   state: DownloadState
+  partialPath: string
+  publicationPath?: string
+  publicationIdentity?: { dev: number; ino: number }
   requestPayload: StartDownloadRequest
   activeInterfaces: NetworkInterfaceInfo[]
 }
@@ -155,7 +154,10 @@ const debug: (...args: unknown[]) => void = process.env['PLEXO_DEBUG']
   ? (...args) => console.debug('[plexo]', ...args)
   : () => {}
 
-const PROGRESS_THROTTLE_MS = 200
+const UI_UPDATE_MS = 200
+// Syncing a growing file can briefly monopolize a slow destination drive. Keep recovery
+// checkpoints independent of UI updates; pause and publication still force an immediate sync.
+const CHECKPOINT_INTERVAL_MS = 15_000
 
 // Raw per-event deltas are too noisy to display (socket buffers flush in
 // irregular bursts a few ms apart). Averaging over a few seconds instead
@@ -217,6 +219,7 @@ const SCHEDULER_POLICY: SchedulerPolicy = {
   hedgeAfterMs: testKnobs.hedgeAfterMs,
   maxHedgesPerBlock: 2
 }
+const MAX_ACTIVE_HEDGES = 2 // At most two block-sized buffers in memory.
 // Idle connections look for work every 250 ms, so waiting a bit longer hands a refreshed block
 // to a connection that is already proven fast, if there is one.
 const REFRESH_HANDOFF_MS = 300
@@ -259,12 +262,6 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-/** Plain, unabortable wait — used only to throttle a simulated download's assemble step to a
- * configured speed (see reassemble()). Assembling isn't cancellable, so there's nothing to race. */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
 function requestedVersion(request: StartDownloadRequest): FileVersion {
   return { etag: request.etag, lastModified: request.lastModified, totalBytes: request.totalBytes }
 }
@@ -281,33 +278,15 @@ function formatGigabytes(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(2)} GB`
 }
 
-/** Throws if there isn't room for the download — a full disk should fail upfront with a clear
- * reason, not partway through as a confusing ENOSPC write error. The part files and the assembled
- * file both exist until assembly finishes, so when they share a volume it needs room for both. */
-async function ensureDiskSpace(
-  destinationDir: string,
-  partsRoot: string,
-  requiredBytes: number
-): Promise<void> {
+/** The staging file is on the destination volume and becomes the final file by rename. */
+async function ensureDiskSpace(destinationDir: string, requiredBytes: number): Promise<void> {
   if (requiredBytes <= 0) return // unknown size — nothing to check against
-
-  const [destination, parts] = await Promise.all([stat(destinationDir), stat(partsRoot)])
-  const needs: [string, number][] =
-    destination.dev === parts.dev
-      ? [[destinationDir, requiredBytes * 2]]
-      : [
-          [destinationDir, requiredBytes],
-          [partsRoot, requiredBytes]
-        ]
-
-  for (const [dir, bytes] of needs) {
-    const stats = await statfs(dir)
-    const availableBytes = stats.bavail * stats.bsize
-    if (availableBytes < bytes) {
-      throw new Error(
-        `Not enough disk space: this download needs ${formatGigabytes(bytes)} (the file plus its temporary parts) but only ${formatGigabytes(availableBytes)} is free`
-      )
-    }
+  const stats = await statfs(destinationDir)
+  const availableBytes = stats.bavail * stats.bsize
+  if (availableBytes < requiredBytes) {
+    throw new Error(
+      `Not enough disk space: this download needs ${formatGigabytes(requiredBytes)} but only ${formatGigabytes(availableBytes)} is free`
+    )
   }
 }
 
@@ -352,20 +331,15 @@ export class DownloadManager {
           const persisted = JSON.parse(
             await readFile(this.manifestPath(id), 'utf-8')
           ) as PersistedDownload
-          if (persisted.version !== 2 || persisted.state.id !== id || !persisted.state.blocks)
+          if (persisted.version !== 4 || persisted.state.id !== id || !persisted.state.blocks)
             return
 
           const state = persisted.state
           const blocks = state.blocks
           if (!blocks) return
-          // 'assembling' means every block was already 'completed' and only the reassembly step
-          // was interrupted — resuming re-enters runChunksToCompletion with nothing left to
-          // download, so it goes straight back into reassemble() rather than needing its own
-          // restart path.
-          if (state.status === 'downloading' || state.status === 'assembling') {
+          if (state.status === 'downloading') {
             state.status = 'paused'
             state.pausedAt = persisted.savedAt || Date.now()
-            state.assembledBytes = 0
           }
           state.speedBytesPerSec = 0
           for (const chunk of state.chunks) {
@@ -384,12 +358,63 @@ export class DownloadManager {
             if (block.status === 'downloading') block.status = 'pending'
           }
 
+          const file = new DownloadFile(persisted.partialPath)
+          if (state.status === 'paused') {
+            const size = await file.size().catch(() => -1)
+            const publishedPath = persisted.publicationPath ?? state.destinationPath
+            const published = await stat(publishedPath).catch(() => null)
+            const publishedSize = published?.size ?? -1
+            const expected = state.totalBytes || state.bytesDownloaded
+            const sameFile =
+              !!published &&
+              (size >= 0
+                ? await stat(file.path)
+                    .then(
+                      (partial) => partial.dev === published.dev && partial.ino === published.ino
+                    )
+                    .catch(() => false)
+                : persisted.publicationIdentity?.dev === published.dev &&
+                  persisted.publicationIdentity?.ino === published.ino)
+            if (
+              blocks.every((block) => block.status === 'completed') &&
+              publishedSize === expected &&
+              sameFile
+            ) {
+              state.status = 'completed'
+              state.destinationPath = publishedPath
+              state.fileName = basename(publishedPath)
+              state.error = undefined
+              state.completedAt ??= persisted.savedAt
+              if (size >= 0) await file.discard()
+            } else if (size < 0) {
+              state.status = 'error'
+              state.error =
+                'The partial download file is missing. Remove this download and start again.'
+            } else {
+              for (const block of blocks) {
+                const length = block.rangeEnd === null ? 0 : block.rangeEnd - block.rangeStart + 1
+                if (
+                  block.rangeStart + block.bytesDownloaded > size ||
+                  (block.status === 'completed' && block.bytesDownloaded !== length)
+                ) {
+                  block.status = 'pending'
+                  block.bytesDownloaded = 0
+                  block.bytesByInterface = {}
+                }
+              }
+              state.bytesDownloaded = blocks.reduce((sum, block) => sum + block.bytesDownloaded, 0)
+            }
+          }
+
           restored.push({
             state,
+            publicationPath: persisted.publicationPath,
+            publicationIdentity: persisted.publicationIdentity,
             requestPayload: persisted.requestPayload,
             activeInterfaces: persisted.activeInterfaces,
             chunkRuntimes: new Map(),
-            tempDir: join(this.downloadDir(id), 'parts'),
+            file,
+            publishing: false,
             speedSamplesByChunk: new Map(),
             pushScheduled: false,
             blocks,
@@ -416,9 +441,22 @@ export class DownloadManager {
     restored.sort((a, b) => b.state.startedAt - a.state.startedAt)
     const [current, ...orphans] = restored
 
-    await Promise.all(orphans.map((runtime) => this.removePersistedDownload(runtime)))
+    await Promise.all(
+      orphans.map((runtime) =>
+        this.removePersistedDownload(runtime, runtime.file.path !== current?.file.path)
+      )
+    )
 
     if (current) {
+      if (current.state.status === 'completed' && current.publicationIdentity) {
+        const published = await stat(current.state.destinationPath).catch(() => null)
+        if (
+          published?.dev === current.publicationIdentity.dev &&
+          published.ino === current.publicationIdentity.ino
+        ) {
+          await current.file.discard().catch(() => {})
+        }
+      }
       this.runtimes.set(current.state.id, current)
       await this.persistNow(current)
     }
@@ -433,15 +471,11 @@ export class DownloadManager {
   }
 
   /** Plexo shows one download at a time (see useAppStore's currentDownload) — starting a second
-   * one while one is already running/paused/assembling would silently race it for disk I/O and
+   * one while one is already running or paused would silently race it for disk I/O and
    * scramble the renderer's single-download view as updates from both interleave. */
   private hasActiveDownload(): boolean {
     for (const runtime of this.runtimes.values()) {
-      if (
-        runtime.state.status === 'downloading' ||
-        runtime.state.status === 'paused' ||
-        runtime.state.status === 'assembling'
-      ) {
+      if (runtime.state.status === 'downloading' || runtime.state.status === 'paused') {
         return true
       }
     }
@@ -473,8 +507,8 @@ export class DownloadManager {
 
   /**
    * Dev-tool entry point: "downloads" a file that's already on disk through the exact same
-   * pipeline a real download uses — chunking, the block grid, pause/resume, retries, the
-   * assembling phase, reassembly — so every feature can be exercised on demand instead of needing
+   * pipeline a real download uses — chunking, the block grid, pause/resume and retries — so
+   * every feature can be exercised on demand instead of needing
    * a real multi-network setup and a slow, flaky remote server to provoke retries and errors.
    * Only `chunkDownloader`'s HTTP transfer is swapped out (see simDownload.ts); everything else
    * in DownloadManager is unaware this isn't a real network transfer.
@@ -490,8 +524,7 @@ export class DownloadManager {
 
     const { url, interfaces, totalBytes } = await createSimSession(
       payload.sourceFilePath,
-      payload.networks,
-      payload.assembleSpeedBytesPerSec || null
+      payload.networks
     )
 
     const requestPayload: StartDownloadRequest = {
@@ -507,38 +540,20 @@ export class DownloadManager {
       lastModified: null
     }
 
-    return this.startWithInterfaces(requestPayload, interfaces)
+    try {
+      return await this.startWithInterfaces(requestPayload, interfaces)
+    } catch (error) {
+      unregisterSimSession(url)
+      throw error
+    }
   }
 
   private async startWithInterfaces(
     requestPayload: StartDownloadRequest,
     interfaces: NetworkInterfaceInfo[]
   ): Promise<string> {
-    await ensureDirectory(this.downloadsRoot())
     await ensureDirectory(requestPayload.destinationDir)
-    await ensureDiskSpace(
-      requestPayload.destinationDir,
-      this.downloadsRoot(),
-      requestPayload.totalBytes
-    )
-
-    // Claimed on disk, not just picked, so a second download of the same file
-    // name can't pick it too and overwrite this one at reassembly time. Done
-    // before anything else is created, so a destination we can't write to
-    // leaves nothing behind.
-    const destinationPath = await reserveDestinationPath(
-      requestPayload.destinationDir,
-      requestPayload.suggestedFileName
-    )
-
-    const id = randomUUID()
-    const tempDir = join(this.downloadDir(id), 'parts')
-    try {
-      await ensureDirectory(tempDir)
-    } catch (error) {
-      await rm(destinationPath, { force: true })
-      throw error
-    }
+    await ensureDiskSpace(requestPayload.destinationDir, requestPayload.totalBytes)
 
     const plan = planDownload({
       totalBytes: requestPayload.totalBytes,
@@ -549,6 +564,18 @@ export class DownloadManager {
         Math.round(requestPayload.chunkCount / interfaces.length),
       maxBlockBytes: testKnobs.blockBytes // 8 MB outside tests
     })
+
+    // Claimed on disk, not just picked, so a second download of the same file
+    // name can't pick it too and overwrite this one at publish time. Done
+    // before anything else is created, so a destination we can't write to
+    // leaves nothing behind.
+    const destinationPath = await reserveDestinationPath(
+      requestPayload.destinationDir,
+      requestPayload.suggestedFileName
+    )
+
+    const id = randomUUID()
+    const file = new DownloadFile(`${destinationPath}.plexo`)
 
     // The UI caps how many cells it renders separately (see BlockGrid), by bucketing these
     // blocks rather than by shrinking their count here.
@@ -619,7 +646,8 @@ export class DownloadManager {
       requestPayload,
       activeInterfaces,
       chunkRuntimes: new Map(),
-      tempDir,
+      file,
+      publishing: false,
       speedSamplesByChunk: new Map(),
       pushScheduled: false,
       blocks,
@@ -636,14 +664,14 @@ export class DownloadManager {
     await this.persistNow(runtime)
     this.pushUpdate(runtime)
 
-    void this.runChunksToCompletion(runtime, runtime.state.chunks)
+    runtime.runPromise = this.runChunksToCompletion(runtime, runtime.state.chunks)
 
     return id
   }
 
   async pause(id: string): Promise<void> {
     const runtime = this.runtimes.get(id)
-    if (!runtime || runtime.state.status !== 'downloading') return
+    if (!runtime || runtime.state.status !== 'downloading' || runtime.publishing) return
 
     runtime.state.status = 'paused'
     runtime.state.speedBytesPerSec = 0
@@ -673,6 +701,7 @@ export class DownloadManager {
       chunkRuntime.controller.abort()
     }
     this.pushUpdate(runtime)
+    await runtime.runPromise
     await this.persistNow(runtime)
   }
 
@@ -728,21 +757,12 @@ export class DownloadManager {
       return
     }
 
-    // The part files are the real record of what's downloaded, not the manifest. If one went
-    // missing or came up short while paused (userData cleaned out, a crash before a write hit
-    // the disk), fetch that block again instead of failing at assembly.
-    await ensureDirectory(runtime.tempDir)
-    await removeHedgeFiles(runtime.tempDir)
-    await Promise.all(
-      runtime.blocks.map(async (block) => {
-        if (block.status !== 'completed' || block.rangeEnd === null) return
-        const size = await stat(partFile(runtime.tempDir, block.index)).then(
-          (stats) => stats.size,
-          () => -1
-        )
-        if (size !== block.rangeEnd - block.rangeStart + 1) block.status = 'pending'
-      })
-    )
+    if ((await runtime.file.size().catch(() => -1)) < 0) {
+      runtime.state.error =
+        'The partial download file is unavailable. Reconnect the destination drive and try again.'
+      this.pushUpdate(runtime)
+      return
+    }
     if (runtime.state.status !== 'paused' && runtime.state.status !== 'error') return
 
     for (let index = 0; index < runtime.state.chunks.length; index++) {
@@ -781,16 +801,17 @@ export class DownloadManager {
     // paused download saved before that was the rule can't hand every block to one network.
     const pending = runtime.state.chunks.filter((chunk) => chunk.status !== 'completed')
     const toRun = pending.length > 0 ? pending : runtime.state.chunks
-    void this.runChunksToCompletion(
+    runtime.runPromise = this.runChunksToCompletion(
       runtime,
       interleave(toRun, (chunk) => chunk.interfaceId)
     )
   }
 
-  cancel(id: string): void {
+  async cancel(id: string): Promise<void> {
     const runtime = this.runtimes.get(id)
     if (
       !runtime ||
+      runtime.publishing ||
       (runtime.state.status !== 'downloading' &&
         runtime.state.status !== 'paused' &&
         runtime.state.status !== 'error')
@@ -807,12 +828,13 @@ export class DownloadManager {
       chunkRuntime.controller.abort()
     }
     this.pushUpdate(runtime, false)
-    void this.cleanupTempDir(runtime)
-    void this.discardUnfinishedDestination(runtime)
-    void this.removePersistedDownload(runtime)
+    await runtime.runPromise
+    await runtime.file.discard()
+    unregisterSimSession(runtime.requestPayload.url)
+    await this.removePersistedDownload(runtime)
   }
 
-  remove(id: string): void {
+  async remove(id: string): Promise<void> {
     const runtime = this.runtimes.get(id)
     if (
       runtime &&
@@ -820,10 +842,10 @@ export class DownloadManager {
         runtime.state.status === 'paused' ||
         runtime.state.status === 'error')
     ) {
-      this.cancel(id)
+      await this.cancel(id)
     }
     this.runtimes.delete(id)
-    if (runtime) void this.removePersistedDownload(runtime)
+    if (runtime) await this.removePersistedDownload(runtime)
   }
 
   async suspendAll(): Promise<void> {
@@ -889,37 +911,51 @@ export class DownloadManager {
       // Paused, errored, or cancelled — nothing left to do right now.
       if (runtime.state.status === 'error' || runtime.state.status === 'cancelled') {
         this.pushUpdate(runtime)
-        await this.cleanupTempDir(runtime)
-        await this.discardUnfinishedDestination(runtime)
+        await runtime.file.discard()
+        unregisterSimSession(runtime.requestPayload.url)
       }
       return
     }
 
-    runtime.state.status = 'assembling'
-    runtime.state.assembledBytes = 0
-    runtime.state.speedBytesPerSec = 0
-    this.pushUpdate(runtime)
-
+    runtime.publishing = true
     try {
-      await this.reassemble(runtime)
+      if (runtime.blocks.some((block) => block.status !== 'completed')) {
+        throw new Error('Download is incomplete — refusing to publish the file')
+      }
+      await this.persistNow(runtime)
+      const publishedPath = await runtime.file.publish(
+        runtime.state.destinationPath,
+        runtime.state.totalBytes,
+        async (candidate) => {
+          runtime.publicationPath = candidate
+          const partial = await stat(runtime.file.path)
+          runtime.publicationIdentity = { dev: partial.dev, ino: partial.ino }
+          await this.persistNow(runtime, true)
+        }
+      )
+      runtime.state.destinationPath = publishedPath
+      runtime.state.fileName = basename(publishedPath)
       runtime.state.status = 'completed'
       runtime.state.completedAt = Date.now()
       runtime.state.bytesDownloaded = runtime.state.totalBytes || runtime.state.bytesDownloaded
+      await this.persistNow(runtime)
+      await runtime.file.discard().catch(() => {})
       this.notify('Download Complete', `${runtime.state.fileName} has finished downloading.`)
     } catch (error) {
       runtime.state.status = 'error'
       runtime.state.error = error instanceof Error ? error.message : String(error)
       this.notify('Download Failed', `${runtime.state.fileName}: ${runtime.state.error}`)
     }
+    runtime.publishing = false
 
     this.pushUpdate(runtime)
-    await this.cleanupTempDir(runtime)
-    await this.discardUnfinishedDestination(runtime)
+    // Publication failures keep the complete partial file so Resume can try again.
+    if (runtime.state.status === 'completed') unregisterSimSession(runtime.requestPayload.url)
   }
 
   /**
    * Reconnects a connection that isn't carrying its weight. Reconnecting is cheap — the block
-   * resumes from its part file — and a fresh connection usually lands somewhere healthy.
+   * resumes from the staging file — and a fresh connection usually lands somewhere healthy.
    *
    * - Silent: nothing received for SILENT_AFTER_MS while the file is demonstrably being served
    *   to others. Judged by the clock alone, so it also catches a network that has yet to
@@ -959,7 +995,7 @@ export class DownloadManager {
   }
 
   private isSilent(runtime: DownloadRuntime, attempt: Attempt, now: number): boolean {
-    if (attempt.received > 0 || now - attempt.startedAt < SILENT_AFTER_MS) return false
+    if (attempt.networkReceived > 0 || now - attempt.startedAt < SILENT_AFTER_MS) return false
     // Until something has arrived, a quiet origin is just a slow one — nothing to blame this
     // connection for.
     return runtime.blocks.some(
@@ -1062,11 +1098,10 @@ export class DownloadManager {
       networkId: iface.id,
       startOffset: null,
       received: 0,
+      networkReceived: 0,
+      lastNetworkAt: 0,
       startedAt: Date.now(),
-      file:
-        work.kind === 'primary'
-          ? partFile(runtime.tempDir, block.index)
-          : hedgeFile(runtime.tempDir, block.index, chunk.id),
+      hedgeBuffers: [],
       // Whoever held this block before now is the one whose tail bytes a truncation would
       // discard — captured before the lease overwrites the field.
       previousWriter: block.interfaceId,
@@ -1120,25 +1155,19 @@ export class DownloadManager {
     const { block } = attempt
     try {
       if (attempt.kind === 'primary') {
-        // Without range support the server can only send the file from the start, so a retry or
-        // resume begins again at byte 0 rather than asking for a Range it will ignore.
-        const resumeOffset = await reconcilePartFileSize(
-          attempt.file,
-          runtime.requestPayload.supportsRanges ? block.bytesDownloaded : 0
-        )
-        attempt.startOffset = resumeOffset
+        // A failed range leaves its written prefix in the staging file. Without range support,
+        // the server can only restart from byte zero.
+        attempt.startOffset = runtime.requestPayload.supportsRanges ? block.bytesDownloaded : 0
         // What another attempt has already secured stays counted.
-        const keep = Math.max(resumeOffset, this.otherAttemptsPosition(runtime, attempt))
+        const keep = Math.max(attempt.startOffset, this.otherAttemptsPosition(runtime, attempt))
         if (retractBlock(block, keep, attempt.previousWriter) > 0) this.recomputeAggregates(runtime)
       } else {
-        // The block's file only ever grows, so what is on disk now is a prefix it will still
-        // hold once its writer has stopped — the point this attempt picks up from.
-        attempt.startOffset = await fileSize(partFile(runtime.tempDir, block.index))
+        attempt.startOffset = block.bytesDownloaded
       }
 
       const length = block.rangeEnd === null ? null : block.rangeEnd - block.rangeStart + 1
       if (length !== null && attempt.startOffset >= length) {
-        // The part file already holds the whole block.
+        // The staging file already holds the whole block.
         return attempt.kind === 'primary'
           ? { type: 'completed' }
           : { type: 'aborted', reason: 'lost' }
@@ -1153,16 +1182,31 @@ export class DownloadManager {
         rangeStart: block.rangeStart + attempt.startOffset,
         rangeEnd: block.rangeEnd,
         interfaceInfo: iface,
-        destinationPath: attempt.file,
-        append: attempt.kind === 'primary' && attempt.startOffset > 0,
+        createDestination: () =>
+          attempt.kind === 'primary'
+            ? runtime.file.writer(block.rangeStart + (attempt.startOffset ?? 0))
+            : new Writable({
+                write: (chunk: Buffer, _encoding, callback) => {
+                  attempt.hedgeBuffers.push(Buffer.from(chunk))
+                  callback()
+                }
+              }),
         signal: AbortSignal.any([self.controller.signal, attempt.abort.signal]),
         acceptedVersions: runtime.acceptedVersions,
         onResponse: (info) => (attempt.response = info),
+        onNetworkProgress: (bytesThisRun) => {
+          const delta = bytesThisRun - attempt.networkReceived
+          if (delta > 0) {
+            attempt.networkReceived = bytesThisRun
+            attempt.lastNetworkAt = Date.now()
+            this.onNetworkProgress(runtime, chunk, self, delta)
+          }
+        },
         onProgress: (bytesThisRun) => {
           const delta = bytesThisRun - attempt.received
           if (delta > 0) {
             attempt.received = bytesThisRun
-            this.onAttemptProgress(runtime, chunk, self, attempt, delta)
+            this.onAttemptProgress(runtime, chunk, attempt)
           }
         }
       })
@@ -1177,11 +1221,10 @@ export class DownloadManager {
     }
   }
 
-  private onAttemptProgress(
+  private onNetworkProgress(
     runtime: DownloadRuntime,
     chunk: ChunkState,
     self: ChunkRuntime,
-    attempt: Attempt,
     deltaBytes: number
   ): void {
     const now = Date.now()
@@ -1192,18 +1235,21 @@ export class DownloadManager {
       runtime.speedSamplesByChunk.set(chunk.id, samples)
     }
     chunk.speedBytesPerSec = pushSpeedSample(samples, self.receivedBytes, now)
+    runtime.state.speedBytesPerSec = sumChunkSpeeds(runtime)
+    this.scheduleUpdate(runtime)
+  }
 
+  private onAttemptProgress(runtime: DownloadRuntime, chunk: ChunkState, attempt: Attempt): void {
     // Only what gets the block further than it already was counts as progress: a racing attempt
     // re-fetches bytes the other already has.
     const gained = advanceBlock(attempt.block, attempt.networkId, this.attemptPosition(attempt))
     chunk.bytesDownloaded += gained
 
-    // This runs on every socket data event, so it folds the delta in rather than re-summing
+    // This runs on every completed writer callback, so it folds the delta in rather than re-summing
     // every block — that sum is O(blocks), and a large file has thousands of them. The other
     // callers of recomputeAggregates are rare enough to afford the full pass, and each one
     // re-derives the true total, so any drift here cannot accumulate.
     runtime.state.bytesDownloaded += gained
-    runtime.state.speedBytesPerSec = sumChunkSpeeds(runtime)
     this.scheduleUpdate(runtime)
   }
 
@@ -1222,7 +1268,8 @@ export class DownloadManager {
       network: iface.displayName,
       kind: attempt.kind,
       outcome: outcome.type === 'aborted' ? `aborted:${outcome.reason}` : outcome.type,
-      bytes: attempt.received,
+      networkBytes: attempt.networkReceived,
+      writtenBytes: attempt.received,
       ms: Date.now() - attempt.startedAt,
       ...attempt.response
     })
@@ -1255,29 +1302,29 @@ export class DownloadManager {
     attempt.won = true
 
     if (attempt.kind === 'hedge') {
-      // The block's own file has to stop growing before the hedge's bytes can be joined onto it.
+      // The primary writer must close before the winning bytes overwrite its range.
       const rivals = (runtime.attempts.get(block.index) ?? []).filter((a) => a !== attempt)
       for (const rival of rivals) this.abortAttempt(rival, 'lost')
       await Promise.all(rivals.map((rival) => rival.settled))
-
-      const merged = await mergeHedge(
-        partFile(runtime.tempDir, block.index),
-        attempt.file,
-        attempt.startOffset ?? 0,
-        block.rangeEnd === null ? 0 : block.rangeEnd - block.rangeStart + 1
-      ).catch(() => false)
-      await rm(attempt.file, { force: true }).catch(() => {})
+      const expected = block.rangeEnd === null ? 0 : block.rangeEnd - block.rangeStart + 1
+      const hedgeBytes = attempt.hedgeBuffers.reduce((sum, buffer) => sum + buffer.length, 0)
+      let merged = hedgeBytes === expected - (attempt.startOffset ?? 0)
+      if (merged) {
+        try {
+          await runtime.file.writeBuffers(
+            block.rangeStart + (attempt.startOffset ?? 0),
+            attempt.hedgeBuffers
+          )
+        } catch {
+          merged = false
+        }
+      }
+      attempt.hedgeBuffers.length = 0
 
       if (!merged) {
-        // The two didn't fit together. Whatever prefix the block's file holds is still good, so
-        // the block goes back to the queue from there.
-        const durable = await fileSize(partFile(runtime.tempDir, block.index))
+        // A failed hedge commit leaves the primary's prefix; the next worker overwrites the rest.
         this.endAttempt(runtime, self, attempt)
-        const removed = retractBlock(
-          block,
-          Math.min(block.bytesDownloaded, durable),
-          attempt.networkId
-        )
+        const removed = retractBlock(block, attempt.startOffset ?? 0, attempt.networkId)
         chunk.bytesDownloaded = Math.max(0, chunk.bytesDownloaded - removed)
         block.status = 'pending'
         this.recomputeAggregates(runtime)
@@ -1296,7 +1343,8 @@ export class DownloadManager {
       const blockBytes = block.rangeEnd - block.rangeStart + 1
       chunk.bytesDownloaded += advanceBlock(block, attempt.networkId, blockBytes)
       self.lastBlockSpeed =
-        ((blockBytes - (attempt.startOffset ?? 0)) / Math.max(1, Date.now() - attempt.startedAt)) *
+        (attempt.networkReceived /
+          Math.max(1, (attempt.lastNetworkAt || Date.now()) - attempt.startedAt)) *
         1000
     }
     self.failures = 0
@@ -1339,8 +1387,14 @@ export class DownloadManager {
   ): Promise<'continue'> {
     // 'lost': another attempt decided the block, so its state is no longer this one's to touch.
     // 'refresh': not a failure — no retry counted, no backoff. Whoever takes the block next
-    // resumes it from its part file on a new connection.
-    await this.letGo(runtime, chunk, self, attempt, reason === 'refresh' && attempt.received === 0)
+    // resumes it from the staging file on a new connection.
+    await this.letGo(
+      runtime,
+      chunk,
+      self,
+      attempt,
+      reason === 'refresh' && attempt.networkReceived === 0
+    )
     if (reason === 'refresh' && attempt.kind === 'primary') {
       // A moment before this stream asks again, so that a connection already proven fast, if
       // there is one, gets to the block before this one does.
@@ -1362,7 +1416,7 @@ export class DownloadManager {
   ): Promise<'continue' | 'stop'> {
     const message = error instanceof Error ? error.message : String(error)
     chunk.error = message
-    const deliveredNothing = attempt.received === 0
+    const deliveredNothing = attempt.networkReceived === 0
 
     if (error instanceof RemoteChangedError) {
       const verdict =
@@ -1475,9 +1529,8 @@ export class DownloadManager {
     }
     if (deliveredNothing) runtime.avoidNetworkByBlock.set(block.index, attempt.networkId)
     this.goIdle(chunk)
-    return attempt.kind === 'hedge'
-      ? rm(attempt.file, { force: true }).catch(() => {})
-      : Promise.resolve()
+    attempt.hedgeBuffers.length = 0
+    return Promise.resolve()
   }
 
   /** Takes back the progress a hedge alone had made, now that it is not going to finish. */
@@ -1533,6 +1586,15 @@ export class DownloadManager {
         Date.now(),
         SCHEDULER_POLICY
       )
+      if (
+        work?.kind === 'hedge' &&
+        [...runtime.attempts.values()].flat().filter((attempt) => attempt.kind === 'hedge')
+          .length >= MAX_ACTIVE_HEDGES
+      ) {
+        this.goIdle(chunk)
+        await delay(250, controller.signal)
+        continue
+      }
       if (!work) {
         this.goIdle(chunk)
         // While blocks are still in flight, stay available in case one fails and is handed back,
@@ -1589,10 +1651,12 @@ export class DownloadManager {
 
     let compared = 0
     for (const block of picks) {
-      const partPath = partFile(runtime.tempDir, block.index)
       let local: Buffer
       try {
-        local = (await readFile(partPath)).subarray(0, SAMPLE_BYTES)
+        local = await runtime.file.read(
+          block.rangeStart,
+          Math.min(SAMPLE_BYTES, block.bytesDownloaded)
+        )
       } catch {
         continue
       }
@@ -1633,7 +1697,7 @@ export class DownloadManager {
     setTimeout(() => {
       runtime.pushScheduled = false
       this.pushUpdate(runtime)
-    }, PROGRESS_THROTTLE_MS)
+    }, UI_UPDATE_MS)
   }
 
   private pushUpdate(runtime: DownloadRuntime, persist = true): void {
@@ -1649,148 +1713,22 @@ export class DownloadManager {
     window.webContents.send(IpcChannels.downloadUpdated, structuredClone(runtime.state))
   }
 
-  /**
-   * Concatenates the part files into the destination, refusing to write a file
-   * that isn't demonstrably the whole download. Every check here is a backstop
-   * for a bug elsewhere rather than an expected condition — but the failure
-   * mode it guards against is the worst one this app has: handing the user a
-   * truncated file, calling it completed, and deleting the parts that would
-   * have let them resume it.
-   */
-  private async reassemble(runtime: DownloadRuntime): Promise<void> {
-    const missing = runtime.blocks.filter((block) => block.status !== 'completed')
-    if (missing.length > 0) {
-      throw new Error(
-        `Download is incomplete: ${missing.length} of ${runtime.totalBlocks} parts never finished`
-      )
-    }
-
-    const ASSEMBLE_STREAM_BUFFER_BYTES = 1024 * 1024 // 1 MB buffer for fast sequential disk assembly
-    const output = createWriteStream(runtime.state.destinationPath, {
-      highWaterMark: ASSEMBLE_STREAM_BUFFER_BYTES
-    })
-    // pipeline reports a failure by rejecting, but only listens while it runs: destroying the
-    // output afterwards can still surface an in-flight write as an 'error' event, and an
-    // unhandled 'error' on a stream takes down the main process rather than failing this one
-    // download. So one listener stays for the stream's whole life.
-    output.on('error', () => {})
-
-    let bytesWritten = 0
-    // A single pipeline for the whole file, not one per part: pipeline leaves its listeners on
-    // a destination it doesn't end, so one per part would pile up on the output — five per part.
-    const source = Readable.from(
-      this.readParts(runtime, ASSEMBLE_STREAM_BUFFER_BYTES, (partBytes) => {
-        bytesWritten += partBytes
-        // Reported per part rather than per underlying write so the assembling visualization
-        // advances in the same units the block grid already shows — one step per chunk, not a
-        // byte stream.
-        runtime.state.assembledBytes = bytesWritten
-        this.scheduleUpdate(runtime)
-      }),
-      { objectMode: false, highWaterMark: ASSEMBLE_STREAM_BUFFER_BYTES }
-    )
-
-    try {
-      // Rejects on an error from either side, and destroys both.
-      await pipeline(source, output)
-
-      if (runtime.state.totalBytes > 0 && bytesWritten !== runtime.state.totalBytes) {
-        throw new Error(
-          `Assembled file is ${bytesWritten} bytes but should be ${runtime.state.totalBytes} — refusing to keep a corrupt file`
-        )
-      }
-    } catch (error) {
-      output.destroy()
-      await finished(output).catch(() => {})
-      // Leaving a half-written file where the user expects their download is
-      // worse than leaving nothing: it looks like the download they asked for.
-      await rm(runtime.state.destinationPath, { force: true })
-      throw error
-    }
-  }
-
-  /** The download's bytes in file order: each part checked against the size its range says, then
-   * read through. `onPartRead` is told how many bytes each part held, once it has been read. */
-  private async *readParts(
-    runtime: DownloadRuntime,
-    bufferBytes: number,
-    onPartRead: (partBytes: number) => void
-  ): AsyncGenerator<Buffer> {
-    // Set only for a dev-tool simulated download that asked for a slowed-down assemble — real
-    // downloads always reassemble at full disk speed. Throttling here (rather than faking it in
-    // the renderer) exercises the exact same assembledBytes/IPC path a real assemble uses.
-    const assembleSpeedBytesPerSec = getSimAssembleSpeed(runtime.requestPayload.url)
-
-    for (let i = 0; i < runtime.totalBlocks; i++) {
-      const partPath = partFile(runtime.tempDir, i)
-      const block = runtime.blocks[i]
-      const expectedBytes = block.rangeEnd === null ? null : block.rangeEnd - block.rangeStart + 1
-      const actualBytes = (await stat(partPath)).size
-
-      if (expectedBytes !== null && actualBytes !== expectedBytes) {
-        throw new Error(
-          `Part ${i} is ${actualBytes} bytes but should be ${expectedBytes} — refusing to write a corrupt file`
-        )
-      }
-
-      let read = 0
-      for await (const chunk of createReadStream(partPath, { highWaterMark: bufferBytes })) {
-        read += (chunk as Buffer).length
-        yield chunk as Buffer
-      }
-      if (read !== actualBytes) {
-        throw new Error(
-          `Part ${i} changed while it was being assembled — refusing to write a corrupt file`
-        )
-      }
-
-      if (assembleSpeedBytesPerSec) {
-        await sleep(Math.max(1, (read / assembleSpeedBytesPerSec) * 1000))
-      }
-      onPartRead(read)
-    }
-  }
-
-  /**
-   * Releases the placeholder file reserved at start when the download won't be
-   * filling it in, so its name is free for the next attempt. Only ever removes
-   * a path this download created and never finished writing — a completed
-   * download keeps its file.
-   */
-  private async discardUnfinishedDestination(runtime: DownloadRuntime): Promise<void> {
-    if (runtime.state.status === 'completed') return
-    try {
-      await rm(runtime.state.destinationPath, { force: true })
-    } catch {
-      // Best-effort — a stray empty file isn't worth failing the download over.
-    }
-  }
-
-  private async cleanupTempDir(runtime: DownloadRuntime): Promise<void> {
-    unregisterSimSession(runtime.requestPayload.url)
-    try {
-      await rm(runtime.tempDir, { recursive: true, force: true })
-    } catch {
-      // Best-effort cleanup — a leftover temp dir isn't worth surfacing an error for.
-    }
-  }
-
   private schedulePersistence(runtime: DownloadRuntime): void {
     if (this.suspending || runtime.removed || runtime.persistenceTimer) return
     runtime.persistenceTimer = setTimeout(() => {
       runtime.persistenceTimer = undefined
       void this.persistNow(runtime)
-    }, PROGRESS_THROTTLE_MS)
+    }, CHECKPOINT_INTERVAL_MS)
   }
 
-  private persistNow(runtime: DownloadRuntime): Promise<void> {
+  private persistNow(runtime: DownloadRuntime, required = false): Promise<void> {
     if (runtime.removed) return runtime.persistenceChain
     if (runtime.persistenceTimer) {
       clearTimeout(runtime.persistenceTimer)
       runtime.persistenceTimer = undefined
     }
 
-    runtime.persistenceChain = runtime.persistenceChain
+    const operation = runtime.persistenceChain
       .catch(() => {})
       .then(async () => {
         if (runtime.removed) return
@@ -1798,26 +1736,36 @@ export class DownloadManager {
         const path = this.manifestPath(runtime.state.id)
         const temporaryPath = `${path}.tmp`
         const persisted: PersistedDownload = {
-          version: 2,
+          version: 4,
           savedAt: Date.now(),
           state: structuredClone(runtime.state),
+          partialPath: runtime.file.path,
+          publicationPath: runtime.publicationPath,
+          publicationIdentity: runtime.publicationIdentity,
           requestPayload: runtime.requestPayload,
           activeInterfaces: runtime.activeInterfaces
+        }
+        if (runtime.state.status === 'downloading' || runtime.state.status === 'paused') {
+          await runtime.file.sync()
         }
         await ensureDirectory(dir)
         await writeFile(temporaryPath, JSON.stringify(persisted), 'utf-8')
         await rename(temporaryPath, path)
       })
-      .catch(() => {
-        // Progress persistence is best-effort; transfer errors are surfaced separately.
-      })
-    return runtime.persistenceChain
+    runtime.persistenceChain = operation.catch(() => {
+      // Routine progress checkpoints are best-effort. Publication intent is required.
+    })
+    return required ? operation : runtime.persistenceChain
   }
 
-  private async removePersistedDownload(runtime: DownloadRuntime): Promise<void> {
+  private async removePersistedDownload(
+    runtime: DownloadRuntime,
+    discardPartial = true
+  ): Promise<void> {
     runtime.removed = true
     if (runtime.persistenceTimer) clearTimeout(runtime.persistenceTimer)
     await runtime.persistenceChain.catch(() => {})
+    if (discardPartial) await runtime.file.discard().catch(() => {})
     await rm(this.downloadDir(runtime.state.id), { recursive: true, force: true })
   }
 }

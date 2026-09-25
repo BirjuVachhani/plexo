@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { networkInterfaces } from 'node:os'
 import { promisify } from 'node:util'
-import type { NetworkInterfaceInfo, NetworkInterfaceKind } from '../../shared/types'
+import type { NetworkAddress, NetworkInterfaceInfo, NetworkInterfaceKind } from '../../shared/types'
 import { testInterfaces } from '../testKnobs'
 
 const execFileAsync = promisify(execFile)
@@ -99,9 +99,7 @@ export function ipv4Subnet(address: string, netmask: string): string | null {
 }
 
 /**
- * Active non-loopback IPv4 interfaces. Each one has its
- * own local IP, which is what lets us bind a download's outgoing connection
- * to a specific interface (see deviceBinding's `routeFrom`).
+ * Active non-loopback interfaces, with every usable local address on each device.
  */
 export async function listActiveInterfaces(): Promise<NetworkInterfaceInfo[]> {
   const overridden = testInterfaces()
@@ -114,10 +112,24 @@ export async function listActiveInterfaces(): Promise<NetworkInterfaceInfo[]> {
 
   for (const [device, addresses] of Object.entries(all)) {
     if (!addresses) continue
-    const ipv4 = addresses.find(
-      (addr) => addr.family === 'IPv4' && !addr.internal && !addr.address.startsWith('169.254.')
-    )
-    if (!ipv4) continue
+    const usable: NetworkAddress[] = addresses
+      .filter(
+        (addr) =>
+          !addr.internal &&
+          (addr.family === 'IPv4' || addr.family === 'IPv6') &&
+          !addr.address.startsWith('169.254.') &&
+          !addr.address.toLowerCase().startsWith('fe80:')
+      )
+      .map((addr) => ({
+        address: addr.address,
+        family: addr.family === 'IPv6' ? 6 : 4,
+        netmask: addr.netmask,
+        subnet:
+          addr.family === 'IPv4' && addr.netmask
+            ? (ipv4Subnet(addr.address, addr.netmask) ?? undefined)
+            : undefined
+      }))
+    if (usable.length === 0) continue
 
     const hardwareName = hardwarePorts.get(device)
     const adapter = windowsAdapters.get(device)
@@ -125,16 +137,13 @@ export async function listActiveInterfaces(): Promise<NetworkInterfaceInfo[]> {
     // NDIS media: 1 = wireless LAN, 9 = native 802.11, 14 = Ethernet (802.3).
     if (adapter?.NdisPhysicalMedium === 1 || adapter?.NdisPhysicalMedium === 9) kind = 'wifi'
     else if (kind === 'other' && adapter?.NdisPhysicalMedium === 14) kind = 'ethernet'
-    const subnet = ipv4.netmask ? (ipv4Subnet(ipv4.address, ipv4.netmask) ?? undefined) : undefined
     result.push({
       id: device,
       device,
       displayName: hardwareName ?? adapter?.InterfaceDescription ?? device,
-      address: ipv4.address,
+      addresses: usable,
       kind,
-      mac: ipv4.mac && ipv4.mac !== '00:00:00:00:00:00' ? ipv4.mac : undefined,
-      subnet,
-      netmask: ipv4.netmask
+      mac: addresses.find((addr) => addr.mac && addr.mac !== '00:00:00:00:00:00')?.mac
     })
   }
 

@@ -32,6 +32,12 @@ import {
 import { ensureDirectory, reserveDestinationPath } from './paths'
 import { pickWork, type SchedulerPolicy, type Work } from './scheduler'
 import {
+  compatibleInterfaces,
+  NoCompatibleRouteError,
+  resolveTarget,
+  targetHost
+} from '../network/routes'
+import {
   createSimSession,
   downloadChunkSimulated,
   getSimAssembleSpeed,
@@ -136,7 +142,7 @@ interface DownloadRuntime {
 }
 
 interface PersistedDownload {
-  version: 1
+  version: 2
   savedAt: number
   state: DownloadState
   requestPayload: StartDownloadRequest
@@ -346,7 +352,7 @@ export class DownloadManager {
           const persisted = JSON.parse(
             await readFile(this.manifestPath(id), 'utf-8')
           ) as PersistedDownload
-          if (persisted.version !== 1 || persisted.state.id !== id || !persisted.state.blocks)
+          if (persisted.version !== 2 || persisted.state.id !== id || !persisted.state.blocks)
             return
 
           const state = persisted.state
@@ -448,13 +454,16 @@ export class DownloadManager {
       throw new Error('A download is already in progress — finish or remove it first.')
     }
 
-    const interfaces = requestPayload.interfaceIds
+    const selected = requestPayload.interfaceIds
       .map((interfaceId) => this.getInterfaceById(interfaceId))
       .filter((iface): iface is NetworkInterfaceInfo => Boolean(iface))
 
-    if (interfaces.length === 0) {
+    if (selected.length === 0) {
       throw new Error('Select at least one network interface')
     }
+    const target = new URL(requestPayload.url)
+    const interfaces = compatibleInterfaces(selected, await resolveTarget(target))
+    if (interfaces.length === 0) throw new NoCompatibleRouteError(targetHost(target))
 
     return this.startWithInterfaces(requestPayload, interfaces)
   }
@@ -695,9 +704,23 @@ export class DownloadManager {
 
     const selectedIds = new Set(runtime.requestPayload.interfaceIds)
     runtime.activeInterfaces = availableInterfaces.filter((iface) => selectedIds.has(iface.id))
+    const selectedAvailable = runtime.activeInterfaces.length > 0
+    if (!isSimulatedUrl(url)) {
+      try {
+        runtime.activeInterfaces = compatibleInterfaces(
+          runtime.activeInterfaces,
+          await resolveTarget(new URL(url))
+        )
+      } catch {
+        runtime.state.error = 'Could not resolve the download host. Try resuming again.'
+        this.pushUpdate(runtime)
+        return
+      }
+    }
     if (runtime.activeInterfaces.length === 0) {
-      runtime.state.error =
-        'None of the networks selected for this download are currently available. Reconnect one and try again.'
+      runtime.state.error = selectedAvailable
+        ? `No selected network has an address compatible with ${targetHost(new URL(url))}.`
+        : 'None of the networks selected for this download are currently available. Reconnect one and try again.'
       this.pushUpdate(runtime)
       return
     }
@@ -847,6 +870,16 @@ export class DownloadManager {
       }
     } finally {
       clearInterval(speedTicker)
+    }
+
+    if (
+      runtime.state.status === 'downloading' &&
+      runtime.blocks.some((b) => b.status !== 'completed')
+    ) {
+      runtime.state.status = 'error'
+      runtime.state.error =
+        runtime.state.chunks.find((chunk) => chunk.error)?.error ??
+        'No network could finish the remaining blocks'
     }
 
     if (runtime.state.status !== 'downloading') {
@@ -1116,7 +1149,7 @@ export class DownloadManager {
         url: runtime.requestPayload.url,
         rangeStart: block.rangeStart + attempt.startOffset,
         rangeEnd: block.rangeEnd,
-        localAddress: iface.address,
+        interfaceInfo: iface,
         destinationPath: attempt.file,
         append: attempt.kind === 'primary' && attempt.startOffset > 0,
         signal: AbortSignal.any([self.controller.signal, attempt.abort.signal]),
@@ -1362,6 +1395,19 @@ export class DownloadManager {
       // failed request. Nothing wrong was written either way.
     }
 
+    if (error instanceof NoCompatibleRouteError) {
+      // A redirect can move this worker to a host its network cannot reach. Return its block
+      // to the shared queue so another compatible worker can finish it.
+      await this.letGo(runtime, chunk, self, attempt, deliveredNothing)
+      chunk.status = 'error'
+      if (runtime.state.chunks.every((entry) => entry.status === 'error')) {
+        runtime.state.status = 'error'
+        runtime.state.error = message
+      }
+      this.scheduleUpdate(runtime)
+      return 'stop'
+    }
+
     // A hedge is optional work: when it fails, the block is exactly where it was.
     if (attempt.kind === 'hedge') {
       await this.letGo(runtime, chunk, self, attempt, deliveredNothing)
@@ -1555,7 +1601,7 @@ export class DownloadManager {
             runtime.requestPayload.url,
             block.rangeStart,
             block.rangeStart + local.length - 1,
-            iface.address
+            iface
           )
           // A reply from a server still presenting an accepted label proves nothing here.
           if (compareVersion([seen], remote.version).kind !== 'same') continue
@@ -1749,7 +1795,7 @@ export class DownloadManager {
         const path = this.manifestPath(runtime.state.id)
         const temporaryPath = `${path}.tmp`
         const persisted: PersistedDownload = {
-          version: 1,
+          version: 2,
           savedAt: Date.now(),
           state: structuredClone(runtime.state),
           requestPayload: runtime.requestPayload,

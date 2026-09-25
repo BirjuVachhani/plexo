@@ -87,7 +87,7 @@ export function NetworkCard({
         </ColorBadge>
       </div>
       <div className="truncate font-mono text-[10.5px] leading-normal text-muted-foreground">
-        {iface.device} · {iface.address}
+        {iface.device} · {iface.addresses[0]?.address}
       </div>
       <div className="flex items-end justify-between">
         <div className="flex flex-col gap-[5px]">

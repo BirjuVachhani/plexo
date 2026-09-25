@@ -50,6 +50,8 @@ export interface LoggedRequest extends OriginRequest {
 
 export interface OriginOptions {
   size: number
+  /** Bind only to IPv6 loopback for dual-stack routing regressions. */
+  host?: '0.0.0.0' | '::1'
   seed?: number
   /** false: ignore Range headers and never advertise Accept-Ranges. */
   ranges?: boolean
@@ -118,7 +120,9 @@ export class Origin {
 
   async start(): Promise<this> {
     // 0.0.0.0 so requests bound to a LAN address (the second test "network") still arrive.
-    await new Promise<void>((resolve) => this.server.listen(0, '0.0.0.0', resolve))
+    await new Promise<void>((resolve) =>
+      this.server.listen(0, this.options.host ?? '0.0.0.0', resolve)
+    )
     this.port = (this.server.address() as AddressInfo).port
     return this
   }
@@ -130,7 +134,7 @@ export class Origin {
   }
 
   url(path = '/files/test.bin'): string {
-    return `http://127.0.0.1:${this.port}${path}`
+    return `http://${this.options.host === '::1' ? '[::1]' : '127.0.0.1'}:${this.port}${path}`
   }
 
   get sha256(): string {

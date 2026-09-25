@@ -1,5 +1,5 @@
 import type { NetworkInterfaceInfo } from '../../shared/types'
-import { connectFrom } from './deviceBinding'
+import { connectRoute } from './deviceBinding'
 
 const PROBE_HOSTS = ['1.1.1.1', '8.8.8.8']
 const PROBE_PORT = 443
@@ -7,10 +7,15 @@ const TIMEOUT_MS = 2000
 
 /** Rough per-interface latency: time to open a TCP connection to a reliable
  * host, sourced from that interface's local address. null means unreachable. */
-function measureLatencyToHost(localAddress: string, host: string): Promise<number | null> {
+function measureLatencyToHost(iface: NetworkInterfaceInfo, host: string): Promise<number | null> {
   return new Promise((resolve) => {
     const start = Date.now()
-    const socket = connectFrom(localAddress, host, PROBE_PORT)
+    const localAddress = iface.addresses.find((address) => address.family === 4)?.address
+    if (!localAddress) return resolve(null)
+    const socket = connectRoute(
+      { device: iface.device, localAddress, remoteAddress: host, family: 4 },
+      PROBE_PORT
+    )
     let settled = false
 
     const finish = (result: number | null): void => {
@@ -27,9 +32,9 @@ function measureLatencyToHost(localAddress: string, host: string): Promise<numbe
   })
 }
 
-async function measureLatency(localAddress: string): Promise<number | null> {
+async function measureLatency(iface: NetworkInterfaceInfo): Promise<number | null> {
   for (const host of PROBE_HOSTS) {
-    const latency = await measureLatencyToHost(localAddress, host)
+    const latency = await measureLatencyToHost(iface, host)
     if (latency !== null) return latency
   }
   return null
@@ -39,7 +44,7 @@ export async function measureLatencies(
   interfaces: NetworkInterfaceInfo[]
 ): Promise<Record<string, number | null>> {
   const entries = await Promise.all(
-    interfaces.map(async (iface) => [iface.id, await measureLatency(iface.address)] as const)
+    interfaces.map(async (iface) => [iface.id, await measureLatency(iface)] as const)
   )
   return Object.fromEntries(entries)
 }

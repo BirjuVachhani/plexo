@@ -30,7 +30,7 @@ function requestOneByte(url: URL): Promise<ProbeResponse> {
     const req = requester(
       {
         method: 'GET',
-        hostname: url.hostname,
+        hostname: url.hostname.replace(/^\[|\]$/g, ''),
         port: url.port || undefined,
         path: `${url.pathname}${url.search}`,
         headers: { 'User-Agent': USER_AGENT, Range: 'bytes=0-0' }

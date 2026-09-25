@@ -11,6 +11,22 @@ import { seededBytes, sha256 } from './origin'
 const SIZE = 32 * BLOCK
 
 test.describe('restart @smoke', () => {
+  test('IPv6 download survives quit and relaunch', async ({ plexo, serve }) => {
+    await plexo.relaunch({ PLEXO_E2E_INTERFACES: 'a=::1' })
+    const origin = await serve({ size: SIZE, host: '::1' })
+    const reached = origin.hold(8 * BLOCK)
+    const id = await plexo.start(origin.url(), origin.sha256)
+    await reached
+
+    await plexo.quit()
+    origin.release()
+    await plexo.launch()
+    expect((await plexo.current())?.status).toBe('paused')
+
+    await plexo.api.resumeDownload(id)
+    await plexo.waitForStatus('completed')
+  })
+
   test('normal quit mid-download → relaunch paused → resume', async ({ plexo, serve }) => {
     const origin = await serve({ size: SIZE })
     const reached = origin.hold(10 * BLOCK + 500)
